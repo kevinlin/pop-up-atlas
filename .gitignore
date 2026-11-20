@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.handoff/jobs/
+.handoff/backups/
+.DS_Store
