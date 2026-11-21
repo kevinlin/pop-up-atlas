@@ -4,8 +4,8 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLayout } from '../src/world/layout.js'
-import { cellAt } from '../src/world/tiles.js'
-import { createSteppedPage, launchChromium, roundOptions, writeJson } from './capture.mjs'
+import { cellAt, TILE_SIZE } from '../src/world/tiles.js'
+import { createSteppedPage, foldContract, launchChromium, lineClear, roundOptions, walkSpeed, writeJson } from './capture.mjs'
 
 const panel = { width: 1672, height: 941 }
 // Overscan gives the fixed follow camera room for an off-centre 1672x941 composition.
@@ -18,16 +18,68 @@ export const shots = [
   { seed: 0, cam: [4.5, 32], x: -0.48, z: -5.25, heading: Math.PI / 4, anchor: [0.5, 0.72],
     state: 'walk', keys: ['KeyD', 'KeyS'], frames: 39 },
   // The mushroom is ahead and to the right of the troll when it starts to rise.
-  { seed: 0, cam: [5.6, 38], x: -0.25, z: -1.8, heading: 0.95, anchor: [1 / 3, 0.71],
-    state: 'idle', moveToZ: -2.25, frames: 13, fold: { dir: 'up', i: 1, j: -2 } },
+  { seed: 0, cam: [5.6, 38], x: 0.65, z: -2.7, heading: 0.95, anchor: [1 / 3, 0.71],
+    state: 'idle', frames: 17, fold: { dir: 'up', i: 1, j: -2 } },
   { seed: 42, cam: [5.8, 24], x: 23.2, z: 8, heading: Math.PI / 2, anchor: [0.5, 0.71],
     state: 'walk', keys: ['KeyD'], frames: 40, model: 'yarn_bridge' },
   { seed: 167, cam: [4.4, 32], x: -4, z: 8.56, heading: 0.1, anchor: [0.5, 0.69],
     state: 'dance', frames: 123, model: 'flower' },
   // Walk toward the camera, with the falling cupcake still in the back-left.
-  { seed: 0, cam: [4.6, 26], x: 0, z: -3.9, heading: 0, anchor: [2 / 3, 0.71],
-    state: 'walk', keys: ['KeyS'], frames: 115, fold: { dir: 'down', i: -1, j: -3 } },
+  { seed: 0, cam: [4.6, 26], x: -0.95, z: -4.75, heading: 0, anchor: [2 / 3, 0.71],
+    state: 'walk', keys: ['KeyS'], fold: { dir: 'down', i: -1, j: -3 } },
 ]
+
+export function planShot(shot, layout) {
+  const { upRadius, downRadius } = foldContract
+  const center = shot.fold && { x: shot.fold.i * TILE_SIZE, z: shot.fold.j * TILE_SIZE }
+  function stageAt(x, z) {
+    if (layout.isBlocked(x, z)) return
+    const point = { x, z }
+    let frames = shot.frames
+    if (center) {
+      const dx = x - center.x
+      const dz = z - center.z
+      const radius = Math.hypot(dx, dz)
+      if (radius > upRadius - 0.06 || dz < 0.55) return
+      if (shot.fold.dir === 'up') {
+        if (dx > -0.55) return
+        const scale = (upRadius + 0.17) / radius
+        const from = { x: center.x + dx * scale, z: center.z + dz * scale }
+        if (lineClear(layout, from, point)) return { from, moveTo: point, frames }
+        return
+      }
+      if (dx < 0.55) return
+      const leaveAtZ = center.z + Math.sqrt(downRadius ** 2 - dx ** 2)
+      frames = Math.ceil((leaveAtZ - z) / walkSpeed * fps) + 16
+    }
+    if (shot.keys) {
+      const travel = frames / fps * walkSpeed
+      const end = { x: x + travel * Math.sin(shot.heading), z: z + travel * Math.cos(shot.heading) }
+      if (!lineClear(layout, point, end)) return
+      if (shot.model === 'yarn_bridge' && layout.getCell(cellAt(end.x), cellAt(end.z)).id !== shot.model) return
+    }
+    return { from: point, frames }
+  }
+
+  const exact = stageAt(shot.x, shot.z)
+  if (exact) return exact
+  let nearest
+  let best = Infinity
+  // Small offsets preserve the lens, crop anchor and action planned for this concept.
+  for (let dx = -20; dx <= 20; dx++) {
+    for (let dz = -20; dz <= 20; dz++) {
+      const distance = dx ** 2 + dz ** 2
+      if (distance > 20 ** 2 || distance >= best) continue
+      const stage = stageAt(shot.x + dx * 0.05, shot.z + dz * 0.05)
+      if (stage) {
+        best = distance
+        nearest = stage
+      }
+    }
+  }
+  assert.ok(nearest, `No clear staging position within 1 unit of (${shot.x}, ${shot.z}) on seed ${shot.seed}`)
+  return nearest
+}
 
 export async function takeShot({ page, open, advance, errors }, baseURL, shot, path) {
   const url = new URL(baseURL)
@@ -38,20 +90,20 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
   url.searchParams.delete('plain')
 
   const layout = createLayout(shot.seed)
-  assert.ok(!layout.isBlocked(shot.x, shot.z), 'Still starts on blocked terrain')
+  const { from, moveTo, frames } = planShot(shot, layout)
   await open(url.href)
   await page.waitForFunction(() => window.__atlasLookShots, undefined, { polling: 50, timeout: 5000 })
-  const pose = (z) => page.evaluate((location) => window.__atlasLookShots.pose(location),
-    { x: shot.x, z, heading: shot.heading, zoom: 1 })
-  await pose(shot.z)
+  const pose = (position) => page.evaluate((location) => window.__atlasLookShots.pose(location),
+    { ...position, heading: shot.heading, zoom: 1 })
+  await pose(from)
   await advance(1, fps, 90)
   assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Camera did not settle')
   // Rebuild the tile batches after the camera has followed the staged pose.
   await page.evaluate((seed) => window.__atlas.setSeed(seed), shot.seed)
   await advance(91, fps, 60)
-  if (shot.moveToZ !== undefined) await pose(shot.moveToZ)
+  if (moveTo) await pose(moveTo)
   for (const key of shot.keys ?? []) await page.keyboard.down(key)
-  if (shot.frames) await advance(151, fps, shot.frames)
+  if (frames) await advance(151, fps, frames)
 
   const { player, foldAngleDeg } = await page.evaluate((fold) => {
     const { player, hingeTrace, foldLog } = window.__atlas
@@ -87,7 +139,7 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
     } })
   }
   for (const key of shot.keys ?? []) await page.keyboard.up(key)
-  return { seed: shot.seed, camera: shot.cam, anchor, player, fold: shot.fold, foldAngleDeg }
+  return { seed: shot.seed, camera: shot.cam, anchor, start: from, player, fold: shot.fold, foldAngleDeg }
 }
 
 const pngSignature = Buffer.from('89504e470d0a1a0a', 'hex')

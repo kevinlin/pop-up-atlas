@@ -3,9 +3,10 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
-  createSteppedPage, defaultRound, evidenceDir, headless, launchChromium, previewURL, readDanceSeconds, writeJson,
+  createSteppedPage, defaultRound, evidenceDir, foldContract, headless, launchChromium, previewURL, readDanceSeconds,
+  walkSpeed, writeJson,
 } from './capture.mjs'
-import { PAGE_MIN_Z } from '../src/world/tiles.js'
+import { PAGE_MIN_Z, TILE_SIZE } from '../src/world/tiles.js'
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -17,12 +18,10 @@ const output = values.out ?? positionals[0] ?? join(evidenceDir, `round-${defaul
 const url = new URL(values.url ?? previewURL)
 url.searchParams.set('seed', '0')
 url.searchParams.delete('cam')
-const viewport = headless ? { width: 640, height: 360 } : { width: 1280, height: 720 }
+const viewport = headless ? { width: 320, height: 180 } : { width: 1280, height: 720 }
 const fps = 60
-const tile = { i: -1, j: -3, id: 'cupcake_tree', x: -2, z: -6 }
-const upRadius = 3
-const downRadius = 4.5
-const maxFrameTravel = 1.2 / fps + 1e-6
+const { upRadius, downRadius, settleSeconds } = foldContract
+const maxFrameTravel = walkSpeed / fps + 1e-6
 const tolerance = 2
 const degrees = (radians) => radians * 180 / Math.PI
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
@@ -39,6 +38,38 @@ function check(name, measured, verify) {
   checks.push(result)
 }
 
+function phraseChimes(foldLog, eighth) {
+  const restSlots = 6
+  const phraseNotes = 8
+  const expected = []
+  let origin
+  let previousFoldTime
+  let lastSlot = 0
+  let phrasePosition = 0
+  for (const fold of foldLog) {
+    if (fold.dir !== 'up' || fold.t === 0 || fold.t === previousFoldTime) continue
+    previousFoldTime = fold.t
+    const gridOrigin = origin ?? fold.t
+    const closest = Math.round((fold.t - gridOrigin) / eighth)
+    let slot = closest + Number(gridOrigin + closest * eighth <= fold.t)
+    const restart = origin === undefined || slot - lastSlot > restSlots
+    if (restart) {
+      origin = fold.t
+      slot = 0
+      phrasePosition = 0
+    } else {
+      if (slot <= lastSlot) continue // Multiple folds can share a boundary.
+      // Leave one empty slot after the cadence before playing the next D.
+      if (phrasePosition === 0) slot = Math.max(slot, lastSlot + 2)
+    }
+    const final = phrasePosition === phraseNotes - 1
+    expected.push({ fold, t: origin + slot * eighth, origin, slot, final })
+    lastSlot = slot
+    phrasePosition = (phrasePosition + 1) % phraseNotes
+  }
+  return expected
+}
+
 async function run() {
   const browser = await launchChromium()
   try {
@@ -50,30 +81,30 @@ async function run() {
       await advance(frame + 1, fps, count)
       frame += count
     }
-    const watchFold = async (count, direction) => {
-      const position = await page.evaluate(({ frame, fps, count, direction, tile }) => {
+    const watchFold = async (count, direction, tile) => {
+      const observed = await page.evaluate(({ frame, fps, count, direction, tile }) => {
         const { foldLog, player } = window.__atlas
-        let position
-        const before = foldLog.length
+        let observed
         for (let i = 1; i <= count; i++) {
+          const before = foldLog.length
           window.__atlasStep(frame + i, fps, 1)
-          if (!position && foldLog.slice(before)
-            .some(({ dir, i, j }) => dir === direction && i === tile.i && j === tile.j)) {
-            position = { x: player.x, z: player.z }
-          }
+          if (observed) continue
+          const event = foldLog.slice(before).find(({ dir, i, j }) =>
+            dir === direction && (!tile || (i === tile.i && j === tile.j)))
+          if (event) observed = { event, player: { x: player.x, z: player.z } }
         }
-        return position
+        return observed
       }, { frame, fps, count, direction, tile })
       frame += count
-      return position
+      return observed
     }
     const pose = () => page.evaluate(() => ({
       ...window.__atlas.player,
       tip: { ...window.__atlas.hairBones[3] },
     }))
     const folds = () => page.evaluate(() => window.__atlas.foldLog)
-    const trace = () => page.evaluate((id) => window.__atlas.hingeTrace(id), `${tile.i},${tile.j}`)
-    const belongsToTile = ({ i, j, id }) => i === tile.i && j === tile.j && id === tile.id
+    const trace = async ({ i, j }) => (await page.evaluate((id) => window.__atlas.hingeTrace(id), `${i},${j}`))
+      .map(({ t, angle }) => ({ t, angleDeg: degrees(angle) }))
 
     const loadMs = await page.evaluate(() => window.__atlas.loadMs)
     check('assets-and-shaders-ready', { loadMs }, () => assert.ok(Number.isFinite(loadMs)))
@@ -99,11 +130,11 @@ async function run() {
     })
 
     const offsets = []
-    let upPosition
+    let rising
     await page.keyboard.down('KeyW')
     for (let i = 0; i < 52; i++) {
-      if (upPosition) await step(5)
-      else upPosition = await watchFold(5, 'up')
+      if (rising) await step(5)
+      else rising = await watchFold(5, 'up')
       const { x, z, state, tip } = await pose()
       if (state === 'walk') offsets.push([tip.x - x, tip.y, tip.z - z])
     }
@@ -113,8 +144,9 @@ async function run() {
     check('hair-tip-relative-to-player', { walkingSamples: offsets.length, maxOffsetUnits: hairMotion },
       () => assert.ok(offsets.length > 1 && hairMotion > 0.03, 'Hair tip moved less than 0.03 units'))
 
-    const up = (await folds()).find((event) => belongsToTile(event) && event.dir === 'up')
-    const risingTrace = (await trace()).map(({ t, angle }) => ({ t, angleDeg: degrees(angle) }))
+    const up = rising?.event
+    const tileCenter = up && { x: up.i * TILE_SIZE, z: up.j * TILE_SIZE }
+    const risingTrace = up ? await trace(up) : []
     const rise = risingTrace.filter(({ t }) => up && t >= up.t)
     const peak = rise.reduce((max, { angleDeg }) => Math.max(max, angleDeg), -Infinity)
     const settledIndex = rise.findIndex((_, i) => i > 0 && i < rise.length - 1
@@ -122,24 +154,25 @@ async function run() {
     let settlingSeconds
     const settled = rise[settledIndex]
     if (settled) {
-      // The final tolerance crossing can fall between the last out-of-band sample and 1.0 s.
+      // Estimate the final tolerance crossing between the two bracketing RAF samples.
       const previous = rise[settledIndex - 1]
       const previousError = Math.abs(previous.angleDeg)
       const fraction = (previousError - tolerance) / (previousError - Math.abs(settled.angleDeg))
       settlingSeconds = previous.t - up.t + fraction * (settled.t - previous.t)
     }
-    const upDistance = upPosition && distance(tile, upPosition)
+    const upDistance = rising && distance(tileCenter, rising.player)
     check('fold-rise-overshoot-settle', {
-      event: up, playerAtTrigger: upPosition, triggerDistanceUnits: upDistance, peakDeg: peak, overshootPercent: 100 * peak / 90,
+      event: up, playerAtTrigger: rising?.player, triggerDistanceUnits: upDistance, peakDeg: peak, overshootPercent: 100 * peak / 90,
       settlingSeconds, firstSettledSampleSeconds: settled && settled.t - up.t, trace: risingTrace,
     }, () => {
-      assert.ok(up && rise.length > 1, 'No rising trace for the cupcake tree')
-      assert.ok(upDistance <= upRadius && upDistance > upRadius - maxFrameTravel,
+      assert.ok(up && rise.length > 1, 'No rising trace for the first tile folded up during the walk')
+      assert.ok(upDistance <= upRadius + 1e-6 && upDistance > upRadius - maxFrameTravel,
         `Up fold did not start as the troll entered the ${upRadius}-unit radius`)
       assert.ok(Math.abs(rise[0].angleDeg + 90) <= tolerance, 'Rise did not start flat')
       assert.ok(rise.some(({ angleDeg }) => angleDeg > -70 && angleDeg < -20), 'No intermediate rising angle')
       assert.ok(peak >= 0.12 * 90 && peak <= 0.20 * 90, `Peak angle ${peak}° is outside 12–20% overshoot`)
-      assert.ok(settlingSeconds < 1 && rise.at(-1).t - up.t >= 1, 'Did not stay within ±2° before 1.0 s')
+      assert.ok(settlingSeconds < settleSeconds && rise.at(-1).t - up.t >= settleSeconds,
+        `Did not stay within ±2° before ${settleSeconds} s`)
     })
 
     let firstDance
@@ -172,16 +205,25 @@ async function run() {
         `Dance lasted ${danceSeconds}s, expected ${clipSeconds}s from the GLB`)
     })
 
-    // The stationary follow target settles on the troll during the idle test.
+    let falling
+    let fallingTrace = []
+    const watchDeparture = async (count) => {
+      if (up && !falling) falling = await watchFold(count, 'down', up)
+      else await step(count)
+      if (falling && !fallingTrace.length && frame / fps - falling.event.t >= settleSeconds) {
+        fallingTrace = await trace(up)
+      }
+    }
+    // Click-walk can already leave the tracked tile's down radius.
     const beforeClick = await pose()
     const target = { x: beforeClick.x, z: beforeClick.z - 3 }
     const riseToPoint = 3 * Math.SQRT1_2
     const ndcY = riseToPoint / ((10 + riseToPoint) * Math.tan(Math.PI / 12))
     const click = { x: viewport.width / 2, y: viewport.height * (1 - ndcY) / 2 }
     await page.mouse.click(click.x, click.y)
-    await step(30)
+    await watchDeparture(30)
     const clickWalk = await pose()
-    await step(150)
+    await watchDeparture(150)
     const arrived = await pose()
     const errorUnits = distance(arrived, target)
     check('click-to-walk', { click, target, arrived, errorUnits }, () => {
@@ -191,16 +233,21 @@ async function run() {
     })
 
     await page.keyboard.down('KeyW')
-    const downPosition = await watchFold(4 * fps, 'down')
+    await watchDeparture(2 * fps)
+    await watchDeparture(2 * fps)
     await page.keyboard.up('KeyW')
+    if (falling && !fallingTrace.length) {
+      await watchDeparture(Math.max(1, Math.ceil((falling.event.t + settleSeconds) * fps) - frame))
+    }
     const end = await pose()
     const foldLog = await folds()
-    const down = foldLog.find((event) => belongsToTile(event) && event.dir === 'down')
-    const fallingTrace = (await trace()).map(({ t, angle }) => ({ t, angleDeg: degrees(angle) }))
+    const down = falling?.event
+    const downPosition = falling?.player
     const fall = fallingTrace.filter(({ t }) => down && t >= down.t)
-    const triggerDistance = downPosition && distance(tile, downPosition)
+    const triggerDistance = downPosition && distance(tileCenter, downPosition)
     check('fold-down-after-departure', {
-      event: down, playerAtTrigger: downPosition, triggerDistanceUnits: triggerDistance, endDistanceUnits: distance(tile, end),
+      event: down, playerAtTrigger: downPosition, triggerDistanceUnits: triggerDistance,
+      endDistanceUnits: tileCenter && distance(tileCenter, end),
       finalAngleDeg: fall.at(-1)?.angleDeg, trace: fallingTrace,
     }, () => {
       assert.ok(down && up && down.t > up.t && triggerDistance > downRadius
@@ -217,25 +264,23 @@ async function run() {
     const notes = await page.evaluate(() => window.__atlas.audioLog)
     const eighth = 60 / 96 / 2
     const scale = new Set([2, 4, 6, 9, 11])
-    // Initial t=0 folds happen during loading. Subsequent up folds share a chime per grid slot.
-    const expectedSlots = new Map()
-    for (const fold of foldLog) {
-      if (fold.dir !== 'up' || fold.t === 0) continue
-      const slot = Math.floor(fold.t / eighth) + 1
-      if (!expectedSlots.has(slot)) expectedSlots.set(slot, fold)
-    }
+    const expected = phraseChimes(foldLog, eighth)
     check('unlocked-fold-chimes-in-d-major-pentatonic', {
-      notesBeforeInput: beforeInput, expectedChimes: expectedSlots.size, notes,
+      notesBeforeInput: beforeInput, expectedChimes: expected.length, phraseOrigins: expected.filter(({ slot }) => slot === 0)
+        .map(({ origin }) => origin), notes,
     }, () => {
       assert.equal(beforeInput, 0, 'Chimes were scheduled before the input unlock')
-      assert.ok(expectedSlots.size > 0, 'No post-unlock up folds occurred')
-      assert.equal(notes.length, expectedSlots.size)
-      assert.deepEqual(notes.map(({ t }) => t), [...expectedSlots.keys()].map((slot) => slot * eighth))
-      for (const { t, id, i, j, midi } of notes) {
-        const fold = expectedSlots.get(t / eighth)
+      assert.ok(expected.length > 0, 'No post-unlock up folds occurred')
+      assert.equal(notes.length, expected.length)
+      for (const [index, { t, id, i, j, midi }] of notes.entries()) {
+        const { fold, t: scheduled, slot, final } = expected[index]
+        assert.ok(Math.abs(t - scheduled) < 1e-6, slot === 0
+          ? `Phrase starter should sound on its fold at ${scheduled}s, got ${t}s`
+          : `Expected phrase slot ${slot} at ${scheduled}s, got ${t}s`)
         assert.deepEqual([id, i, j], [fold.id, fold.i, fold.j], 'Chime does not match the up fold in this slot')
         assert.ok(Number.isInteger(midi) && midi >= 62 && midi <= 86 && scale.has(midi % 12),
           `MIDI note ${midi} is outside D4–D6 D major pentatonic`)
+        if (final) assert.equal(midi % 12, 2, 'Phrase did not end on D')
       }
     })
     check('browser-errors', errors, () => assert.deepEqual(errors, []))

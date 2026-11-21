@@ -9,11 +9,13 @@ import { parseArgs } from 'node:util'
 import { chromium } from 'playwright'
 import { createScheduler } from '../src/audio/music.js'
 import { createLayout } from '../src/world/layout.js'
-import { cellAt, PAGE_MAX_Z } from '../src/world/tiles.js'
+import { cellAt, LAST_PAGE_ROW, PAGE_MAX_Z, TILE_SIZE } from '../src/world/tiles.js'
 
 export const previewURL = 'http://localhost:4173'
 export const evidenceDir = '.handoff/evidence/T10'
 export const defaultRound = 2
+export const foldContract = { upRadius: 2, downRadius: 3, settleSeconds: 1.4 }
+export const walkSpeed = 1.2
 export const writeJson = (path, data) => writeFile(path, JSON.stringify(data, null, 2) + '\n')
 export const headless = process.env.ATLAS_HEADLESS === '1'
 export const launchChromium = () => chromium.launch(headless
@@ -74,12 +76,16 @@ export async function createSteppedPage(browser, viewport, { waitForAudio = fals
         }
       }
     }
-    if (waitForAudio) {
-      const resume = AudioContext.prototype.resume
-      AudioContext.prototype.resume = async function () {
-        await resume.call(this)
-        window.__atlasAudioUnlocked = this.state === 'running'
-      }
+    const resume = AudioContext.prototype.resume
+    AudioContext.prototype.resume = async function () {
+      if (!waitForAudio) return // Capture renders audio offline.
+      await resume.call(this)
+      if (this.state !== 'running') return
+      // After a real gesture unlock, hold the device clock while testing the game-time schedule.
+      // Otherwise a slow render can push a fold's automation into the audio device's past.
+      await this.suspend()
+      Object.defineProperty(this, 'state', { value: 'running' })
+      window.__atlasAudioUnlocked = true
     }
   }, { waitForAudio })
   const advance = (frame, fps, count = 1) => page.evaluate(
@@ -106,19 +112,63 @@ export async function createSteppedPage(browser, viewport, { waitForAudio = fals
 const viewport = { width: 1280, height: 720 }
 const fps = 60
 const duration = 30
-const seed = 112
 const cameraDistance = 8.3
 const cameraPitch = 37
-const start = { x: 3, z: PAGE_MAX_Z - 0.22, heading: Math.PI / 2, zoom: 1 }
-const clickTarget = { x: 25.8, z: 8 }
-const edgeFrames = 800
-const alignFrames = 55
-const approachFrames = 130
 const faceCameraFrame = 20 * fps
 const faceCameraFrames = 20
 const preRollFrames = 120
 const ffmpeg = (args) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args],
   { maxBuffer: 16 * 1024 * 1024 })
+
+export function lineClear(layout, from, to) {
+  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 0.02))
+  for (let i = 0; i <= steps; i++) {
+    if (layout.isBlocked(from.x + (to.x - from.x) * i / steps, from.z + (to.z - from.z) * i / steps)) return false
+  }
+  return true
+}
+
+export function planCaptureRoute() {
+  const stride = walkSpeed / fps
+  const edgeZ = PAGE_MAX_Z - 0.22
+  const bridgeZ = LAST_PAGE_ROW * TILE_SIZE
+  const edgeFrames = Math.round(16 / stride)
+  const alignFrames = Math.round((edgeZ - bridgeZ) * Math.SQRT2 / stride)
+  const diagonal = alignFrames * stride * Math.SQRT1_2
+  let best
+
+  for (const seed of [112, ...Array.from({ length: 64 }, (_, i) => i)]) {
+    const layout = createLayout(seed)
+    for (let i = 9; i <= 22; i++) {
+      const bridge = layout.getCell(i, LAST_PAGE_ROW)
+      if (bridge.id !== 'yarn_bridge' || bridge.rotation !== 0) continue
+      const bridgeX = i * TILE_SIZE
+      const start = { x: bridgeX - 21, z: edgeZ, heading: Math.PI / 2, zoom: 1 }
+      const edgeEnd = { x: start.x + edgeFrames * stride, z: edgeZ }
+      const aligned = { x: edgeEnd.x + diagonal, z: edgeZ - diagonal }
+      const approachFrames = Math.round((bridgeX - 1.4 - aligned.x) / stride)
+      const approach = { x: aligned.x + approachFrames * stride, z: aligned.z }
+      const clickTarget = { x: bridgeX + 1.35, z: bridgeZ }
+      const danceAt = { x: clickTarget.x, z: bridgeZ + faceCameraFrames * stride }
+      const legs = [start, edgeEnd, aligned, approach]
+      if (!legs.slice(1).every((to, index) => lineClear(layout, legs[index], to))) continue
+      // Leave clearance for the smoothed camera's Z and fractional pointer coordinates.
+      if (![-0.03, 0, 0.03].every((dz) => lineClear(layout, approach, { ...clickTarget, z: bridgeZ + dz })
+        && lineClear(layout, { ...clickTarget, z: bridgeZ + dz }, { ...danceAt, z: danceAt.z + dz }))) continue
+      // Prefer routes that raise new props while the troll is visibly following the edge.
+      let edgeProps = 0
+      for (let col = Math.floor((start.x + foldContract.upRadius) / TILE_SIZE) + 1;
+        col * TILE_SIZE <= edgeEnd.x; col++) {
+        if (layout.getCell(col, LAST_PAGE_ROW).blockedRadius) edgeProps++
+      }
+      if (!best || edgeProps > best.edgeProps) {
+        best = { seed, layout, start, edgeEnd, approach, clickTarget, edgeFrames, alignFrames, approachFrames, edgeProps }
+      }
+    }
+  }
+  assert.ok(best, 'No clear page-edge route to an eastbound bridge in the capture seed search')
+  return best
+}
 
 async function offlineAudio(page, filepath, clipStart) {
   const folder = new URL('/__atlas_capture_audio/', page.url())
@@ -205,11 +255,11 @@ function measureOnsets(video, events, notes) {
 }
 
 async function capture({ baseURL, roundDir, evidence }) {
+  const { seed, layout, start, approach, clickTarget, edgeFrames, alignFrames, approachFrames } = planCaptureRoute()
   await Promise.all([mkdir(roundDir, { recursive: true }), mkdir(evidence, { recursive: true })])
   const temp = await mkdtemp(join(tmpdir(), 'atlas-capture-'))
   const video = join(temp, 'gameplay-30s.mp4')
   const wav = join(temp, 'audio.wav')
-  const layout = createLayout(seed)
   const url = new URL(baseURL)
   url.searchParams.set('seed', seed)
   url.searchParams.set('cam', `${cameraDistance},${cameraPitch}`)
@@ -234,7 +284,6 @@ async function capture({ baseURL, roundDir, evidence }) {
       await open(url.href)
       expectedDanceSeconds = await readDanceSeconds(page)
       await page.waitForFunction(() => window.__atlasLookShots, undefined, { polling: 50, timeout: 5000 })
-      assert.ok(!layout.isBlocked(start.x, start.z), 'Capture start is blocked')
       await page.evaluate((pose) => window.__atlasLookShots.pose(pose), start)
       await advance(1, fps, preRollFrames)
       assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Capture camera did not settle')
@@ -253,10 +302,12 @@ async function capture({ baseURL, roundDir, evidence }) {
           clickedFrom = await player()
           // The camera follows 0.25 s behind the eastbound troll. At mid-height
           // the ray lands on the camera target's Z, already aligned with the bridge.
-          const cameraX = clickedFrom.x - (1.2 / fps) / Math.expm1(1 / (fps * 0.25))
+          assert.ok(Math.hypot(clickedFrom.x - approach.x, clickedFrom.z - approach.z) < 0.08,
+            `Troll did not reach the bridge approach: ${JSON.stringify(clickedFrom)}`)
+          const cameraX = clickedFrom.x - (walkSpeed / fps) / Math.expm1(1 / (fps * 0.25))
           const x = viewport.width / 2
             + (clickTarget.x - cameraX) * viewport.height / (2 * cameraDistance * Math.tan(Math.PI / 12))
-          assert.ok(x > 0 && x < viewport.width)
+          assert.ok(x > 0 && x < viewport.width, `Bridge click projected outside the canvas at x=${x}`)
           await page.mouse.click(x, viewport.height / 2)
         }
         if (frame === faceCameraFrame) {
