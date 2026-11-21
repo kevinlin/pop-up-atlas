@@ -120,9 +120,10 @@ def textured(mat, color_map, normal_map=None, normal_strength=1):
 
 
 def sunset(height):
-    stops = (0, .30, .45, .68, .85, 1)
+    # Orange roots run well up the plume before the hot pink and violet tips.
+    stops = (0, .30, .46, .68, .86, 1)
     colors = np.array([rgb(c) for c in
-                       ('F59A3C', 'F59A3C', 'E8478F', 'E8478F', '7A52C7', '7A52C7')])
+                       ('FF8C1A', 'F7922E', 'E8478F', 'E8478F', '7A52C7', '7A52C7')])
     return np.stack([np.interp(height, stops, channel) for channel in colors.T], axis=-1)
 
 
@@ -141,11 +142,45 @@ def yarn_pixels():
     return np.clip(tone[:, :, None] * ramp[:, None, :], 0, 1), normal
 
 
+def ply_pixels(size=256):
+    # Two twisted plies: bright crests and dark grooves spiral around each tube.
+    y, x = np.mgrid[0:size, 0:size] / size
+    rng = np.random.default_rng(57)
+    noise = rng.normal(0, .04, (size, size))
+    noise = .5 * noise + .125 * sum(np.roll(noise, s, a) for a in (0, 1) for s in (-1, 1))
+    ply = np.abs(np.sin(np.pi * (2 * x + 6 * y))) ** .55
+    fuzz = .5 + .5 * np.sin(2 * np.pi * (24 * x - 9 * y) + 6 * noise)
+    relief = .9 * ply + .10 * fuzz + noise
+    dy = np.roll(relief, -1, 0) - np.roll(relief, 1, 0)
+    dx = np.roll(relief, -1, 1) - np.roll(relief, 1, 1)
+    normal = np.stack((-1.6 * dx, -1.6 * dy, np.ones_like(dx)), axis=-1)
+    normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
+    return np.clip(.74 + .30 * ply + .06 * fuzz + noise, 0, 1.08), normal * .5 + .5
+
+
+def flyaway_swatch(rng, t, x, phase):
+    # A few backlit fibres of different lengths, each tapering and curling at its end.
+    alpha = np.zeros((t.shape[0], x.shape[1]))
+    relief = np.ones_like(alpha)
+    for fibre in range(int(rng.integers(3, 6))):
+        start, end = rng.uniform(-.05, .25), rng.uniform(.45, 1.02)
+        active = np.clip((t - start) * 12, 0, 1) * np.clip((end - t) * 9, 0, 1)
+        along = np.clip((t - start) / (end - start), 0, 1)
+        base = rng.uniform(.25, .75)
+        curl = rng.uniform(-.30, .30) * along**2
+        drift = rng.uniform(.02, .07) * np.sin(along * rng.uniform(5, 14) + phase + fibre)
+        w = rng.uniform(.045, .085) * (1 - .55 * along)
+        stroke = np.exp(-((x - (base + curl + drift)) / w)**2) * active
+        alpha = np.maximum(alpha, stroke * rng.uniform(.75, 1))
+        relief += stroke * rng.uniform(.05, .22)
+    return alpha, relief
+
+
 def fibre_pixels():
-    # Four cutout swatches vary the curl and loose fibres along each lock.
+    # Swatches 0-3 vary the curl and loose fibres along each lock; 4-7 are tip flyaways.
     rng = np.random.default_rng(806)
-    rows, cols = 1024, 512
-    swatch_width = cols // 4
+    rows, cols = 1024, 1024
+    swatch_width = cols // 8
     t = np.linspace(0, 1, rows)[:, None]
     x = np.linspace(0, 1, swatch_width)[None, :]
     rgba = np.empty((rows, cols, 4))
@@ -172,6 +207,13 @@ def fibre_pixels():
         tint = sunset(t[:, 0])[:, None, :]
         rgba[:, section, :3] = np.clip(tint * relief[:, :, None], 0, 1)
         rgba[:, section, 3] = alpha
+    for index in range(4, 8):
+        section = slice(index * swatch_width, (index + 1) * swatch_width)
+        alpha, relief = flyaway_swatch(rng, t, x, rng.uniform(0, 6.28))
+        alpha *= np.clip((.49 - np.abs(x - .5)) * 40, 0, 1)
+        tint = sunset(t[:, 0])[:, None, :]
+        rgba[:, section, :3] = np.clip(tint * relief[:, :, None] * 1.06, 0, 1)
+        rgba[:, section, 3] = alpha
     return rgba
 
 
@@ -192,22 +234,30 @@ def materials():
              image('mustard-knit-normal', normal, data=True), 1.15)
 
     yarn, normal = yarn_pixels()
-    mats['yarn_sunset'] = paint('yarn_sunset', 'E8478F', sheen=.42)
+    # A lighter sheen keeps the orange roots from washing pink under the rim light.
+    mats['yarn_sunset'] = paint('yarn_sunset', 'E8478F', sheen=.26)
     textured(mats['yarn_sunset'], image('sunset-yarn-baked', srgb(yarn)),
              image('sunset-yarn-normal', normal, data=True), .7)
     fibres = fibre_pixels()
     fibres[:, :, :3] = srgb(fibres[:, :, :3])
-    mats['yarn_sunset_fibres'] = paint('yarn_sunset_fibres', 'E8478F', sheen=.33)
+    mats['yarn_sunset_fibres'] = paint('yarn_sunset_fibres', 'E8478F', sheen=.20)
     textured(mats['yarn_sunset_fibres'], image('sunset-fibre-cutouts', fibres))
 
     for name, tint in {
         'felt_fibre_mint': 'A4D9B5', 'felt_fibre_green': '75B491',
         'felt_fibre_light': 'BCE7CA', 'felt_fibre_peach': 'F8BF9F',
-        'felt_fibre_red': 'D95849', 'yarn_fringe': 'E9BB47',
+        'felt_fibre_red': 'D95849',
         'yarn_gold': 'F7DC6F', 'yarn_floss': 'F9B479',
         'yarn_button_thread': '554351',
     }.items():
         mats[name] = paint(name, tint)
+    # Plied mustard yarn for the knitted loops and the thick fringe ends.
+    ply, ply_normal = ply_pixels()
+    ply_map = image('yarn-ply-normal', ply_normal, data=True)
+    for name, tint, sheen in (('yarn_fringe', 'E9BB47', .34), ('yarn_loops', 'EDBE45', .34)):
+        mats[name] = paint(name, tint, sheen=sheen)
+        field = np.clip(ply[:, :, None] * rgb(tint), 0, 1)
+        textured(mats[name], image(name + '-ply-baked', srgb(field)), ply_map, 1.0)
     mats['felt_eye_socket'] = paint('felt_eye_socket', '739B82', sheen=.08)
     mats['button_charcoal'] = paint('button_charcoal', '201924', .30, 0)
     mats['button_ochre'] = paint('button_ochre', 'E7A546', .42, 0)

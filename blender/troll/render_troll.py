@@ -160,7 +160,8 @@ def main():
         samples = {
             'walk': (0, 2 / fps, 7 / fps, 12 / fps, .5, .5 + 2 / fps, .5 + 7 / fps, .75),
             'idle': (0, .57, 1.21, 1.7),
-            'dance': (.16, .38, .56, .68, .88, 1.11, 1.30, 1.55, 1.85, 2.32, 2.72, 2.98),
+            # Step and arm overhead, turn front / profile / back / profile / finish, landing, bow.
+            'dance': (.15, .46, .62, .96, 1.10, 1.31, 1.52, 1.71, 1.85, 2.30, 2.50, 2.80),
         }
         if args.review_sheets:
             del samples['idle']

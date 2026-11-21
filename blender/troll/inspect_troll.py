@@ -1,5 +1,6 @@
 """Re-import a GLB and check the traveller contract. Blender 5.2, no add-ons required."""
 import json
+import math
 import os
 import struct
 import sys
@@ -11,6 +12,7 @@ from mathutils import Vector
 
 MODEL = Path(__file__).resolve().parents[2] / 'public/models/troll.glb'
 HAIR_MESHES = {'Sunset yarn plume', 'Wool flyaways'}
+SECONDARY = ('hair', 'scarf', 'satchel')
 
 
 def require(condition, message):
@@ -57,6 +59,108 @@ def figures(meshes):
             yield obj.matrix_world @ point.co
 
 
+def evaluated_points(obj, graph):
+    evaluated = obj.evaluated_get(graph)
+    return [evaluated.matrix_world @ point.co for point in evaluated.data.vertices]
+
+
+def facing(rig, bone):
+    # Yaw of the head's forward axis (Blender -Y) in degrees: 0 front, 90 profile, 180 back.
+    turn = rig.matrix_world.to_3x3() @ bone.matrix.to_3x3() @ bone.bone.matrix_local.to_3x3().inverted()
+    forward = turn @ Vector((0, -1, 0))
+    return math.degrees(math.atan2(forward.x, -forward.y))
+
+
+def clearance(a, b):
+    return min((p - q).length for p in a[::3] for q in b[::3])
+
+
+def verify_dance(rig, clips):
+    scene = bpy.context.scene
+    fps = scene.render.fps
+    action, slot = clips['dance']
+    rig.animation_data.action = action
+    rig.animation_data.action_slot = slot
+    start, end = map(round, action.frame_range)
+    bones = rig.pose.bones
+    objects = scene.objects
+    boots = {side: objects['Felt boot and leg ' + side] for side in ('L', 'R')}
+    arms = {side: objects['Felt arm ' + side] for side in ('L', 'R')}
+    yaw, spin_root, root, held, soles, head_top, hands, scarf = ([] for _ in range(8))
+    previous = previous_root = None
+    for frame in range(start, end + 1):
+        scene.frame_set(frame)
+        graph = bpy.context.evaluated_depsgraph_get()
+        angle = facing(rig, bones['head'])
+        if previous is not None:
+            angle = previous + (angle - previous + 180) % 360 - 180
+        yaw.append(previous := angle)
+        angle = facing(rig, bones['root'])
+        if previous_root is not None:
+            angle = previous_root + (angle - previous_root + 180) % 360 - 180
+        spin_root.append(previous_root := angle)
+        root.append(rig.matrix_world @ bones['root'].head)
+        held.append([bone.matrix.copy() for bone in bones if not bone.name.startswith(SECONDARY)])
+        soles.append({side: min(p.z for p in evaluated_points(boot, graph)) for side, boot in boots.items()})
+        head_top.append(max(p.z for p in evaluated_points(objects['Needle-felted pear'], graph)))
+        hands.append({side: max(p.z for p in evaluated_points(arm, graph)) for side, arm in arms.items()})
+        scarf.append(max(p.z for p in evaluated_points(objects['Knitted scarf wrap'], graph)))
+
+    # Sideways step of half a body-width with one hand thrown above the head.
+    scene.frame_set(start)
+    body = evaluated_points(objects['Needle-felted pear'], bpy.context.evaluated_depsgraph_get())
+    width = max(p.x for p in body) - min(p.x for p in body)
+    early = range(0, round(.9 * fps))
+    step = max(abs(root[i].x - root[0].x) for i in early)
+    overhead = max(max(hands[i].values()) - head_top[i] for i in early)
+    require(step >= .45 * width, f'Dance side step {step:.3f} is under half the body width {width:.3f}')
+    require(overhead > 0, f'Dance raised hand stays {-overhead:.3f} below the head top')
+    print(f'Dance side step {step:.3f} (body width {width:.3f}); hand {overhead:.3f} above head')
+
+    # The body turn takes .75 s; the head passes front, profile, back and profile to the finish.
+    begin = next(i for i in range(len(spin_root)) if abs(spin_root[i] - spin_root[0]) > .5) - 1
+    finish = next(i for i in range(begin, len(spin_root)) if abs(spin_root[i] - spin_root[begin]) > 359.5)
+    spin = [abs(a - yaw[begin]) for a in yaw[begin:finish + 1]]
+    turn_time = (finish - begin) / fps
+    require(.65 <= turn_time <= .85, f'Dance turn lasts {turn_time:.3f}s')
+    back = [i for i, a in enumerate(spin) if 155 <= a <= 205]
+    require(len(back) >= .15 * fps and back[-1] - back[0] == len(back) - 1,
+            f'Dance turn back-facing pose lasts {len(back)} frames')
+    for target in (90, 270):
+        require(any(abs(a - target) < 12 for a in spin), f'Dance turn skips the {target} degree profile')
+    require(all(a >= -1 for a in spin), 'Dance turn reverses')
+    print(f'Dance turn {turn_time:.3f}s from frame {begin}: back-facing for {len(back) / fps:.3f}s')
+
+    landing = min(r.z for r in root[finish:finish + round(.4 * fps)])
+    require(landing <= -.06, f'Dance landing is only {landing:.3f} low')
+    print(f'Dance lands {-landing:.3f} below standing height')
+
+    # The crooked bow holds still on one boot with the hands above the scarf.
+    hold = max_run = 0
+    best = None
+    for i in range(finish, len(held) - 1):
+        moved = max(abs(a[r][c] - b[r][c]) for a, b in zip(held[i], held[i + 1])
+                    for r in range(4) for c in range(4))
+        planted = min(soles[i].values()) < .007 and max(soles[i].values()) > .04
+        hold = hold + 1 if moved < .0015 and planted else 0
+        if hold > max_run:
+            max_run, best = hold, i + 1
+    require(max_run / fps >= .35, f'Dance bow hold lasts {max_run / fps:.3f}s')
+    scene.frame_set(start + best)
+    graph = bpy.context.evaluated_depsgraph_get()
+    lifted = max(soles[best], key=soles[best].get)
+    standing = 'L' if lifted == 'R' else 'R'
+    raised = min(hands[best].values()) - scarf[best]
+    rest = boots[lifted].data.vertices
+    boot = [p for p, v in zip(evaluated_points(boots[lifted], graph), rest) if v.co.z < .10]
+    gap = clearance(boot,
+                    evaluated_points(boots[standing], graph) + evaluated_points(objects['Needle-felted pear'], graph))
+    require(raised > 0, f'Dance bow hands sit {-raised:.3f} below the scarf')
+    require(gap >= .045, f'Dance bow lifted leg is only {gap:.3f} clear of the body')
+    print(f'Dance bow held {max_run / fps:.3f}s on boot {standing}: {lifted} boot {soles[best][lifted]:.3f} up, '
+          f'{gap:.3f} clear; hands {raised:.3f} above the scarf')
+
+
 def verify_playback(rig, clips, hair):
     scene = bpy.context.scene
     rig.data.pose_position = 'POSE'
@@ -74,6 +178,8 @@ def verify_playback(rig, clips, hair):
         highest = 0
         root_heights = []
         support = {'L': {}, 'R': {}}
+        stance_x = {'L': [], 'R': []}
+        swing_sole = {'L': 0, 'R': 0}
         for frame in range(start, end + 1):
             scene.frame_set(frame)
             root = rig.matrix_world @ bones['root'].head
@@ -88,15 +194,17 @@ def verify_playback(rig, clips, hair):
                 excursion = min(reference.rotation_difference(q).angle, q.rotation_difference(-reference).angle)
                 hair_motion[k] = max(hair_motion[k], excursion)
             if name == 'walk':
-                require(max(abs(root.x), abs(root.y)) < .001, 'Walk root drifts on the ground plane')
+                require(abs(root.y) < .001 and abs(root.x) <= .03, 'Walk root drifts on the ground plane')
                 if frame == end:
                     continue
                 for offset, side in enumerate(boots):
                     phase = (frame - start + offset * (end - start) // 2) % (end - start)
-                    if phase > scene.render.fps // 4:
-                        continue
                     boot = boots[side].evaluated_get(graph)
                     sole = min((boot.matrix_world @ Vector(point)).z for point in boot.bound_box)
+                    if phase > scene.render.fps // 4:
+                        swing_sole[side] = max(swing_sole[side], sole)
+                        continue
+                    stance_x[side].append(root.x)
                     require(abs(sole) < .007, f'Walk {side} foot loses ground contact at frame {frame}')
                     foot = bones['foot_' + side]
                     support[side][phase] = ((rig.matrix_world @ foot.head).y, foot.matrix.to_quaternion())
@@ -116,7 +224,14 @@ def verify_playback(rig, clips, hair):
                 high_at = heights.index(max(heights)) / fps
                 require(.02 <= low_at <= .07 and .11 <= high_at <= .18,
                         f'Walk body timing: low {low_at:.3f}s, high {high_at:.3f}s after contact')
-            require(.057 <= bob <= .063, f'Walk bob is {bob:.4f}')
+            require(.087 <= bob <= .093, f'Walk bob is {bob:.4f}')
+            shift = {side: sum(xs) / len(xs) for side, xs in stance_x.items()}
+            require(shift['L'] > .008 and shift['R'] < -.008,
+                    f'Walk hips do not shift over the planted foot: {shift}')
+            for side, lift in swing_sole.items():
+                require(.045 <= lift <= .075, f'Walk {side} swing boot only clears {lift:.3f}')
+            print(f'Walk hips shift {shift["L"]:+.3f} / {shift["R"]:+.3f}; swing boots clear '
+                  f'{min(swing_sole.values()):.3f}')
             for side, samples in support.items():
                 speed = (samples[8][0] - samples[2][0]) * fps / 6
                 flat, peeled = samples[8][1], samples[fps // 4][1]
@@ -194,6 +309,7 @@ def verify(path):
         require(0 < w <= 1024 and 0 < h <= 1024, f'{img.name}: {w}x{h}')
     print(f'{len(images)} embedded textures, largest {max(max(img.size) for img in images)} px')
     verify_playback(rig, clips, hair)
+    verify_dance(rig, clips)
     print('PASS', flush=True)
 
 
