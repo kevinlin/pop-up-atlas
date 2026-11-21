@@ -71,6 +71,22 @@ Layout density (target, measured over a 64x64-cell area on 20 seeds): grass-sock
 - Key: warm #FFD9A0, intensity 2.2, from upper-left-front. Fill: pink-violet #C58BFF, 0.6, opposite side. Hemisphere sky #FFE8F0 / ground #6B4C8A, 0.4.
 - Soft shadows: PCFSoftShadowMap, 2048 map on key only, frustum follows the troll.
 
+## Look round 4: magical forest stage
+Source: `docs/research/trolls-stage-design.md` (items #1-#17 there; the forest scene of the first film and its visual development, style only). Its "Do not copy" list applies: no film characters, faces on props, shot recreations, signature props, names, song or logos; nothing from `reference/trolls-film/` is copied into assets, the build or a commit; asset colours come from the palette above. Supersedes "Camera and light" where they differ. Frame statistics are measured on 1280x720 game frames at the default camera, Rec.709 luma 0-255.
+- Grade (#1): luma mean 120-140, p95 ≤ 215, ≤ 3 % of pixels > 230, 3-8 % < 40, saturation mean 0.50-0.58.
+- Backlight (#2): key moves to the far side of the page (top of screen), elevation 30-45°, colour `#FFE9A8`; felt sheen rims visible on ≥ 50 % of prop silhouettes in the sharp band; highlight tint (brightest 5 %) between `#E0E8A0` and `#F2E6A8`, not cream.
+- Bounce (#3): hemisphere ground colour green-teal `#2F5A50`; shadow tint (darkest 10 %) within `#2E3A34`-`#3A3F3A`.
+- One hue family per zone (#4): each grove/clearing zone gets a key (green-gold default, amber, pink-lavender, teal) that biases prop colours and a zone tint in the composite, blended over 2 cells; ≥ 65 % of saturated pixels (s > 0.35, v > 0.2) inside one 60° hue window per screen.
+- Felt-carpet ground (#5): grove cells get felt moss appliqué in three tiers (tight short fuzz, bumped longer fuzz, loose long fuzz) with pink, blue and butter flecks; cream stays at page edges, gutters and clearings; exposed cream ≤ 10 % of frame in groves; sunlit moss 1.5-1.8x shade luma.
+- Depth haze and backdrop (#6, #17): beyond the sharp band blend toward the zone haze (day `#E9F0C0`, amber `#F6DE9A`, pink `#F2D0DA`) up to 30-35 % at the far edge; top-third luma ≥ bottom-third + 15; far props ≥ 30 % less saturated than the focus band; background beyond the book a gradient, top luma ≥ bottom + 30.
+- Dark foreground (#7): 1-3 oversized felt fronds or bell-flower stems enter the bottom corners, blurred by the tilt-shift; 5-12 % of frame, luma 30-70; never overlap the troll.
+- Dappled light (#8): in groves a world-space noise (blobs 0.6-1.5 units) modulates the key's shadow term, patch contrast 1.4-1.8x.
+- Bokeh (#9): 15-30 soft discs in the defocused far band, tinted with the zone highlight, slow drift; diameter 3-10 % of frame width, opacity 15-35 %, ≥ 70 % in the top 40 % of frame, none in the sharp band.
+- Motes (#10): 80-150 drifting fuzz tufts and pollen on screen, 2-5 px, 0.05-0.2 units/s, alpha 20-50 %; 20 % twinkle like glitter.
+- Glowing props and bloom (#11, #12): original card seed-pod lanterns on yarn strings between grove props, plus lit insides on mushroom houses and flower cores; 3-8 lit emitters per screen, emitter luma 200-235, halo radius 1.5-3 % of frame width, colours butter, mint, hot pink, sky from the palette; ground glow faked with an additive decal (no real point lights); emissive-only bloom from the tilt-shift's half-res blur, touching ≤ 4 % of pixels; none on the cream page.
+- The world answers the walker (#13): on fold-up, 0-0.3 s after upright, a burst of 24-48 glitter particles and an emissive flash at 1.5x the settled glow; settled glow 0.3-0.5 while the troll is within 3 units, fading over 0.6 s on fold-down; ≤ 2 bursts at once, pooled, ≤ 200 particles, zero allocations per fold.
+- Perf: every item stays inside "Performance"; each is added and measured with `npm run perf` on the host; total p95 increase over round 3 ≤ 3 ms at DPR 1 and 2.
+
 ## Controls
 - WASD / arrows move at 1.2 units/s relative to the camera. Click/tap on the page: walk to that point (straight line, stops at blocked props or river). Any key cancels click-walk.
 - Idle 4 s with no input → `dance`, then back to `idle`.
