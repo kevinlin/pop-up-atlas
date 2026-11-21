@@ -2,6 +2,7 @@ import {
   DepthTexture, HalfFloatType, NeutralToneMapping, PCFShadowMap, UnsignedIntType,
   Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three'
+import { parseFocusPoint } from './focus.js'
 import { TiltShiftPass } from './tilt-shift.js'
 
 export function createRenderer(scene, camera) {
@@ -20,6 +21,7 @@ export function createRenderer(scene, camera) {
   })
   const tiltShift = new TiltShiftPass(camera)
   const focus = new Vector3()
+  const story = parseFocusPoint(new URLSearchParams(window.location.search).get('focus'))
   const renderSize = new Vector2()
 
   function resize() {
@@ -45,7 +47,10 @@ export function createRenderer(scene, camera) {
       camera.updateMatrixWorld()
       focus.copy(position)
       focus.y += 0.38
-      tiltShift.focusDepth = -focus.applyMatrix4(camera.matrixWorldInverse).z
+      const eyeDepth = -focus.applyMatrix4(camera.matrixWorldInverse).z
+      const storyDepth = story ? -focus.copy(story).applyMatrix4(camera.matrixWorldInverse).z : eyeDepth
+      const depth = storyDepth >= camera.near && storyDepth <= camera.far ? storyDepth : eyeDepth
+      tiltShift.focusRange.set(Math.min(eyeDepth, depth), Math.max(eyeDepth, depth))
 
       renderer.setRenderTarget(image)
       renderer.render(scene, camera)

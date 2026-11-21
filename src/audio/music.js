@@ -1,4 +1,5 @@
 const EIGHTH = 60 / 96 / 2
+const REST_SLOTS = 6
 const VOICE_LIMIT = 8
 const ACCENT = 10 ** (2 / 20)
 const PHRASE = [
@@ -19,11 +20,19 @@ export function createRandom(seed) {
   }
 }
 
+function slotAfter(t, origin) {
+  if (origin === undefined) return 0
+  const nearest = Math.round((t - origin) / EIGHTH)
+  return nearest + Number(origin + nearest * EIGHTH <= t)
+}
+
 // Use flatMap with chronological folds. A frame's folds share the same game timestamp.
 export function createScheduler() {
   const random = createRandom(96)
   let active = []
-  let lastSlot = -1
+  let origin
+  let lastSlot = 0
+  let earliestSlot = 0
   let phraseIndex = 0
   let varyQuestion = false
 
@@ -40,40 +49,53 @@ export function createScheduler() {
 
     active = active.filter((voice) => voice.end > t)
     const scheduled = []
-    const slot = Math.floor(t / EIGHTH) + 1
-    const chimeTime = slot * EIGHTH
-
-    for (const [dir, { first, count }] of groups) {
-      const end = t + (dir === 'down' ? 0.03 : 0.045)
-      const playing = active.filter((voice) => voice.t <= t).length
-      // Reserve room at the next boundary even if its first up fold has yet to arrive.
-      const playingAtSlot = active.filter((voice) => voice.end > chimeTime).length
-        + Number(lastSlot !== slot)
-      if (playing < VOICE_LIMIT && (end <= chimeTime || playingAtSlot < VOICE_LIMIT)) {
-        const gain = 10 ** (Math.min(3, Math.log2(count)) / 20)
-        const pop = { kind: 'pop', dir, id: first.id, t, end, gain }
-        scheduled.push(pop)
-        active.push(pop)
-      }
-    }
-
     const upFold = groups.get('up')?.first
-    if (upFold && lastSlot !== slot) {
-      if (slot - lastSlot > 4) {
+    const slot = slotAfter(t, origin)
+    const restart = origin === undefined || slot - lastSlot > REST_SLOTS
+    let chime
+    if (upFold && (restart || slot > lastSlot)) {
+      let chimeSlot = Math.max(slot, earliestSlot)
+      if (restart) {
+        origin = t
+        chimeSlot = 0
         phraseIndex = 0
         varyQuestion = false
       }
+
       const { id, i, j } = upFold
       const { midi, length, gain } = PHRASE[phraseIndex]
       const pitch = varyQuestion && phraseIndex === 3 ? 81 : midi
-      const chime = { kind: 'chime', id, i, j, midi: pitch, t: chimeTime, end: chimeTime + length, gain }
-      scheduled.push(chime)
+      const start = origin + chimeSlot * EIGHTH
+      const final = phraseIndex === PHRASE.length - 1
+      chime = { kind: 'chime', id, i, j, midi: pitch, t: start, end: start + length, gain, passing: length === 0.2, final }
       active.push(chime)
-      lastSlot = slot
+      lastSlot = chimeSlot
+      earliestSlot = chimeSlot + (final ? 2 : 1)
       phraseIndex = (phraseIndex + 1) % PHRASE.length
-      if (phraseIndex === 0) varyQuestion = random() < 0.5
+      if (final) varyQuestion = random() < 0.5
     }
 
+    const nextSlot = slotAfter(t, origin)
+    const nextBoundary = origin === undefined ? Infinity : origin + nextSlot * EIGHTH
+    // Preserve a seat for a new chime right now after a rest, or on the next grid line.
+    const reserveNow = origin === undefined || nextSlot - lastSlot > REST_SLOTS
+    const reserveAtBoundary = nextSlot >= earliestSlot
+
+    for (const [dir, { first, count }] of groups) {
+      const end = t + (dir === 'down' ? 0.03 : 0.045)
+      const playing = active.filter((voice) => voice.t <= t)
+      if (playing.length + Number(reserveNow) >= VOICE_LIMIT) continue
+      const playingAtBoundary = active.filter((voice) => voice.t <= nextBoundary && voice.end > nextBoundary).length
+      if (end > nextBoundary && playingAtBoundary + Number(reserveAtBoundary) >= VOICE_LIMIT) continue
+
+      const overlap = playing.filter(({ kind }) => kind === 'pop').length
+      const gain = 10 ** (Math.min(3, Math.log2(count)) / 20) / Math.sqrt(overlap + 1)
+      const pop = { kind: 'pop', dir, id: first.id, t, end, gain }
+      scheduled.push(pop)
+      active.push(pop)
+    }
+
+    if (chime) scheduled.push(chime)
     return scheduled
   }
 }

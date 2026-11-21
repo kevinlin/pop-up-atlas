@@ -1,11 +1,15 @@
 import { createRandom } from './music.js'
 
 const PARTIALS = [
-  { ratio: 1, gain: 0.18, attack: 0.009, maxLength: 1.02 },
-  { ratio: 2.01, gain: 0.045, attack: 0.006, maxLength: 0.85 },
-  { ratio: 2.76, gain: 0.022, attack: 0.004, maxLength: 0.25, treble: true },
+  { ratio: 1, gain: 0.18, attack: 0.009 },
+  { ratio: 2.01, gain: 0.045, attack: 0.006, lengthRatio: 0.6 },
+  { ratio: 2.76, gain: 0.022, attack: 0.004, maxLength: 0.25, treble: true, finalGain: 10 ** (-3 / 20) },
   { ratio: 4.05, gain: 0.009, attack: 0.003, maxLength: 0.15, treble: true },
 ]
+const PUFF_ATTACK = Float32Array.from({ length: 17 }, (_, index) => {
+  const t = index / 16
+  return t * t * (3 - 2 * t)
+})
 
 function noiseBuffer(context) {
   const random = createRandom(1207)
@@ -33,10 +37,11 @@ function roomImpulse(context) {
   return buffer
 }
 
-function envelope(context, output, start, end, attack, peak) {
+function envelope(context, output, start, end, attack, peak, passing = false) {
   const shape = context.createGain()
   shape.gain.setValueAtTime(0, start)
   shape.gain.linearRampToValueAtTime(peak, start + attack)
+  if (passing) shape.gain.exponentialRampToValueAtTime(peak * 10 ** (-12 / 20), start + 0.065)
   shape.gain.exponentialRampToValueAtTime(0.00005, end - 0.006)
   shape.gain.linearRampToValueAtTime(0, end)
   shape.connect(output)
@@ -44,28 +49,30 @@ function envelope(context, output, start, end, attack, peak) {
 }
 
 export function createSoundBank(context) {
-  const bus = context.createGain()
   const popBus = context.createGain()
   const chimeBus = context.createGain()
   popBus.gain.value = 0.9
   chimeBus.gain.value = 1
-  popBus.connect(bus)
-  chimeBus.connect(bus)
   const master = context.createGain()
   master.gain.value = 0.5
+  popBus.connect(master)
+  chimeBus.connect(master)
 
   const room = context.createConvolver()
   room.normalize = false
   room.buffer = roomImpulse(context)
+  const popSend = context.createGain()
+  popSend.gain.value = 10 ** (-6 / 20)
+  popBus.connect(popSend).connect(room)
+  chimeBus.connect(room)
   const wet = context.createGain()
   wet.gain.value = 0.24
-  bus.connect(room).connect(wet).connect(master)
-  bus.connect(master)
+  room.connect(wet).connect(master)
 
   const compressor = context.createDynamicsCompressor()
   compressor.threshold.value = -15
   compressor.knee.value = 10
-  compressor.ratio.value = 10
+  compressor.ratio.value = 4
   compressor.attack.value = 0.003
   compressor.release.value = 0.12
   master.connect(compressor).connect(context.destination)
@@ -79,12 +86,13 @@ export function createSoundBank(context) {
       const fundamental = 440 * 2 ** ((voice.midi - 69) / 12)
       const highRegister = Math.max(0, Math.min(1, (voice.midi - 81) / (86 - 81))) // A5 to D6
       const trebleGain = 10 ** (-4 * highRegister / 20)
-      for (const { ratio, gain, attack, maxLength, treble } of PARTIALS) {
-        const partialEnd = Math.min(end, start + maxLength)
-        const peak = gain * voice.gain * (treble ? trebleGain : 1)
+      for (const { ratio, gain, attack, maxLength = Infinity, lengthRatio = 1, treble, finalGain = 1 } of PARTIALS) {
+        const partialEnd = start + Math.min((end - start) * lengthRatio, maxLength)
+        const peak = gain * voice.gain * (treble ? trebleGain : 1) * (voice.final ? finalGain : 1)
         const oscillator = context.createOscillator()
         oscillator.frequency.value = fundamental * ratio
-        oscillator.connect(envelope(context, chimeBus, start, partialEnd, attack, peak))
+        const passing = ratio === 1 && voice.passing
+        oscillator.connect(envelope(context, chimeBus, start, partialEnd, attack, peak, passing))
         oscillator.start(start)
         oscillator.stop(partialEnd)
       }
@@ -104,12 +112,12 @@ export function createSoundBank(context) {
     puff.buffer = noise
     const felt = context.createBiquadFilter()
     felt.type = 'lowpass'
-    felt.frequency.value = down ? 650 + 250 * color : 900 + 650 * color
+    felt.frequency.setValueAtTime(down ? 650 + 250 * color : 900 + 650 * color, start)
+    if (!down) felt.frequency.exponentialRampToValueAtTime(800, start + 0.035)
     felt.Q.value = 0.25
     const puffShape = context.createGain()
     const puffPeak = 0.32 * level
-    puffShape.gain.setValueAtTime(0, start)
-    puffShape.gain.linearRampToValueAtTime(puffPeak, start + 0.007)
+    puffShape.gain.setValueCurveAtTime(Float32Array.from(PUFF_ATTACK, (gain) => gain * puffPeak), start, 0.007)
     puffShape.gain.linearRampToValueAtTime(0.9 * puffPeak, start + 0.015)
     puffShape.gain.linearRampToValueAtTime(0, end)
     puff.connect(felt).connect(puffShape).connect(popBus)
@@ -120,7 +128,7 @@ export function createSoundBank(context) {
     const pitch = 112 + 26 * random()
     thump.frequency.setValueAtTime(pitch, start)
     thump.frequency.exponentialRampToValueAtTime(0.8 * pitch, end)
-    thump.connect(envelope(context, popBus, start, end, 0.007, 0.12 * level))
+    thump.connect(envelope(context, popBus, start, end, 0.007, (down ? 0.07 : 0.12) * level))
     thump.start(start)
     thump.stop(end)
   }

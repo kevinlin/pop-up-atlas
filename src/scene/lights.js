@@ -10,13 +10,16 @@ export function createLights(scene) {
   })
   key.shadow.camera.updateProjectionMatrix()
   key.shadow.bias = -0.00012
-  key.shadow.normalBias = 0.004
-  key.shadow.radius = 5
+  key.shadow.normalBias = 0.003
+  key.shadow.radius = 5.25
 
-  const fill = new DirectionalLight(0xc58bff, key.intensity * 2 ** -1.5)
+  const fill = new DirectionalLight(0xc58bff, key.intensity * 2 ** -2.3)
   fill.position.set(5, 4, -6)
   const hemisphere = new HemisphereLight(0xffe8f0, 0x6b4c8a, 0.44)
   scene.add(key, key.target, fill, hemisphere)
+  scene.addEventListener('childadded', ({ child }) => {
+    if (child.material?.userData?.craftBridgeDeck) child.castShadow = true
+  })
 
   return (position) => {
     key.position.copy(position).add(keyOffset)

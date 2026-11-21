@@ -15,7 +15,7 @@ for (let i = 0, t = 0.18; t < 18.7; i++, t += 0.33 + 0.14 * random()) {
 }
 
 const evidence = new URL('../.handoff/evidence/T6/', import.meta.url)
-const filename = 'demo-r2.wav'
+const filename = 'demo-r3.wav'
 const wavPath = fileURLToPath(new URL(filename, evidence))
 const origin = 'http://atlas-audio.test'
 await mkdir(evidence, { recursive: true })
@@ -103,5 +103,5 @@ const report = [
   'Detection uses 5 ms RMS windows across both channels, a rise greater than 0.0015 and 1.45 times the prior window, and a minimum onset spacing of 25 ms.',
   'Nearby pops and chimes can register as one onset. The compressor adds a short delay.',
 ].join('\n') + '\n'
-await writeFile(new URL('onsets-r2.txt', evidence), report)
+await writeFile(new URL('onsets-r3.txt', evidence), report)
 process.stdout.write(report)

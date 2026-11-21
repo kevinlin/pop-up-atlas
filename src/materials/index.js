@@ -1,7 +1,7 @@
 import { Material, MeshLambertMaterial } from 'three'
 import { TILE_SIZE } from '../world/tiles.js'
 import { cellJitterGLSL } from './cell-jitter.js'
-import { glitterGLSL, glitterLights } from './glitter.js'
+import { glitterGLSL, glitterLights, riverGlintBoost } from './glitter.js'
 import { stitchGLSL } from './stitch.js'
 
 const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
@@ -10,13 +10,14 @@ if (query.has('look-shots')) void import('./look-preview.js')
 const flatMaterials = new WeakMap()
 const hingeMaterials = new WeakMap()
 
-function extendShader(shader, { fibre, glitter, largeFlakes, contact, stitch }) {
+function extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim }) {
   let vertexHeader = ''
   let vertex = ''
   let fragmentHeader = ''
   let albedo = ''
   let bump = ''
   let lighting = ''
+  let grade = ''
   if (fibre) {
     const varying = 'flat varying vec2 craftJitter;'
     vertexHeader += `
@@ -51,6 +52,21 @@ ${varying}
   outgoingLight += pow2(grazing) * (diffuseColor.rgb * vec3(0.23, 0.19, 0.30) + vec3(0.010, 0.008, 0.015));
 `
   }
+  if (mint) {
+    lighting += `
+  // The baked green channel carries the needle-felt grain and the diffuse shading.
+  float woolLight = outgoingLight.g * 2.05;
+  outgoingLight = vec3(0.50, 1.0, 0.67) * woolLight;
+`
+    grade = 'gl_FragColor.a = 0.24 * gold;'
+  }
+  if (goldenRim) {
+    lighting += `
+  vec3 backlight = mat3(viewMatrix) * vec3(-0.80, 0.50, -0.33);
+  float gold = pow2(grazing) * smoothstep(-0.15, 0.82, dot(nonPerturbedNormal, backlight));
+  outgoingLight += gold * vec3(0.74, 0.38, 0.09) * ${mint ? '0.45' : '1.0'};
+`
+  }
   if (stitch) {
     fragmentHeader += stitchGLSL
     albedo += `
@@ -71,7 +87,7 @@ ${varying}
     vertexHeader += varying
     fragmentHeader += varying
     vertex += 'craftHingeHeight = abs(transformed.y);'
-    lighting += 'outgoingLight *= mix(0.55, 1.0, smoothstep(0.0, 0.105, craftHingeHeight));'
+    lighting += 'outgoingLight *= mix(0.55, 1.0, smoothstep(0.0, 0.080, craftHingeHeight));'
   }
   if (glitter) {
     vertexHeader += 'flat varying vec2 craftFlakeOffset;'
@@ -84,9 +100,11 @@ ${varying}
 `
     lighting += `
 #if NUM_DIR_LIGHTS > 0
-  float glint = craftGlint(vMapUv * ${glitter === 'thread' ? 'vec2(0.16, 0.015)' : '1.0'}, ${largeFlakes},
+  vec2 glints = craftGlint(vMapUv * ${glitter === 'thread' ? 'vec2(0.16, 0.015)' : '1.0'}, ${largeFlakes},
     normal, normalize(vViewPosition), directionalLights[0].direction);
-  outgoingLight += glint * craftSunlight * 1.85;
+  float glint = max(glints.x, glints.y) * 2.25;
+  ${river ? riverGlintBoost : ''}
+  outgoingLight += glint * craftSunlight;
 #endif
 `
   }
@@ -98,7 +116,7 @@ ${varying}
     .replace('#include <common>', `#include <common>\n${fragmentHeader}`)
     .replace('#include <color_fragment>', `#include <color_fragment>\n${albedo}`)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${bump}`)
-    .replace('#include <opaque_fragment>', `${lighting}\n#include <opaque_fragment>`)
+    .replace('#include <opaque_fragment>', `${lighting}\n#include <opaque_fragment>\n${grade}`)
   if (glitter) {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <lights_fragment_begin>', `vec3 craftSunlight = vec3(0.0);\n${glitterLights}`,
@@ -106,7 +124,7 @@ ${varying}
   }
 }
 
-export function applyCraftMaterial(source, { moving, page = false, tile } = {}) {
+export function applyCraftMaterial(source, { moving, page = false, tile, character = false } = {}) {
   if (plain) return source
   const [kind] = source.name.split('_', 1)
   if (!['felt', 'card', 'glitter', 'yarn'].includes(kind)) return source
@@ -115,7 +133,10 @@ export function applyCraftMaterial(source, { moving, page = false, tile } = {}) 
   // The bridge's rails are authored as yarn. A few metallic threads catch the key.
   const metallicThread = moving && tile === 'yarn_bridge' && /^yarn_(hot_pink|orange|pink|violet)$/.test(source.name)
   const glitter = source.map && (kind === 'glitter' ? 'flake' : metallicThread ? 'thread' : null)
-  const largeFlakes = /^glitter_(river|rim)$/.test(source.name)
+  const river = source.name === 'glitter_river'
+  const largeFlakes = river || source.name === 'glitter_rim'
+  const mint = character && /^felt_(mint|fibre_(mint|green|light))$/.test(source.name)
+  const goldenRim = mint || character && /^yarn_sunset(_fibres)?$/.test(source.name)
   const contact = kind === 'card' && moving
   const stitch = Boolean(source.map) && moving && /^(flower|mushroom_house|cupcake_tree)$/.test(tile) &&
     /^felt_fringe_(hot_pink|pink|lavender|orange|butter|tomato)$/.test(source.name)
@@ -135,10 +156,13 @@ export function applyCraftMaterial(source, { moving, page = false, tile } = {}) 
   material.emissive.copy(source.emissive)
   material.emissiveMap = source.emissiveMap
   material.emissiveIntensity = source.emissiveIntensity
+  if (tile === 'yarn_bridge' && !moving && kind === 'felt' && !source.name.startsWith('felt_fringe_')) {
+    material.userData.craftBridgeDeck = true
+  }
 
   // Keep warm sunlight on the cloth while using cool white stock under the cream page tint.
-  if (source.name === 'card_page') material.color.setRGB(1.353, 1.670, 1.402)
-  if (source.name === 'card_core') material.color.setRGB(1.44, 1.76, 1.53)
+  if (source.name === 'card_page') material.color.setRGB(1.400, 1.666, 1.558)
+  if (source.name === 'card_core') material.color.setRGB(1.49, 1.76, 1.70)
   if (source.name === 'card_cream') material.color.multiply({ r: 1.07, g: 1.14, b: 1.24 })
   if (fibre) material.color.multiplyScalar(1.16)
   if (!moving && tile?.startsWith('path_') && source.name === 'felt_butter') material.color.set(0xf7df97)
@@ -149,21 +173,20 @@ export function applyCraftMaterial(source, { moving, page = false, tile } = {}) 
   material.onBeforeCompile = function (shader, renderer) {
     beforeCompile.call(this, shader, renderer)
     if (fibre || glitter || contact) {
-      extendShader(shader, { fibre, glitter, largeFlakes, contact, stitch })
+      extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim })
     }
   }
-  material.customProgramCacheKey = () => `craft/${fibre}/${glitter}/${contact}/${page}/${largeFlakes}/${stitch}`
+  material.customProgramCacheKey = () => `craft/${fibre}/${glitter}/${contact}/${page}/${largeFlakes}/${river}/${stitch}/${mint}/${goldenRim}`
   materials.set(source, material)
   return material
 }
 
 export function applyCraftMaterials(root) {
   if (plain) return
+  const convert = (material) => applyCraftMaterial(material, { character: true })
   root.traverse((node) => {
     if (!node.isMesh) return
     node.receiveShadow = true
-    node.material = Array.isArray(node.material)
-      ? node.material.map((material) => applyCraftMaterial(material))
-      : applyCraftMaterial(node.material)
+    node.material = Array.isArray(node.material) ? node.material.map(convert) : convert(node.material)
   })
 }

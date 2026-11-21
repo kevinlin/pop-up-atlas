@@ -10,14 +10,14 @@ const depthFocus = /* glsl */ `
 uniform sampler2D sceneDepth;
 uniform float nearPlane;
 uniform float farPlane;
-uniform float focusDepth;
+uniform vec2 focusRange;
 
 float defocus(vec2 uv) {
   float depth = -perspectiveDepthToViewZ(texture2D(sceneDepth, uv).r, nearPlane, farPlane);
-  float offset = depth - focusDepth;
+  float offset = depth - clamp(depth, focusRange.x, focusRange.y);
   // Foreground scenery falls away quickly, while the footing and the next layer stay readable.
   float sharp = offset < 0.0 ? 0.40 : 0.60;
-  float falloff = offset < 0.0 ? max(0.38, focusDepth * 0.12) : max(0.58, focusDepth * 0.18);
+  float falloff = offset < 0.0 ? max(0.38, focusRange.x * 0.12) : max(0.58, focusRange.y * 0.18);
   return smoothstep(sharp, sharp + falloff, abs(offset));
 }
 `
@@ -82,11 +82,12 @@ export class TiltShiftPass {
   constructor(camera) {
     this.lowResolution = new WebGLRenderTarget(1, 1, { type: HalfFloatType, depthBuffer: false })
     this.scratch = this.lowResolution.clone()
+    this.focusRange = new Vector2(1, 1)
     const depthUniforms = {
       sceneDepth: { value: null },
       nearPlane: { value: camera.near },
       farPlane: { value: camera.far },
-      focusDepth: { value: 1 },
+      focusRange: { value: this.focusRange },
     }
     this.downsample = new ShaderPass({
       name: 'Defocused color',
@@ -125,7 +126,10 @@ export class TiltShiftPass {
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           float luminance = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-          gl_FragColor.rgb = mix(vec3(luminance), gl_FragColor.rgb, 1.25);
+          vec3 candy = mix(vec3(luminance), gl_FragColor.rgb, 1.25);
+          // Opaque mint felt stores its grade weight in alpha. Keep the photo's wool shading.
+          vec3 mint = gl_FragColor.g * (vec3(158.0, 224.0, 184.0) / 224.0);
+          gl_FragColor = vec4(mix(mint, candy, gl_FragColor.a), 1.0);
         }
       `,
     })
@@ -150,7 +154,7 @@ export class TiltShiftPass {
 
   render(renderer, image) {
     for (const pass of [this.downsample, this.composite]) {
-      pass.uniforms.focusDepth.value = this.focusDepth
+      pass.uniforms.focusRange.value = this.focusRange
       pass.uniforms.sceneDepth.value = image.depthTexture
     }
     this.downsample.render(renderer, this.lowResolution, image)

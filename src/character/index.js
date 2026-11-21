@@ -1,4 +1,4 @@
-import { Group, Quaternion, Vector3 } from 'three'
+import { Group, MathUtils, Quaternion, Vector3 } from 'three'
 import { applyCraftMaterials } from '../materials/index.js'
 import { createAnimation } from './animation.js'
 import { createFootShadows } from './foot-shadows.js'
@@ -30,9 +30,13 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
   const heading = { value: player.heading, velocity: 0 }
   const pitch = new Quaternion()
   const roll = new Quaternion()
+  const parentRotation = new Quaternion()
+  const turnAxis = new Vector3()
+  const twist = new Quaternion()
   let state = 'idle'
   let animation
   let hair
+  let hips
   let updateFootShadows
 
   async function loadModel() {
@@ -48,6 +52,7 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
     })
     animation = createAnimation(model, animations)
     hair = joints
+    hips = model.getObjectByName('root')
     model.traverse((object) => { if (object.isMesh) object.castShadow = true })
     root.remove(capsule)
     root.add(model)
@@ -71,15 +76,26 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
       root.position.copy(player.position)
       root.rotation.y = heading.value
       const { velocity } = player
-      const bend = updateHairMotion(dt, velocity, heading.value, state === 'dance')
-      if (!animation) return
+      if (!animation) {
+        updateHairMotion(dt, velocity, heading, 0, false)
+        return
+      }
 
       // The mixer can skip writing an unchanged pose, so restore it before mixing.
       for (const { bone, baked } of hair) bone.quaternion.copy(baked)
       animation.update(state, velocity.length(), dt)
+      const bend = updateHairMotion(dt, velocity, heading, hips?.position.y ?? 0, state === 'dance')
       for (const [index, { bone, baked }] of hair.entries()) {
         baked.copy(bone.quaternion)
-        if (!hairWeights[index] || (!bend.pitch && !bend.roll)) continue
+        if (!hairWeights[index]) continue
+        if (index === 1 && bend.yaw) {
+          // Twist above the crown. The lower section already turns with the head.
+          bone.parent.getWorldQuaternion(parentRotation).invert()
+          turnAxis.set(0, 1, 0).applyQuaternion(parentRotation)
+          const upperTwist = MathUtils.clamp(1.14 * bend.yaw, -1.4, 1.4)
+          bone.quaternion.premultiply(twist.setFromAxisAngle(turnAxis, upperTwist))
+        }
+        if (!bend.pitch && !bend.roll) continue
         pitch.setFromAxisAngle(localX, bend.pitch * hairWeights[index])
         roll.setFromAxisAngle(localZ, bend.roll * hairWeights[index])
         bone.quaternion.multiply(pitch).multiply(roll)

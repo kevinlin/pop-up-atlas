@@ -19,7 +19,7 @@ float craftFlake(vec2 grid, vec2 dx, vec2 dy, float coverage, float maxRadius, b
                  vec3 surfaceNormal, vec3 viewDirection, vec3 keyDirection) {
   vec2 cell = floor(grid);
   vec2 seed = craftHash2(cell);
-  if (large && seed.x > 0.68) return 0.0;
+  if (large && seed.x > 0.80) return 0.0;
   vec2 offset = fract(grid) - mix(vec2(0.18), vec2(0.82), seed.yx);
   if (dot(offset, offset) > 0.0324) return 0.0;
 
@@ -37,18 +37,38 @@ float craftFlake(vec2 grid, vec2 dx, vec2 dy, float coverage, float maxRadius, b
     (worldNormal + tilt.x * tangent + tilt.y * cross(worldNormal, tangent)));
   float facing = dot(flakeNormal, keyDirection);
   vec3 halfVector = normalize(viewDirection + keyDirection);
-  float reflects = step(large ? 0.932 : 0.947, dot(flakeNormal, halfVector)) * step(0.0, facing);
-  return reflects * (large ? mix(0.24, 1.0, step(0.65, facing)) : 0.23);
+  float reflects = step(large ? 0.923 : 0.947, dot(flakeNormal, halfVector)) * step(0.0, facing);
+  return reflects * (large ? mix(0.24, 1.0, step(0.60, facing)) : 0.23);
 }
 
-float craftGlint(vec2 uv, bool largeFlakes, vec3 normal, vec3 viewDir, vec3 keyDir) {
+vec2 craftGlint(vec2 uv, bool largeFlakes, vec3 normal, vec3 viewDir, vec3 keyDir) {
   vec2 grid = uv * 22.0 + craftFlakeOffset;
   vec2 dx = dFdx(grid);
   vec2 dy = dFdy(grid);
-  float fine = craftFlake(grid, dx, dy, 0.0062, 0.55, false, normal, viewDir, keyDir);
+  float fine = craftFlake(grid, dx, dy, 0.0054, 0.55, false, normal, viewDir, keyDir);
   float large = largeFlakes
-    ? craftFlake(grid / 3.0 + 81.0, dx / 3.0, dy / 3.0, 0.0038, 1.45, true, normal, viewDir, keyDir)
+    ? craftFlake(grid / 3.0 + 81.0, dx / 3.0, dy / 3.0, 0.0046, 1.45, true, normal, viewDir, keyDir)
     : 0.0;
-  return max(fine, large);
+  return vec2(fine, large);
 }
+`
+
+export const riverGlintBoost = /* glsl */ `
+#if defined(USE_SHADOWMAP) && defined(SHADOWMAP_TYPE_PCF) && NUM_DIR_LIGHT_SHADOWS > 0
+  float sunVisibility = craftSunlight.r / max(directionalLights[0].color.r, 0.001);
+  if (glints.y > 0.5 && sunVisibility > 0.84 && receiveShadow) {
+    vec3 point = vDirectionalShadowCoord[0].xyz / vDirectionalShadowCoord[0].w;
+    point.z += directionalLightShadows[0].shadowBias;
+    vec2 ring = 10.0 / directionalLightShadows[0].shadowMapSize;
+    if (all(greaterThan(point.xy, ring)) && all(lessThan(point.xy, 1.0 - ring))) {
+      // Probe just beyond the PCF penumbra, only for already sunlit coarse flakes.
+      float neighbor = min(
+        min(texture(directionalShadowMap[0], point + vec3(ring.x, 0.0, 0.0)),
+            texture(directionalShadowMap[0], point - vec3(ring.x, 0.0, 0.0))),
+        min(texture(directionalShadowMap[0], point + vec3(0.0, ring.y, 0.0)),
+            texture(directionalShadowMap[0], point - vec3(0.0, ring.y, 0.0))));
+      glint += 2.2 * glints.y * (1.0 - neighbor) * smoothstep(0.84, 0.99, sunVisibility);
+    }
+  }
+#endif
 `
