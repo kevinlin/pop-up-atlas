@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { createSteppedPage, evidenceDir, headless, launchChromium, previewURL, writeJson } from './capture.mjs'
+import {
+  createSteppedPage, defaultRound, evidenceDir, headless, launchChromium, previewURL, readDanceSeconds, writeJson,
+} from './capture.mjs'
+import { PAGE_MIN_Z } from '../src/world/tiles.js'
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -10,13 +13,16 @@ const { positionals, values } = parseArgs({
 })
 assert.ok(positionals.length <= 1 && !(positionals.length && values.out),
   'Usage: node scripts/e2e.mjs [REPORT_PATH | --out REPORT_PATH] [--url PREVIEW_URL]')
-const output = values.out ?? positionals[0] ?? join(evidenceDir, 'e2e.json')
+const output = values.out ?? positionals[0] ?? join(evidenceDir, `round-${defaultRound}`, 'e2e.json')
 const url = new URL(values.url ?? previewURL)
 url.searchParams.set('seed', '0')
 url.searchParams.delete('cam')
-const viewport = { width: 1280, height: 720 }
+const viewport = headless ? { width: 640, height: 360 } : { width: 1280, height: 720 }
 const fps = 60
 const tile = { i: -1, j: -3, id: 'cupcake_tree', x: -2, z: -6 }
+const upRadius = 3
+const downRadius = 4.5
+const maxFrameTravel = 1.2 / fps + 1e-6
 const tolerance = 2
 const degrees = (radians) => radians * 180 / Math.PI
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
@@ -38,10 +44,28 @@ async function run() {
   try {
     const { page, open, advance, errors } = await createSteppedPage(browser, viewport, { waitForAudio: true })
     await open(url.href)
+    const clipSeconds = await readDanceSeconds(page)
     let frame = 0
     const step = async (count) => {
       await advance(frame + 1, fps, count)
       frame += count
+    }
+    const watchFold = async (count, direction) => {
+      const position = await page.evaluate(({ frame, fps, count, direction, tile }) => {
+        const { foldLog, player } = window.__atlas
+        let position
+        const before = foldLog.length
+        for (let i = 1; i <= count; i++) {
+          window.__atlasStep(frame + i, fps, 1)
+          if (!position && foldLog.slice(before)
+            .some(({ dir, i, j }) => dir === direction && i === tile.i && j === tile.j)) {
+            position = { x: player.x, z: player.z }
+          }
+        }
+        return position
+      }, { frame, fps, count, direction, tile })
+      frame += count
+      return position
     }
     const pose = () => page.evaluate(() => ({
       ...window.__atlas.player,
@@ -75,9 +99,11 @@ async function run() {
     })
 
     const offsets = []
+    let upPosition
     await page.keyboard.down('KeyW')
-    for (let i = 0; i < 42; i++) {
-      await step(5)
+    for (let i = 0; i < 52; i++) {
+      if (upPosition) await step(5)
+      else upPosition = await watchFold(5, 'up')
       const { x, z, state, tip } = await pose()
       if (state === 'walk') offsets.push([tip.x - x, tip.y, tip.z - z])
     }
@@ -91,18 +117,29 @@ async function run() {
     const risingTrace = (await trace()).map(({ t, angle }) => ({ t, angleDeg: degrees(angle) }))
     const rise = risingTrace.filter(({ t }) => up && t >= up.t)
     const peak = rise.reduce((max, { angleDeg }) => Math.max(max, angleDeg), -Infinity)
-    const settled = rise.find((sample, i) => i < rise.length - 1
+    const settledIndex = rise.findIndex((_, i) => i > 0 && i < rise.length - 1
       && rise.slice(i).every(({ angleDeg }) => Math.abs(angleDeg) <= tolerance))
-    const settlingSeconds = settled && settled.t - up.t
+    let settlingSeconds
+    const settled = rise[settledIndex]
+    if (settled) {
+      // The final tolerance crossing can fall between the last out-of-band sample and 1.0 s.
+      const previous = rise[settledIndex - 1]
+      const previousError = Math.abs(previous.angleDeg)
+      const fraction = (previousError - tolerance) / (previousError - Math.abs(settled.angleDeg))
+      settlingSeconds = previous.t - up.t + fraction * (settled.t - previous.t)
+    }
+    const upDistance = upPosition && distance(tile, upPosition)
     check('fold-rise-overshoot-settle', {
-      event: up, peakDeg: peak, overshootPercent: 100 * peak / 90,
-      settlingSeconds, trace: risingTrace,
+      event: up, playerAtTrigger: upPosition, triggerDistanceUnits: upDistance, peakDeg: peak, overshootPercent: 100 * peak / 90,
+      settlingSeconds, firstSettledSampleSeconds: settled && settled.t - up.t, trace: risingTrace,
     }, () => {
       assert.ok(up && rise.length > 1, 'No rising trace for the cupcake tree')
+      assert.ok(upDistance <= upRadius && upDistance > upRadius - maxFrameTravel,
+        `Up fold did not start as the troll entered the ${upRadius}-unit radius`)
       assert.ok(Math.abs(rise[0].angleDeg + 90) <= tolerance, 'Rise did not start flat')
       assert.ok(rise.some(({ angleDeg }) => angleDeg > -70 && angleDeg < -20), 'No intermediate rising angle')
-      assert.ok(peak >= 0.15 * 90 && peak <= 0.25 * 90, `Peak angle ${peak}° is outside 15–25% overshoot`)
-      assert.ok(settlingSeconds < 0.9 && rise.at(-1).t - up.t >= 0.9, 'Did not stay within ±2° before 0.9 s')
+      assert.ok(peak >= 0.12 * 90 && peak <= 0.20 * 90, `Peak angle ${peak}° is outside 12–20% overshoot`)
+      assert.ok(settlingSeconds < 1 && rise.at(-1).t - up.t >= 1, 'Did not stay within ±2° before 1.0 s')
     })
 
     let firstDance
@@ -115,6 +152,25 @@ async function run() {
     }
     check('dance-after-idle', { idleSeconds: firstDance },
       () => assert.ok(firstDance >= 4 && firstDance <= 5, 'No dance between 4 and 5 seconds of idle'))
+
+    let danceSeconds
+    let danceEnd
+    if (firstDance !== undefined) {
+      for (let elapsed = 5; elapsed <= Math.ceil(clipSeconds * fps) + 10; elapsed += 5) {
+        await step(5)
+        danceEnd = (await pose()).state
+        if (danceEnd !== 'dance') {
+          danceSeconds = elapsed / fps
+          break
+        }
+      }
+    }
+    check('dance-completes-clip', { clipSeconds, danceSeconds, endState: danceEnd }, () => {
+      assert.ok(Math.abs(clipSeconds - 3) <= 0.25, `Expected an approximately 3s dance clip. Found ${clipSeconds}s`)
+      assert.equal(danceEnd, 'idle', 'Dance did not return to idle')
+      assert.ok(Math.abs(danceSeconds - clipSeconds) <= 6 / fps,
+        `Dance lasted ${danceSeconds}s, expected ${clipSeconds}s from the GLB`)
+    })
 
     // The stationary follow target settles on the troll during the idle test.
     const beforeClick = await pose()
@@ -135,19 +191,7 @@ async function run() {
     })
 
     await page.keyboard.down('KeyW')
-    const downPosition = await page.evaluate(({ frame, fps, tile }) => {
-      const { foldLog, player } = window.__atlas
-      let position
-      const beforeDeparture = foldLog.length
-      for (let i = 1; i <= 5 * fps; i++) {
-        window.__atlasStep(frame + i, fps, 1)
-        if (!position && foldLog.slice(beforeDeparture)
-          .some(({ dir, i, j }) => dir === 'down' && i === tile.i && j === tile.j)) {
-          position = { x: player.x, z: player.z }
-        }
-      }
-      return position
-    }, { frame, fps, tile })
+    const downPosition = await watchFold(4 * fps, 'down')
     await page.keyboard.up('KeyW')
     const end = await pose()
     const foldLog = await folds()
@@ -159,11 +203,15 @@ async function run() {
       event: down, playerAtTrigger: downPosition, triggerDistanceUnits: triggerDistance, endDistanceUnits: distance(tile, end),
       finalAngleDeg: fall.at(-1)?.angleDeg, trace: fallingTrace,
     }, () => {
-      assert.ok(down && up && down.t > up.t && triggerDistance > 6.5 && distance(tile, end) > 6.5,
-        'No down event after leaving the 6.5-unit radius')
+      assert.ok(down && up && down.t > up.t && triggerDistance > downRadius
+        && triggerDistance <= downRadius + maxFrameTravel, `No down event just beyond the ${downRadius}-unit radius`)
       assert.ok(Math.abs(fall[0]?.angleDeg) <= tolerance, 'Down fold did not start upright')
       assert.ok(fall.some(({ angleDeg }) => angleDeg > -75 && angleDeg < -15), 'No intermediate falling angle')
       assert.ok(Math.abs(fall.at(-1)?.angleDeg + 90) <= tolerance, 'Down fold did not become flat')
+    })
+    check('book-edge-blocks-walking', { endZ: end.z, edgeZ: PAGE_MIN_Z }, () => {
+      assert.ok(end.z >= PAGE_MIN_Z && end.z - PAGE_MIN_Z <= maxFrameTravel, 'Troll did not stop at the page edge')
+      assert.equal(end.state, 'idle')
     })
 
     const notes = await page.evaluate(() => window.__atlas.audioLog)
