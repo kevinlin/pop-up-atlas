@@ -353,21 +353,31 @@ async function run() {
       return observed
     }
     const watchFold = async (count, direction, tile) => {
-      const observed = await page.evaluate(async ({ frame, fps, count, direction, tile }) => {
+      const { observed, steps } = await page.evaluate(async ({ frame, fps, count, direction, tile, tileSize, tieFrames }) => {
         const { foldLog, player } = window.__atlas
-        let observed
-        for (let i = 1; i <= count; i++) {
+        const candidates = []
+        let last = count
+        let first
+        for (let i = 1; i <= last; i++) {
           const before = foldLog.length
           window.__atlasStep(frame + i, fps, 1)
           await Promise.resolve()
-          if (observed) continue
-          const event = foldLog.slice(before).find(({ dir, i, j }) =>
+          const events = foldLog.slice(before).filter(({ dir, i, j }) =>
             dir === direction && (!tile || (i === tile.i && j === tile.j)))
-          if (event) observed = { event, player: { x: player.x, z: player.z } }
+          for (const event of events) candidates.push({ event, player: { x: player.x, z: player.z } })
+          // Tiles entering the radius within a few frames of each other are one tie. Float noise orders them, so
+          // keep watching briefly and pick the tile on the walk line rather than the first one logged.
+          if (candidates.length && !tile) {
+            first ??= i
+            last = Math.max(count, first + tieFrames)
+          }
         }
-        return observed
-      }, { frame, fps, count, direction, tile })
-      frame += count
+        const lateral = (candidate) => Math.abs(candidate.event.i * tileSize - candidate.player.x)
+        const observed = tile ? candidates[0] : candidates.reduce((best, candidate) =>
+          !best || lateral(candidate) < lateral(best) - 1e-6 ? candidate : best, undefined)
+        return { observed, steps: last }
+      }, { frame, fps, count, direction, tile, tileSize: TILE_SIZE, tieFrames: 3 })
+      frame += steps
       return observed
     }
     const pose = () => page.evaluate(() => ({
@@ -559,8 +569,9 @@ async function run() {
       assert.equal(end.state, 'idle')
     })
 
-    // Reverse without an idle frame. The clear meadow lane gives prior reactions time to clear.
-    await walkAxisTo('z', PAGE_MIN_Z + 5.6)
+    // Reverse without an idle frame, retreating only 2 units: the hero tiles beside the lane stay folded up, so the
+    // approach starts no new voice, and walking on avoids walk-start/stop and hum voices before the contact.
+    await walkAxisTo('z', PAGE_MIN_Z + 2)
     const beforeBump = await pose()
     await page.keyboard.down('KeyW')
     const bumpAt = await step(Math.ceil((beforeBump.z - PAGE_MIN_Z) * fps / walkSpeed) + 1, 'edge', PAGE_MIN_Z)
