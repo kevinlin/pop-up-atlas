@@ -1,4 +1,9 @@
 export const TILE_SIZE = 2
+export const FIRST_PAGE_ROW = -5
+export const LAST_PAGE_ROW = 4
+export const PAGE_MIN_Z = (FIRST_PAGE_ROW - 0.5) * TILE_SIZE
+export const PAGE_MAX_Z = (LAST_PAGE_ROW + 0.5) * TILE_SIZE
+export const GUTTER_INTERVAL = 8
 export const RIVER_HALF_WIDTH = 0.36
 export const BRIDGE_HALF_WIDTH = 0.32
 const RIVER_BEND_RADIUS = 0.43
@@ -31,7 +36,9 @@ export const cellAt = (position) => Math.floor(position / TILE_SIZE + 0.5)
 export const cellKey = (i, j) => `${i},${j}`
 
 export function blocksPoint(tile, x, z) {
-  if (tile.blockedRadius) return x * x + z * z <= tile.blockedRadius ** 2
+  if (tile.blockedRadius) {
+    return (x - (tile.offsetX ?? 0)) ** 2 + (z - (tile.offsetZ ?? 0)) ** 2 <= tile.blockedRadius ** 2
+  }
 
   const localX = tile.rotation === 1 ? -z : x
   const localZ = tile.rotation === 1 ? x : z

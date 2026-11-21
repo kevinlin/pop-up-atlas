@@ -1,11 +1,11 @@
 import {
-  BoxGeometry, Color, CylinderGeometry, Float32BufferAttribute, InstancedMesh,
+  Box3, BoxGeometry, Color, CylinderGeometry, Float32BufferAttribute, InstancedMesh,
   Matrix4, MeshLambertMaterial, StaticDrawUsage, DynamicDrawUsage, Vector3,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { applyCraftMaterial } from '../materials/index.js'
 import { hash } from './hash.js'
-import { BRIDGE_HALF_WIDTH, RIVER_HALF_WIDTH, TILES, TILE_SIZE } from './tiles.js'
+import { BRIDGE_HALF_WIDTH, GUTTER_INTERVAL, RIVER_HALF_WIDTH, TILES, TILE_SIZE } from './tiles.js'
 import { FLAT } from './spring.js'
 
 const mat = new MeshLambertMaterial({ vertexColors: true })
@@ -109,12 +109,12 @@ function placeholderParts() {
   }
 }
 
-const GUTTER_INTERVAL = 8
 const GUTTER_HALF_WIDTH = 0.26
 const CARD_YAW_LIMIT = Math.PI / 15
 const MEADOW_MODELS = ['meadow_a', 'meadow_b', 'meadow_c']
 const PAGE_DECORATIONS = ['page_deco_a', 'page_deco_b', 'page_deco_c']
 const hingeIndex = (name) => /^hinge_(\d+)$/.exec(name)
+const hingeOrder = (a, b) => b.height - a.height || a.index - b.index
 
 export function createArt(scene) {
   const batches = []
@@ -128,9 +128,10 @@ export function createArt(scene) {
   let capacity = 0
   let revision = 0
 
-  function clipPageAtGutter(material) {
+  function clipPageAtGutter(material, gutter = false) {
     material.onBeforeCompile = (shader) => {
       shader.uniforms.atlasGutter = showGutter
+      shader.uniforms.atlasGutterSide = { value: gutter ? -1 : 1 }
       shader.vertexShader = `varying float atlasPageX;
 ${shader.vertexShader}`.replace(
         '#include <project_vertex>',
@@ -139,10 +140,12 @@ ${shader.vertexShader}`.replace(
       const period = GUTTER_INTERVAL * TILE_SIZE
       shader.fragmentShader = `varying float atlasPageX;
 uniform float atlasGutter;
+uniform float atlasGutterSide;
 ${shader.fragmentShader}`.replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        if (atlasGutter > 0.0 && abs(mod(atlasPageX + ${period / 2}.0, ${period}.0) - ${period / 2}.0) < ${GUTTER_HALF_WIDTH}) discard;`,
+        float gutterEdge = abs(mod(atlasPageX + ${period / 2}.0, ${period}.0) - ${period / 2}.0) - ${GUTTER_HALF_WIDTH};
+        if (atlasGutter > 0.0 && gutterEdge * atlasGutterSide < 0.0) discard;`,
       )
     }
     return material
@@ -168,14 +171,18 @@ ${shader.fragmentShader}`.replace(
   const placeholders = new Map(Object.entries(placeholderParts()).map(([id, parts]) => [
     id, {
       base: primitiveBatch(parts.base),
-      hinges: (parts.hinges ?? []).map((geometry, index) => ({
-        index, batches: primitiveBatch(geometry, true), z: parts.hingeZ?.[index] ?? 0,
-      })),
+      hinges: (parts.hinges ?? []).map((geometry, index) => {
+        const batches = primitiveBatch(geometry, true)
+        batches[0].geometry.computeBoundingBox()
+        return { index, height: batches[0].geometry.boundingBox.max.y, batches, z: parts.hingeZ?.[index] ?? 0 }
+      }).sort(hingeOrder),
     },
   ]))
 
   function modelBatches(root, id, moving = false, isPage = false) {
     const parts = []
+    const gutter = id === 'gutter'
+    const page = isPage || gutter
     const inversePivot = new Matrix4()
     if (moving) inversePivot.copy(root.matrixWorld).invert()
 
@@ -183,8 +190,8 @@ ${shader.fragmentShader}`.replace(
       if (!node.isMesh) return
       const transform = new Matrix4().multiplyMatrices(inversePivot, node.matrixWorld)
       const geometry = node.geometry.clone().applyMatrix4(transform)
-      if (isPage) clipPageAtGutter(node.material)
-      parts.push(addBatch(geometry, applyCraftMaterial(node.material, { moving, page: isPage, tile: id }), moving, `atlas/${id}/${node.name}`))
+      if (page) clipPageAtGutter(node.material, gutter)
+      parts.push(addBatch(geometry, applyCraftMaterial(node.material, { moving, page, tile: id }), moving, `atlas/${id}/${node.name}`))
     })
     return parts
   }
@@ -213,9 +220,14 @@ ${shader.fragmentShader}`.replace(
         // Bake each mesh into its authored pivot space so a tile can share draw calls.
         const pivot = node.clone(false)
         node.matrixWorld.decompose(pivot.position, pivot.quaternion, pivot.scale)
-        hinges.push({ index: Number(match[1]), node: pivot, batches: modelBatches(node, id, true) })
+        hinges.push({
+          index: Number(match[1]),
+          height: new Box3().setFromObject(node, true).max.y,
+          node: pivot,
+          batches: modelBatches(node, id, true),
+        })
       })
-      hinges.sort((a, b) => a.index - b.index)
+      hinges.sort(hingeOrder)
       models.set(id, { base: base ? modelBatches(base, id) : [], hinges })
     }
     revision += 1
@@ -269,14 +281,18 @@ ${shader.fragmentShader}`.replace(
 
   function create({ tile, i, j, x, z }, model) {
     const template = model ?? placeholders.get(tile.id)
+    const meadow = tile.id === 'meadow'
+    const clearing = meadow && tile.zone === 'clearing'
+    const scale = tile.scale ?? 1
     const yaw = tile.sockets === 'gggg'
       ? (2 * hash(0, i, j, 7) / 0xffffffff - 1) * CARD_YAW_LIMIT
       : tile.rotation * Math.PI / 2
     return {
       model,
-      base: template.base,
-      hinges: template.hinges.map((hinge) => ({ ...hinge, node: hinge.node?.clone(false) })),
-      tileMatrix: tile.id === 'meadow' ? meadowMatrix(yaw, i, j, x, z) : new Matrix4().makeRotationY(yaw).setPosition(x, 0, z),
+      base: clearing && hash(0, i, j, 17) % 4 !== 0 ? [] : template.base,
+      hinges: clearing ? [] : template.hinges.map((hinge) => ({ ...hinge, node: hinge.node?.clone(false) })),
+      tileMatrix: meadow ? meadowMatrix(yaw, i, j, x, z) : new Matrix4().makeRotationY(yaw)
+        .scale(new Vector3(scale, scale, scale)).setPosition(x + (tile.offsetX ?? 0), 0, z + (tile.offsetZ ?? 0)),
     }
   }
 

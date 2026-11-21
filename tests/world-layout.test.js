@@ -1,4 +1,4 @@
-import { Scene } from 'three'
+import { PerspectiveCamera, Scene } from 'three'
 import { describe, expect, it } from 'vitest'
 import { CHUNK_SIZE, createLayout } from '../src/world/layout.js'
 import { createTileStream } from '../src/world/stream.js'
@@ -25,7 +25,7 @@ function snapshot(layout, min, max, checkSeams = false) {
   for (let j = min; j <= max; j += 1) {
     for (let i = min; i <= max; i += 1) {
       const tile = layout.getCell(i, j)
-      result.push(`${tile.id}:${tile.rotation}`)
+      result.push(`${tile.id}:${tile.rotation}:${tile.zone}:${tile.scale}:${tile.offsetX}:${tile.offsetZ}`)
       if (!checkSeams) continue
       if (i < max) expect(tile.sockets[1]).toBe(layout.getCell(i + 1, j).sockets[3])
       if (j < max) expect(tile.sockets[2]).toBe(layout.getCell(i, j + 1).sockets[0])
@@ -45,7 +45,7 @@ function walkableArea(layout, limit) {
       const xd = x + dx
       const zd = z + dz
       const key = cellKey(xd, zd)
-      if (Math.max(Math.abs(xd), Math.abs(zd)) > limit) continue
+      if (Math.abs(xd) > limit || zd < -5 || zd > 4) continue
       if (here.sockets[edge] === 'r' || visited.has(key) || !layout.getCell(xd, zd).walkable) continue
       visited.add(key)
       queue.push([xd, zd])
@@ -60,7 +60,7 @@ function checkRiverCrossings(layout, { queue, visited }, limit) {
     for (const [dx, dz] of DIRECTIONS) {
       const i = x + dx
       const j = z + dz
-      if (Math.max(Math.abs(i), Math.abs(j)) > limit || checked.has(cellKey(i, j))) continue
+      if (Math.abs(i) > limit || j < -5 || j > 4 || checked.has(cellKey(i, j))) continue
       if (!layout.getCell(i, j).sockets.includes('r')) continue
       const river = [[i, j]]
       checked.add(cellKey(i, j))
@@ -81,7 +81,7 @@ function checkRiverCrossings(layout, { queue, visited }, limit) {
           if (tile.sockets[edge] !== 'r') continue
           const [nextI, nextJ] = [u + dx, v + dz]
           const key = cellKey(nextI, nextJ)
-          if (Math.max(Math.abs(nextI), Math.abs(nextJ)) > limit || checked.has(key)) continue
+          if (Math.abs(nextI) > limit || nextJ < -5 || nextJ > 4 || checked.has(key)) continue
           checked.add(key)
           river.push([nextI, nextJ])
         }
@@ -105,7 +105,7 @@ describe('atlas layout', () => {
   })
 
   it('keeps generated tiles when render state is dropped and rebuilt', () => {
-    const layout = createLayout(42)
+    const layout = createLayout(0)
     const stream = createTileStream(new Scene(), layout, () => {})
     const origin = { x: 0, z: 0 }
     stream.update(0, 0, origin, 16 / 9)
@@ -121,6 +121,43 @@ describe('atlas layout', () => {
     expect(snapshot(layout, -6, 6)).toEqual(first)
   })
 
+  it('streams ten page rows and follows the troll indefinitely along X', () => {
+    const scene = new Scene()
+    const layout = createLayout(0)
+    const rows = new Set()
+    const stream = createTileStream(scene, {
+      getCell(i, j) {
+        rows.add(j)
+        return layout.getCell(i, j)
+      },
+    }, () => {})
+
+    stream.update(0, 0, { x: 0, z: 0 }, 16 / 9)
+    expect([...rows]).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4])
+    const table = scene.getObjectByName('atlas/table')
+    const sheets = scene.getObjectByName('atlas/page-stack')
+    stream.update(0.016, 0.016, { x: 1024, z: 8.9 }, 16 / 9)
+    expect(Math.abs(table.position.x - 1024)).toBeLessThanOrEqual(16)
+    expect(sheets.parent.position.x).toBe(1008)
+    expect(rows.size).toBe(10)
+  })
+
+  it('refreshes the drawn pages as the camera catches up to a new player position', () => {
+    const scene = new Scene()
+    const camera = new PerspectiveCamera(30, 16 / 9, 0.1, 160)
+    const stream = createTileStream(scene, createLayout(0), () => {}, camera)
+    const player = { x: 40, z: 0 }
+    camera.position.set(0, 7, 7)
+    camera.lookAt(0, 0, 0)
+    stream.update(0, 0, player, camera.aspect)
+    expect(scene.children.some((mesh) => mesh.isInstancedMesh && mesh.count > 0)).toBe(false)
+
+    camera.position.x = player.x
+    camera.lookAt(player.x, 0, player.z)
+    stream.update(0.016, 0.016, player, camera.aspect)
+    expect(scene.children.some((mesh) => mesh.isInstancedMesh && mesh.count > 0)).toBe(true)
+  })
+
   it('resets the layout from the requested seed', () => {
     const layout = createLayout(0)
     const first = snapshot(layout, -8, 8)
@@ -130,13 +167,54 @@ describe('atlas layout', () => {
     expect(snapshot(layout, -8, 8)).toEqual(first)
   })
 
-  it.each(seeds)('can walk from origin to Chebyshev radius 40 for seed %i', (seed) => {
+  it.each(seeds)('can walk 40 columns in both directions inside the book for seed %i', (seed) => {
     const layout = createLayout(seed)
     expect(layout.isBlocked(0, 0)).toBe(false)
     expect(layout.getCell(0, 0).walkable).toBe(true)
     const area = walkableArea(layout, 40)
-    expect(area.queue.some(([x, z]) => Math.max(Math.abs(x), Math.abs(z)) === 40)).toBe(true)
+    expect(area.queue.some(([x]) => x === -40)).toBe(true)
+    expect(area.queue.some(([x]) => x === 40)).toBe(true)
     checkRiverCrossings(layout, area, 40)
+  })
+
+  it('blocks the table beyond both page edges across the endless axis', () => {
+    const layout = createLayout(42)
+    expect(layout.isBlocked(0, -11)).toBe(false)
+    expect(layout.isBlocked(0, 9)).toBe(false)
+    for (const x of [-2000, 0, 2000]) {
+      expect(layout.isBlocked(x, -11.001)).toBe(true)
+      expect(layout.isBlocked(x, 9.001)).toBe(true)
+    }
+  })
+
+  it('clusters tall props in groves, with smaller cutouts and scaled collision', () => {
+    const layout = createLayout(42)
+    const zones = { grove: { props: 0, grass: 0 }, clearing: { props: 0, grass: 0 } }
+    const scales = []
+    for (let j = -5; j <= 4; j += 1) {
+      for (let i = -40; i < 40; i += 1) {
+        const tile = layout.getCell(i, j)
+        if (tile.sockets !== 'gggg') continue
+        const zone = zones[tile.zone]
+        zone.grass += 1
+        if (!tile.blockedRadius) continue
+        zone.props += 1
+        if (tile.zone === 'grove') {
+          scales.push(tile.scale)
+          expect(Math.abs(tile.offsetX) + tile.blockedRadius).toBeLessThan(1)
+          expect(Math.abs(tile.offsetZ) + tile.blockedRadius).toBeLessThan(1)
+        }
+        const authored = VARIANTS.find(({ id }) => id === tile.id)
+        expect(tile.blockedRadius).toBeCloseTo(authored.blockedRadius * tile.scale, 12)
+        const x = i * 2 + (tile.offsetX ?? 0)
+        const z = j * 2 + (tile.offsetZ ?? 0)
+        expect(layout.isBlocked(x + tile.blockedRadius - 0.001, z)).toBe(true)
+        expect(layout.isBlocked(x + tile.blockedRadius + 0.001, z)).toBe(false)
+      }
+    }
+    expect(zones.grove.props / zones.grove.grass).toBeGreaterThan(0.65)
+    expect(zones.clearing.props / zones.clearing.grass).toBeLessThan(0.2)
+    expect(Math.max(...scales) / Math.min(...scales)).toBeGreaterThan(2.8)
   })
 
   it.each(seeds)('keeps features sparse in a 64×64 area for seed %i', (seed) => {

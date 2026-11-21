@@ -1,4 +1,6 @@
-import { blocksPoint, cellAt, cellKey, DIRECTIONS, TILE_SIZE, VARIANTS } from './tiles.js'
+import {
+  blocksPoint, cellAt, cellKey, DIRECTIONS, LAST_PAGE_ROW, PAGE_MAX_Z, PAGE_MIN_Z, TILE_SIZE, VARIANTS,
+} from './tiles.js'
 
 import { hash } from './hash.js'
 
@@ -22,6 +24,23 @@ const dry = maskFor((tile) => !tile.sockets.includes('r'))
 const tileMasks = new Map(VARIANTS.map(({ sockets }) => [
   sockets, maskFor((tile) => tile.sockets === sockets),
 ]))
+
+const ZONE_SIZE = 8
+const meadowWeight = VARIANTS[bitIndex(meadow)].weight
+const grassWeight = VARIANTS.filter((tile) => tile.sockets === 'gggg').reduce((sum, tile) => sum + tile.weight, 0)
+const zoneWeights = [0.12, 0.76].map((propShare) => VARIANTS.map((tile) => {
+  // Keep total grass weight constant so the path and river mix stays within its existing bounds.
+  if (tile.id === 'meadow') return grassWeight * (1 - propShare)
+  if (tile.blockedRadius) return grassWeight * propShare * tile.weight / (grassWeight - meadowWeight)
+  return tile.weight
+}))
+
+function zoneAt(seed, i, j) {
+  // Warp the alternating zones across chunk seams so their borders do not follow the tile grid.
+  const u = Math.floor((i + (hash(seed, 0, 0, 13) % ZONE_SIZE) + 1.6 * Math.sin(j / 2.9)) / ZONE_SIZE)
+  const v = Math.floor((j + (hash(seed, 0, 0, 14) % ZONE_SIZE) + 1.6 * Math.sin(i / 3.1)) / ZONE_SIZE)
+  return (u + v + hash(seed, 0, 0, 15)) & 1
+}
 
 const cells = Array.from({ length: CELL_COUNT }, (_, index) => {
   const x = index % CHUNK_SIZE
@@ -140,19 +159,19 @@ function propagate(domains, queue) {
   return true
 }
 
-function weightedBit(mask, random) {
+function weightedBit(mask, random, weights) {
   let total = 0
-  for (let bits = mask; bits; bits &= bits - 1) total += VARIANTS[bitIndex(bits & -bits)].weight
+  for (let bits = mask; bits; bits &= bits - 1) total += weights[bitIndex(bits & -bits)]
   let draw = random() * total
   for (let bits = mask; bits; bits &= bits - 1) {
     const bit = bits & -bits
-    draw -= VARIANTS[bitIndex(bit)].weight
+    draw -= weights[bitIndex(bit)]
     if (draw < 0) return bit
   }
   return mask & -mask
 }
 
-function collapse(initial, random) {
+function collapse(initial, random, zones) {
   const offset = Math.floor(random() * CELL_COUNT)
   let remainingBacktracks = 48
 
@@ -173,7 +192,7 @@ function collapse(initial, random) {
 
     let options = domains[best]
     while (options && remainingBacktracks > 0) {
-      const bit = weightedBit(options, random)
+      const bit = weightedBit(options, random, zoneWeights[zones[best]])
       const branch = domains.slice()
       branch[best] = bit
       const solved = propagate(branch, [best]) && search(branch)
@@ -197,6 +216,7 @@ export function createLayout(initialSeed = 0) {
     if (chunks.has(chunkKey)) return chunks.get(chunkKey)
     const startI = cx * CHUNK_SIZE
     const startJ = cz * CHUNK_SIZE
+    const zones = cells.map(({ x, z }) => zoneAt(seed, startI + x, startJ + z))
     const features = featureSockets(seed, cx, cz)
     const riverChunk = hasRiver(seed, cx)
     const localPaths = !riverChunk && hash(seed, cx, cz, 4) % 5 === 0
@@ -228,15 +248,28 @@ export function createLayout(initialSeed = 0) {
     let solved
     if (propagate(domains, cells.map((_, index) => index))) {
       for (let attempt = 0; attempt < 3 && !solved; attempt += 1) {
-        solved = collapse(domains, randomFrom(hash(seed, cx, cz, attempt)))
+        solved = collapse(domains, randomFrom(hash(seed, cx, cz, attempt)), zones)
       }
     }
 
     // This layout satisfies the same seams if the search budget runs out.
     const chunk = Array.from(solved ?? fallback, (bit, index) => {
       const { x, z } = cells[index]
-      const tile = VARIANTS[bitIndex(bit)]
-      generated.set(cellKey(startI + x, startJ + z), tile)
+      const i = startI + x
+      const j = startJ + z
+      const variant = VARIANTS[bitIndex(bit)]
+      const grove = zones[index] === 1
+      const unit = hash(seed, i, j, 16) / 0xffffffff
+      const scale = variant.blockedRadius ? 0.36 + (grove ? 0.72 : 0.22) * unit : 1
+      const tile = { ...variant, zone: grove ? 'grove' : 'clearing', scale }
+      if (variant.blockedRadius) tile.blockedRadius *= scale
+      if (grove && tile.blockedRadius) {
+        // The whole collision disc stays inside its own cell so the edge corridors stay clear.
+        const inset = Math.min(0.28, TILE_SIZE / 2 - tile.blockedRadius - 0.025)
+        tile.offsetX = inset * (2 * hash(seed, i, j, 17) / 0xffffffff - 1)
+        tile.offsetZ = inset * (2 * hash(seed, i, j, 18) / 0xffffffff - 1)
+      }
+      generated.set(cellKey(i, j), tile)
       return tile
     })
     chunks.set(chunkKey, chunk)
@@ -253,8 +286,9 @@ export function createLayout(initialSeed = 0) {
     generateChunk,
     getCell,
     isBlocked(x, z) {
+      if (z < PAGE_MIN_Z || z > PAGE_MAX_Z) return true
       const i = cellAt(x)
-      const j = cellAt(z)
+      const j = Math.min(LAST_PAGE_ROW, cellAt(z))
       return blocksPoint(getCell(i, j), x - TILE_SIZE * i, z - TILE_SIZE * j)
     },
     setSeed(value) {

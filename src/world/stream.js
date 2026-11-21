@@ -1,11 +1,12 @@
 import { Frustum, Matrix4, Sphere, Vector3 } from 'three'
 import { createArt } from './art.js'
+import { createBook } from './book.js'
 import { FLAT, HINGE_STAGGER, stepSpring, UPRIGHT } from './spring.js'
-import { cellAt, cellKey, TILE_SIZE } from './tiles.js'
+import { cellAt, cellKey, FIRST_PAGE_ROW, LAST_PAGE_ROW, TILE_SIZE } from './tiles.js'
 
 // Inside the camera view so folds are seen happening (camera distance 10).
-const FOLD_UP_DISTANCE_SQUARED = 5 ** 2
-const FOLD_DOWN_DISTANCE_SQUARED = 6.5 ** 2
+const FOLD_UP_DISTANCE_SQUARED = 3 ** 2
+const FOLD_DOWN_DISTANCE_SQUARED = 4.5 ** 2
 const TRACE_SIZE = 200
 
 function recordTrace(cell, t, angle) {
@@ -28,6 +29,7 @@ function traceSamples(trace) {
 
 export function createTileStream(scene, layout, emitFold, camera) {
   const art = createArt(scene)
+  const placeBook = createBook(scene)
   const visible = new Map()
   const frustum = new Frustum()
   const projection = new Matrix4()
@@ -36,9 +38,9 @@ export function createTileStream(scene, layout, emitFold, camera) {
   let lastArea
   let lastRevision = -1
 
-  function sync(centerI, centerJ, radiusX, t) {
-    const radiusZ = 6
-    const area = `${centerI},${centerJ},${radiusX}`
+  function sync(centerI, radiusX, t) {
+    const cameraArea = camera ? cellKey(cellAt(camera.position.x), cellAt(camera.position.z)) : ''
+    const area = `${centerI},${radiusX},${cameraArea}`
     const revision = art.revision()
     if (area === lastArea && revision === lastRevision) return
     lastArea = area
@@ -49,12 +51,13 @@ export function createTileStream(scene, layout, emitFold, camera) {
     }
 
     for (const [key, cell] of visible) {
-      if (Math.abs(centerI - cell.i) <= radiusX && Math.abs(centerJ - cell.j) <= radiusZ) continue
+      if (Math.abs(centerI - cell.i) <= radiusX) continue
       visible.delete(key)
     }
 
-    art.begin((2 * radiusX + 1) * (2 * radiusZ + 1))
-    for (let j = centerJ - radiusZ; j <= centerJ + radiusZ; j += 1) {
+    placeBook(centerI - radiusX, centerI + radiusX)
+    art.begin((2 * radiusX + 1) * (LAST_PAGE_ROW - FIRST_PAGE_ROW + 1))
+    for (let j = FIRST_PAGE_ROW; j <= LAST_PAGE_ROW; j += 1) {
       for (let i = centerI - radiusX; i <= centerI + radiusX; i += 1) {
         const key = cellKey(i, j)
         let cell = visible.get(key)
@@ -66,13 +69,13 @@ export function createTileStream(scene, layout, emitFold, camera) {
         if (!cell.art || cell.art.model !== model) {
           const previous = cell.art
           cell.art = art.create(cell, model)
-          for (const hinge of cell.art.hinges) {
+          for (const [order, hinge] of cell.art.hinges.entries()) {
             const oldHinge = previous?.hinges.find(({ index }) => index === hinge.index)
             hinge.angle = oldHinge?.angle ?? FLAT
             hinge.velocity = oldHinge?.velocity ?? 0
             if (!oldHinge && cell.foldStarted !== undefined) {
               hinge.angle = cell.up ? FLAT : UPRIGHT
-              const elapsed = t - cell.foldStarted - hinge.index * HINGE_STAGGER
+              const elapsed = t - cell.foldStarted - order * HINGE_STAGGER
               if (elapsed > 0) stepSpring(hinge, cell.up ? 'up' : 'down', elapsed)
             }
           }
@@ -92,8 +95,11 @@ export function createTileStream(scene, layout, emitFold, camera) {
   return {
     ready: art.ready,
     update(dt, t, position, aspect) {
-      sync(cellAt(position.x), cellAt(position.z), Math.max(6, Math.ceil(3.25 * aspect)), t - dt)
+      const distance = camera ? Math.hypot(camera.position.y, camera.position.z - position.z) : 10
+      const framing = camera ? Math.min(distance, camera.far) / (10 * camera.zoom) : 1
+      sync(cellAt(position.x), Math.max(6, Math.ceil(3.25 * aspect * framing)), t - dt)
       for (const cell of visible.values()) {
+        if (!cell.art.hinges.length) continue
         const distance = distanceSquared(cell, position)
         const up = cell.up ? distance <= FOLD_DOWN_DISTANCE_SQUARED : distance <= FOLD_UP_DISTANCE_SQUARED
         if (up !== cell.up) {
@@ -103,9 +109,9 @@ export function createTileStream(scene, layout, emitFold, camera) {
         }
 
         const target = up ? UPRIGHT : FLAT
-        for (const hinge of cell.art.hinges) {
+        for (const [order, hinge] of cell.art.hinges.entries()) {
           if (hinge.angle === target && hinge.velocity === 0) continue
-          const elapsed = t - cell.foldStarted - hinge.index * HINGE_STAGGER
+          const elapsed = t - cell.foldStarted - order * HINGE_STAGGER
           if (elapsed <= 0) continue
           stepSpring(hinge, up ? 'up' : 'down', Math.min(dt, elapsed))
           if (Math.abs(hinge.angle - target) < 0.0001 && Math.abs(hinge.velocity) < 0.002) {
@@ -114,7 +120,7 @@ export function createTileStream(scene, layout, emitFold, camera) {
           }
           if (cell.drawn) art.poseHinge(cell.art, hinge)
         }
-        if (cell.art.hinges.length) recordTrace(cell, t, cell.art.hinges[0].angle)
+        recordTrace(cell, t, cell.art.hinges[0].angle)
       }
     },
     hingeTrace(id, position) {
