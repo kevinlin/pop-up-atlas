@@ -158,9 +158,9 @@ def main():
         rig.data.pose_position = 'POSE'
 
         samples = {
-            'walk': (0, .125, .25, .375, .5, .625, .75, .875),
+            'walk': (0, 2 / fps, 7 / fps, 12 / fps, .5, .5 + 2 / fps, .5 + 7 / fps, .75),
             'idle': (0, .57, 1.21, 1.7),
-            'dance': (.30, .62, .88, 1.42, 1.88, 2.05, 2.24, 2.43, 2.64, 3.57, 3.82, 4.77),
+            'dance': (.16, .38, .56, .68, .88, 1.11, 1.30, 1.55, 1.85, 2.32, 2.72, 2.98),
         }
         if args.review_sheets:
             del samples['idle']
@@ -169,7 +169,9 @@ def main():
             source = tmp / clip
             source.mkdir()
             start = set_action(rig, clips[clip])
-            frame_camera(scene, lights, -48 if clip == 'walk' else -24)
+            frame_camera(scene, lights, -48 if clip == 'walk' else 12)
+            if clip == 'dance':
+                scene.camera.data.ortho_scale = 1.36
             for index, time in enumerate(times):
                 still(scene, source / f'{index:03d}.png', start + fps * time)
             sheet(source, args.output / f'{clip}.png', len(times), 4)
@@ -184,7 +186,7 @@ def main():
             source.mkdir()
             start = set_action(rig, clips[clip])
             duration = (clips[clip][0].frame_range[1] - start) / fps
-            frame_camera(scene, lights, -52 if clip == 'walk' else -23, video=True)
+            frame_camera(scene, lights, -52 if clip == 'walk' else 12, video=True)
             # Translate the camera-side stage against the treadmill walk to show planted feet.
             stage = bpy.data.objects['Plane']
             for index in range(round(duration * 24)):

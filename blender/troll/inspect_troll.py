@@ -60,6 +60,7 @@ def figures(meshes):
 def verify_playback(rig, clips, hair):
     scene = bpy.context.scene
     rig.data.pose_position = 'POSE'
+    boots = {side: scene.objects['Felt boot and leg ' + side] for side in ('L', 'R')}
     for name in ('walk', 'idle', 'dance'):
         action, slot = clips[name]
         rig.animation_data.action = action
@@ -72,7 +73,7 @@ def verify_playback(rig, clips, hair):
         hair_motion = [0.0] * 4
         highest = 0
         root_heights = []
-        foot_positions = {}
+        support = {'L': {}, 'R': {}}
         for frame in range(start, end + 1):
             scene.frame_set(frame)
             root = rig.matrix_world @ bones['root'].head
@@ -88,8 +89,17 @@ def verify_playback(rig, clips, hair):
                 hair_motion[k] = max(hair_motion[k], excursion)
             if name == 'walk':
                 require(max(abs(root.x), abs(root.y)) < .001, 'Walk root drifts on the ground plane')
-                if frame in (start + 2, start + 8):
-                    foot_positions[frame] = (rig.matrix_world @ bones['foot_L'].head).y
+                if frame == end:
+                    continue
+                for offset, side in enumerate(boots):
+                    phase = (frame - start + offset * (end - start) // 2) % (end - start)
+                    if phase > scene.render.fps // 4:
+                        continue
+                    boot = boots[side].evaluated_get(graph)
+                    sole = min((boot.matrix_world @ Vector(point)).z for point in boot.bound_box)
+                    require(abs(sole) < .007, f'Walk {side} foot loses ground contact at frame {frame}')
+                    foot = bones['foot_' + side]
+                    support[side][phase] = ((rig.matrix_world @ foot.head).y, foot.matrix.to_quaternion())
         require(highest <= .951, f'{name}: root-relative hair tip at {highest:.4f}')
         require(min(hair_motion) > .001, f'{name}: a hair joint is static')
         if name != 'dance':
@@ -98,10 +108,22 @@ def verify_playback(rig, clips, hair):
             require(mismatch < .002, f'{name}: loop seam mismatch {mismatch:.5f}')
         if name == 'walk':
             bob = max(root_heights) - min(root_heights)
-            speed = (foot_positions[start + 8] - foot_positions[start + 2]) * scene.render.fps / 6
-            require(.024 <= bob <= .036, f'Walk bob is {bob:.4f}')
-            require(abs(speed - 1.2) < .03, f'Walk planted-foot speed is {speed:.4f}')
-            print(f'Walk bob {bob:.3f}; planted-foot travel matches {speed:.3f} units/s forward movement')
+            fps = scene.render.fps
+            half = (end - start) // 2
+            for contact in (0, half):
+                heights = root_heights[contact:contact + half]
+                low_at = heights.index(min(heights)) / fps
+                high_at = heights.index(max(heights)) / fps
+                require(.02 <= low_at <= .07 and .11 <= high_at <= .18,
+                        f'Walk body timing: low {low_at:.3f}s, high {high_at:.3f}s after contact')
+            require(.057 <= bob <= .063, f'Walk bob is {bob:.4f}')
+            for side, samples in support.items():
+                speed = (samples[8][0] - samples[2][0]) * fps / 6
+                flat, peeled = samples[8][1], samples[fps // 4][1]
+                pitch = min(flat.rotation_difference(peeled).angle, flat.rotation_difference(-peeled).angle)
+                require(abs(speed - 1.2) < .03, f'Walk {side} planted-foot speed is {speed:.4f}')
+                require(.62 <= pitch <= .89, f'Walk {side} toe peel is {pitch:.3f} rad')
+            print(f'Walk bob {bob:.3f}; both support feet stay planted for .25s and peel toe-last')
         print(f'{name}: root-relative hair tip <= {highest:.3f}, '
               f'hair joint travel {min(hair_motion):.3f} to {max(hair_motion):.3f} radians')
 
@@ -109,7 +131,7 @@ def verify_playback(rig, clips, hair):
 def verify(path):
     data = read_gltf(path)
     rig, clips = load_troll(path)
-    expected = {'walk': (1, 1), 'idle': (2, 2), 'dance': (4, 6)}
+    expected = {'walk': (1, 1), 'idle': (2, 2), 'dance': (2.9, 3.1)}
     require(set(clips) == set(expected), f'Unexpected imported actions {sorted(clips)}')
     animations = {clip['name']: clip for clip in data['animations']}
     require(set(animations) == set(expected), f'Unexpected GLB animations {sorted(animations)}')

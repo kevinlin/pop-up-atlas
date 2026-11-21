@@ -55,16 +55,19 @@ def cloth_fields(size, seed, kind):
     fibres = .5 * fibres + .125 * sum(np.roll(fibres, sign, axis)
                                      for axis in (0, 1) for sign in (-1, 1))
     if kind == 'knit':
-        # Two raised, slightly bowed strands in each stockinette stitch.
-        column = x * 4
-        row = y * 21 + .07 * np.sin(2 * np.pi * column)
-        cross, along = column % 1 - .5, row % 1
-        link = .12 + .23 * along + .023 * np.sin(np.pi * along)
-        stitch = np.exp(-((np.abs(cross) - link) / .139) ** 2)
-        stitch *= .64 + .36 * np.sin(np.pi * along) ** .55
-        twist = .93 + .07 * np.cos(2 * np.pi * (along * 8 + cross * 3))
-        relief = 1.06 * stitch * twist + .16 * height + .22 * fibres
-        tone = np.clip(.11 + .89 * stitch + .22 * height + .14 * fibres, 0, 1)
+        # Two plaited rows with each pair of wool strands alternating over and under.
+        column = x * 2
+        turns = y * 16 + .25 * np.floor(column)
+        cross = column % 1 - .5
+        angle = 2 * np.pi * turns
+        weave = .208 * np.sin(angle)
+        lift = .16 * np.cos(angle)
+        a = np.exp(-((cross - weave) / .139)**2) * (.86 + lift)
+        b = np.exp(-((cross + weave) / .139)**2) * (.86 - lift)
+        braid = np.maximum(a, b)
+        grain = .96 + .04 * np.cos(2 * np.pi * (turns * 8 + cross * 2))
+        relief = 1.18 * braid * grain + .13 * height + .24 * fibres
+        tone = np.clip(.07 + .93 * braid + .18 * height + .19 * fibres, 0, 1)
     elif kind == 'yarn':
         strand = .13 * np.cos(2 * np.pi * (x * 9 + y * 6 + .3 * height))
         relief = .32 * height + .55 * fibres + strand
@@ -117,7 +120,7 @@ def textured(mat, color_map, normal_map=None, normal_strength=1):
 
 
 def sunset(height):
-    stops = (0, .22, .39, .68, .84, 1)
+    stops = (0, .30, .45, .68, .85, 1)
     colors = np.array([rgb(c) for c in
                        ('F59A3C', 'F59A3C', 'E8478F', 'E8478F', '7A52C7', '7A52C7')])
     return np.stack([np.interp(height, stops, channel) for channel in colors.T], axis=-1)
@@ -131,7 +134,10 @@ def scarf_pixels():
 
 def yarn_pixels():
     tone, normal = cloth_fields(512, 73, 'yarn')
-    ramp = sunset(np.linspace(0, 1, len(tone)))
+    t = np.linspace(0, 1, len(tone))
+    ramp = sunset(t)
+    root_blend = np.clip((.34 - t) / .13, 0, 1)[:, None]
+    tone = tone * (1 - .55 * root_blend) + .58 * root_blend
     return np.clip(tone[:, :, None] * ramp[:, None, :], 0, 1), normal
 
 
@@ -147,16 +153,16 @@ def fibre_pixels():
         section = slice(index * swatch_width, (index + 1) * swatch_width)
         phase = rng.uniform(0, 6.28)
         center = .5 + .066 * np.sin(13 * t + phase) + .026 * np.sin(35 * t + phase)
-        half = (.24 + .06 * np.sin(np.pi * t)) * (1 - .80 * t**4)
+        half = (.225 + .077 * np.sin(np.pi * t)) * (1 - .80 * t**4)
         width = .015 + .014 * (1 - t)
         alpha = np.clip(1.1 - np.abs(x - center) / half, 0, 1)
-        relief = rng.uniform(.86, 1.09, (rows, swatch_width))
-        for fibre in range(42):
+        relief = rng.uniform(.93, 1.08, (rows, swatch_width))
+        for fibre in range(48):
             strand = rng.uniform(-1, 1)
             start, end = rng.uniform(-.29, .31), rng.uniform(.67, 1.14)
             active = np.clip((t - start) * 9, 0, 1) * np.clip((end - t) * 13, 0, 1)
             drift = rng.uniform(.012, .09) * np.sin(t * rng.uniform(9, 31) + phase + fibre)
-            curl = rng.uniform(-.18, .18) * np.maximum(t - .58, 0) * 2.5
+            curl = rng.uniform(-.24, .24) * np.maximum(t - .56, 0) * 2.5
             trace = center + strand * (half + .048) + drift + curl
             w = width * rng.uniform(.20, .55)
             stroke = np.exp(-((x - trace) / w)**2) * active

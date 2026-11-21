@@ -29,8 +29,8 @@ ARMS = {side: Vector((sign * .122, -.016, .354))
         for side, sign in (('L', 1), ('R', -1))}
 HIPS = {side: Vector((sign * .073, .006, HIP_Z))
         for side, sign in (('L', 1), ('R', -1))}
-HAIR_JOINTS = ((0, .012, .568), (.029, .045, .642),
-               (.062, .112, .745), (.095, .185, .833), (.119, .246, .914))
+HAIR_JOINTS = ((0, .012, .568), (.009, .056, .664),
+               (.034, .130, .752), (.058, .195, .830), (.077, .253, .915))
 SCARF_TAILS = (
     ((-.098, -.018, .386), (-.142, .027, .383),
      (-.227, .079, .351), (-.271, .095, .354)),
@@ -384,12 +384,14 @@ def scarf_wrap(rig, mats):
     def point(u, v):
         around = TAU * u
         roll = TAU * v
-        z = .385 + .032 * math.sin(roll) + .006 * math.sin(around + .6)
+        level = .033 * math.sin(roll)
+        z = .385 + level + .006 * math.sin(around + .6)
         rx, ry = profile(z)
-        thickness = .009 + .009 * math.cos(roll) + .0019 * math.sin(19 * around + roll)
+        ridge = math.exp(-((abs(level) - .016) / .009)**2)
+        thickness = .009 + .009 * math.cos(roll) + .005 * ridge * max(0, math.cos(roll))
         return ((rx + thickness) * math.cos(around), (ry + thickness) * math.sin(around) + .006, z)
 
-    wrap.grid(10, 40, point, lambda u, v: (v * 1.62, u * 2.04))
+    wrap.grid(14, 40, point, lambda u, v: (.5 + .494 * math.sin(TAU * v) + .004 * math.cos(TAU * v), u))
     wrap.finish(rig, body_weights)
     edging = Mesh('Scarf rolled edges and knot', mats['yarn_fringe'])
     for angle in (.20, .80):
@@ -420,11 +422,11 @@ def make_scarf_ends(rig, mats):
             angle = TAU * u
             twist = .16 * math.sin(v * math.pi)
             across, up = across * math.cos(twist) + up * math.sin(twist), up * math.cos(twist) - across * math.sin(twist)
-            spread = (.015 + .007 * v) * (1 + .05 * math.sin(v * TAU * 2))
+            spread = (.017 + .014 * v) * (1 + .05 * math.sin(v * TAU * 2))
             return (path[index] + (math.cos(angle) * spread) * across
-                    + (.005 * math.sin(angle)) * up)
+                    + (.0057 * math.sin(angle)) * up)
 
-        tail.grid(15, 10, point, lambda u, v: (u * 1.55, v * .60), flip=True)
+        tail.grid(15, 10, point, lambda u, v: (.5 + .499 * math.cos(TAU * u), v * .26), flip=True)
         weigh = lambda p, name=bone, root=Vector(guides[0]): mix_weights(
             'spine', name, smooth(0, .038, (p - root).length))
         tail.finish(rig, weigh)
@@ -433,16 +435,16 @@ def make_scarf_ends(rig, mats):
         lit = Mesh('Golden scarf fibres ' + side, mats['yarn_gold'])
         along, across, up = cross_section(15)
         for ix in range(8):
-            knot = path[-1] + across * (.0054 * (ix - 3.5))
-            end = rng.uniform(.023, .038)
+            knot = path[-1] + across * (.0079 * (ix - 3.5))
+            end = rng.uniform(.036, .052)
             points = [knot + along * (end * t) + up * (math.sin(t * 4 + ix) * .004 * t)
-                      + across * (.0018 * (ix - 3.5) * t + .002 * math.sin(3 * t) * t)
+                      + across * (.0025 * (ix - 3.5) * t + .002 * math.sin(3 * t) * t)
                       for t in (0, .23, .53, .80, 1)]
-            fringe.tube(points, lambda t: .0028 * (1 - .52 * t), sides=5)
+            fringe.tube(points, lambda t: .0033 * (1 - .50 * t), sides=5)
             for sign in (-1, 1):
                 split = (points[-2], points[-1] + up * (.001 * sign),
-                         points[-1] + along * .008 + across * (.003 * sign))
-                lit.tube(split, lambda t: .0009 * (1 - .92 * t), sides=3)
+                         points[-1] + along * .011 + across * (.004 * sign))
+                lit.tube(split, lambda t: .00115 * (1 - .86 * t), sides=3)
         for obj in (fringe, lit):
             obj.finish(rig, weigh)
 
@@ -494,9 +496,9 @@ def hair_weights(p):
     # The blend bands straddle the chain joints and avoid visible hinges in the wool.
     z = p.z
     for k, joint in enumerate(HAIR_JOINTS[1:-1]):
-        if z < joint[2] + .038:
+        if z < joint[2] + .025:
             return mix_weights(f'hair_{k}', f'hair_{k + 1}',
-                               smooth(joint[2] - .038, joint[2] + .038, z))
+                               smooth(joint[2] - .025, joint[2] + .025, z))
     return {'hair_3': 1}
 
 
@@ -504,58 +506,64 @@ def make_hair(rig, mats):
     yarn = Mesh('Sunset yarn plume', mats['yarn_sunset'])
     wisps = Mesh('Wool flyaways', mats['yarn_sunset_fibres'])
     wool_rng = random.Random(680)
-    core, cards = 24, 76
-    for lock in range(core + cards):
-        solid = lock < core
-        index = lock if solid else lock - core
-        angle = lock * 2.399963
-        spread = math.sqrt((index + .5) / (core if solid else cards))
-        if not solid:
-            spread = .30 + .70 * spread
-        length = wool_rng.uniform(.291, .369)
-        phase = wool_rng.uniform(0, TAU)
-        wave = wool_rng.uniform(.6, 1.4)
+    # Six bundles overlap through their shoulders, then curl apart at different heights.
+    # Crown x/y, fan x, sweep y, rise, and the x/y curl at the tip.
+    locks = (
+        (-.037, -.008, -.145, .196, .325, -.037, .014),
+        (-.023, .023, -.089, .263, .366, -.062, .044),
+        (-.005, -.029, -.018, .227, .353, .043, -.066),
+        (.015, .024, .052, .284, .379, -.023, .048),
+        (.032, -.023, .112, .200, .365, .100, -.034),
+        (.038, .005, .138, .232, .317, .096, .034),
+    )
+    for lock, (root_x, root_y, fan, sweep, rise, curl_x, curl_y) in enumerate(locks):
+        for strand in range(15):
+            solid = strand < 3
+            angle = strand * 2.399963 + lock * 1.15
+            spread = .011 + .026 * math.sqrt(strand / 14)
+            length = rise + wool_rng.uniform(-.016, .013)
+            wave = wool_rng.uniform(-.6, .6)
 
-        def point(t):
-            # A close crown opens to a broad, swept fan with soft waves at its ends.
-            flare = .053 + .079 * smooth(.09, .72, t) - .028 * smooth(.81, 1, t)
-            bend = angle + .29 * t + .19 * math.sin(7.5 * t * wave + phase) * t
-            tip_curl = .040 * math.sin(11 * t * wave + phase) * smooth(.61, 1, t)
-            radius = spread * (flare + tip_curl)
-            return Vector((
-                .138 * t**2 - .047 * t**5 + radius * math.cos(bend),
-                -.014 + .311 * t**1.47 - .041 * t**5 + .80 * radius * math.sin(bend),
-                .536 + length * t + .028 * math.sin(math.pi * t)
-                - .019 * spread**2 * (1 - t)**2 + .011 * t**2 * math.sin(10 * t * wave + phase),
-            ))
+            def point(t):
+                opening = smooth(.27, .86, t)
+                hook = smooth(.61, 1, t)
+                twist = angle + .68 * t + .27 * math.sin(TAU * t + wave)
+                shoulder = spread * (.37 + .70 * opening)
+                sway = .011 * math.sin(7 * t + lock + wave) * opening
+                return Vector((
+                    root_x + .76 * (fan * opening + curl_x * hook) + shoulder * math.cos(twist) + sway,
+                    root_y + sweep * t**1.62 + curl_y * hook + shoulder * .85 * math.sin(twist),
+                    .533 + length * t + .019 * math.sin(math.pi * t) - .010 * hook
+                    + .006 * opening * math.sin(angle + 7 * t),
+                ))
 
-        if solid:
-            def radius(t):
-                return max(.0016, .023 * (1 + .12 * math.sin(phase + t * 12))
-                           * (.80 + .20 * math.sin(math.pi * t)) * (1 - t**3.1))
-            yarn.tube([point(i / 10) for i in range(11)], radius, sides=6,
-                      uv=lambda u, v: (u, .017 + .966 * v))
-            continue
+            if solid:
+                def radius(t):
+                    plump = .023 + .006 * math.sin(math.pi * t)
+                    return max(.0012, plump * (1 - t**4) * (.72 + .28 * smooth(.06, .48, t)))
 
-        rows = 14
-        path = [point(i / rows) for i in range(rows + 1)]
-        # Vary the card planes around the plume for a furry rim from every azimuth.
-        facing = angle + wool_rng.uniform(-1.02, 1.02)
-        horizontal = Vector((math.cos(facing), math.sin(facing), .16))
-        across = []
-        for i in range(rows + 1):
-            tangent = (path[min(i + 1, rows)] - path[max(i - 1, 0)]).normalized()
-            across.append(tangent.cross(horizontal).normalized())
-        width = wool_rng.uniform(.033, .055)
-        swatch = index % 4
+                yarn.tube([point(i / 12) for i in range(13)], radius, sides=6,
+                          uv=lambda u, v: (u, .01 + .98 * v))
+                continue
 
-        def ribbon(u, t):
-            i = round(t * rows)
-            span = width * (.66 + .30 * math.sin(math.pi * t))
-            return path[i] + across[i] * ((2 * u - 1) * span * .5)
+            rows = 14
+            path = [point(i / rows) for i in range(rows + 1)]
+            facing = angle + wool_rng.uniform(-.77, .77)
+            horizontal = Vector((math.cos(facing), math.sin(facing), .12))
+            across = []
+            for i in range(rows + 1):
+                tangent = (path[min(i + 1, rows)] - path[max(i - 1, 0)]).normalized()
+                across.append(tangent.cross(horizontal).normalized())
+            width = wool_rng.uniform(.041, .068)
+            swatch = strand % 4
 
-        wisps.grid(rows, 1, ribbon, lambda u, v: ((swatch + .012 + .976 * u) / 4, v),
-                   closed=False)
+            def ribbon(u, t):
+                i = round(t * rows)
+                span = width * (.52 + .35 * smooth(.27, .69, t) + .10 * math.sin(math.pi * t))
+                return path[i] + across[i] * ((u - .5) * span)
+
+            wisps.grid(rows, 1, ribbon, lambda u, v: ((swatch + .012 + .976 * u) / 4, v),
+                       closed=False)
     return (yarn.finish(rig, hair_weights), wisps.finish(rig, hair_weights))
 
 

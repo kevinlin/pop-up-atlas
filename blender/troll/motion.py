@@ -6,84 +6,112 @@ from mathutils import Euler, Vector
 
 FPS = 48
 TAU = math.tau
-CLIPS = {'walk': 1, 'idle': 2, 'dance': 5}
+CLIPS = {'walk': 1, 'idle': 2, 'dance': 3}
 WALK_SPEED = 1.2
-STANCE = .22
+STANCE = .25
+HEEL_LIFT = .1875
+TOE_PITCH = .76
+WALK_RISE = .015
 
 
 def ease(t):
     return t * t * (3 - 2 * t)
 
 
-def walk_step(phase):
-    if phase <= STANCE:
-        return (0, WALK_SPEED * (phase - STANCE / 2), 0, 0)
-    t = (phase - STANCE) / (1 - STANCE)
+def walk_bob(t):
+    phase = t % .5
+    # Contact, compression, passing pose, toe-off, then the next contact.
+    beats = ((0, -.021), (2 / FPS, -.035), (7 / FPS, .025), (.27, -.006), (.5, -.021))
+    for (start, start_height), (end, end_height) in zip(beats, beats[1:]):
+        if phase <= end:
+            return start_height + (end_height - start_height) * ease((phase - start) / (end - start))
+
+
+def heel_roll(sole, pitch):
+    # Pivot about the leading point of the rolled sole and keep the lowest wool on the page.
+    c, s = math.cos(pitch), math.sin(pitch)
+    toe_c, toe_s = math.cos(TOE_PITCH), math.sin(TOE_PITCH)
+    y, z = min(sole, key=lambda p: p[0] * toe_s + p[1] * toe_c)
+    dy = y - (y * c - z * s)
+    dz = min(z for _, z in sole) - min(y * s + z * c for y, z in sole)
+    return dy, dz
+
+
+def walk_step(phase, sole, flare):
     span = WALK_SPEED * STANCE / 2
-    # Small roll off the toes and a quick pickup through the middle of the swing.
-    fore = span * (1 - 2 * ease(t)) + .63 * t * (1-t) * (1-2*t)
-    lift = .083 * math.sin(math.pi * t) ** 1.4
-    pitch = .46 * math.sin(TAU * t) * math.sin(math.pi * t) ** .5
-    return (0, fore, lift, pitch)
+    if phase <= STANCE:
+        fore = WALK_SPEED * phase - span
+        if phase <= HEEL_LIFT:
+            return (0, fore, 0, 0)
+        pitch = TOE_PITCH * ease((phase - HEEL_LIFT) / (STANCE - HEEL_LIFT))
+        dy, dz = heel_roll(sole, pitch)
+        return (0, fore + dy, dz, pitch)
+
+    t = (phase - STANCE) / (1 - STANCE)
+    dy, dz = heel_roll(sole, TOE_PITCH)
+    # Delay the forward swing until the support foot has absorbed the next contact.
+    progress = ease(t) - .08 * math.sin(math.pi * t) ** 2
+    fore = (span + dy) * (1 - progress) - span * progress
+    lower = ease(min(1, max(0, (t - .48) / .43)))
+    lift = dz * (1 - progress) + (.077 - .042 * lower) * math.sin(math.pi * t) ** 1.45
+    pitch = TOE_PITCH * (1 - ease(min(1, t / .72))) - .24 * math.sin(math.pi * t) ** 2
+    return (flare * math.sin(math.pi * t**1.38) ** 1.65, fore, lift, pitch)
 
 
-# Time, pelvis height offset, turn (rev), bank, arm lift, and ankle offsets (x,y,z,pitch).
+# Time, pelvis height, turn (rev), bank, bow, arm lifts, ankle offsets (x,y,z,pitch).
 DANCE = (
-    (0, .000, 0, 0, 0, (0, 0, 0, 0), (0, 0, 0, 0)),
-    (.30, -.026, -.033, -.14, .32, (0, 0, 0, 0), (0, 0, 0, 0)),
-    (.62, .079, .030, .14, 1.60, (.049, -.065, .113, .20), (-.026, .030, .072, -.30)),
-    (.88, -.012, .051, .17, 1.48, (.055, -.111, .100, -.21), (0, 0, 0, 0)),
-    (1.12, .034, .018, -.09, .98, (.022, -.040, .035, 0), (-.065, .026, .056, .21)),
-    (1.42, -.013, -.036, -.20, 1.69, (0, 0, 0, 0), (-.152, .042, .110, -.15)),
-    (1.69, -.029, -.072, -.08, .64, (0, .023, 0, 0), (-.106, .079, 0, 0)),
-    (1.88, .036, -.025, .20, 1.24, (.025, -.047, .081, .35), (-.023, .063, .062, -.42)),
-    (2.05, .094, .189, .10, 1.72, (.022, -.064, .143, .37), (-.032, .046, .095, -.40)),
-    (2.24, .106, .504, -.11, 1.75, (.020, -.055, .151, .34), (-.038, .025, .100, -.37)),
-    (2.43, .062, .809, -.21, 1.44, (.029, -.036, .099, .16), (-.029, .024, .059, -.27)),
-    (2.64, -.029, 1.014, .13, .70, (.022, -.032, 0, 0), (-.020, .021, 0, 0)),
-    (2.89, .013, 1.042, .22, 1.43, (.043, -.089, .074, -.24), (-.020, .021, 0, 0)),
-    (3.12, -.014, 1.016, .10, 1.18, (.021, -.033, 0, 0), (-.020, .021, 0, 0)),
-    (3.32, .045, .960, -.20, 1.57, (.024, .030, .037, -.19), (-.131, .029, .101, .16)),
-    (3.57, -.014, .945, -.24, 1.58, (.015, .014, 0, 0), (-.153, .044, .123, -.12)),
-    (3.82, .059, .985, .04, 1.65, (.039, -.052, .072, .26), (-.069, .023, .076, .18)),
-    (4.06, -.017, 1.017, .10, 1.38, (.021, -.027, 0, 0), (-.021, 0, 0, 0)),
-    (4.40, .003, 1.005, .02, .60, (.008, -.010, .008, 0), (-.010, 0, .005, 0)),
-    (4.77, 0, 1, 0, 0, (0, 0, 0, 0), (0, 0, 0, 0)),
-    (5, 0, 1, 0, 0, (0, 0, 0, 0), (0, 0, 0, 0)),
+    (0, 0, 0, 0, 0, (0, 0), (0, 0, 0, 0), (0, 0, 0, 0)),
+    (.16, -.012, -.056, -.10, -.05, (1.15, .35), (0, 0, 0, 0), (-.072, .062, .024, 0)),
+    (.38, -.010, -.075, -.18, -.09, (1.98, .53), (0, 0, 0, 0), (-.155, .052, .118, -.15)),
+    (.56, -.010, -.075, -.18, -.09, (1.98, .53), (0, 0, 0, 0), (-.155, .052, .118, -.15)),
+    (.68, 0, -.100, -.07, 0, (.93, .58), (0, 0, 0, 0), (-.121, .071, 0, 0)),
+    (.88, -.034, -.100, -.10, .14, (.65, .83), (0, 0, 0, 0), (-.121, .071, 0, 0)),
+    (1.02, .051, -.100, .19, -.10, (1.37, 1.36), (.016, -.038, .082, .39), (-.109, .068, .092, -.20)),
+    (1.21, .111, .445, .06, -.15, (1.57, 1.78), (.026, -.047, .141, .34), (-.092, .064, .129, -.32)),
+    (1.37, .059, .820, -.15, -.08, (1.32, 1.44), (.012, -.014, .065, .12), (-.121, .052, .100, -.17)),
+    (1.55, -.021, 1.000, -.20, -.04, (1.70, .82), (0, -.016, 0, 0), (-.147, .059, .081, -.12)),
+    (1.85, -.021, 1.000, -.20, -.04, (1.70, .82), (0, -.016, 0, 0), (-.147, .059, .081, -.12)),
+    (2.06, -.006, 1.000, 0, 0, (.76, .71), (0, -.016, 0, 0), (-.115, .067, 0, 0)),
+    (2.32, -.026, 1.000, -.025, .39, (.72, .66), (0, -.016, 0, 0), (-.115, .067, 0, 0)),
+    (2.72, -.026, 1.000, -.025, .39, (.72, .66), (0, -.016, 0, 0), (-.115, .067, 0, 0)),
+    (3, 0, 1.000, 0, 0, (0, 0), (0, 0, 0, 0), (0, 0, 0, 0)),
 )
 
 
 def dance_at(t):
     for a, b in zip(DANCE, DANCE[1:]):
         if t <= b[0]:
-            u = (t - a[0]) / (b[0] - a[0])
-            s = ease(u)
-            # Keep the middle of the turn moving through the authored beats.
-            turn_ease = u if 1.88 <= a[0] and b[0] <= 2.64 else s
-            height = a[1] + (b[1] - a[1]) * s
-            turn = a[2] + (b[2] - a[2]) * turn_ease
-            bank = a[3] + (b[3] - a[3]) * s
-            hands = a[4] + (b[4] - a[4]) * s
-            feet = [tuple(x + (y - x) * s for x, y in zip(a[n], b[n])) for n in (5, 6)]
-            return height, turn * TAU, bank, hands, feet
+            s = ease((t - a[0]) / (b[0] - a[0]))
+            height, turn, bank, pitch = (x + (y - x) * s for x, y in zip(a[1:5], b[1:5]))
+            # Accelerate through the hop as a single turn, with no pauses at the airborne beats.
+            if .99 <= t <= 1.55:
+                turn = -.1 + 1.1 * ease((t - .99) / .56)
+            hands = tuple(x + (y - x) * s for x, y in zip(a[5], b[5]))
+            feet = [tuple(x + (y - x) * s for x, y in zip(a[n], b[n])) for n in (6, 7)]
+            return height, turn * TAU, bank, pitch, hands, (.12 * hands[0], -.10 * hands[1]), feet
     raise ValueError(t)
 
 
-def body_pose(clip, t):
+def body_pose(clip, t, sole=()):
     if clip == 'walk':
         cycle = TAU * t
-        bob = .015 * -math.cos(cycle * 2 - .55)
-        lean = .083 * math.sin(cycle - .25)
-        pitch = -.068 + .098 * math.cos(cycle * 2 - .1)
-        swing = .51 * math.cos(cycle + .54)
-        feet = [walk_step((t + offset) % 1) for offset in (0, .5)]
-        return bob, 0, lean, pitch, (0, 0), (swing, -swing), feet
+        bob = walk_bob(t)
+        lean = .105 * math.sin(cycle + .38)
+        pitch = -.040 - .075 * (bob + .005) / .030
+        swing = .55 * math.cos(cycle + .25)
+        feet = [walk_step(t % 1, sole, .026), walk_step((t + .5) % 1, sole, -.082)] if sole else ()
+        return bob + WALK_RISE, 0, lean, pitch, (0, 0), (swing, -swing), feet
     if clip == 'idle':
         breath = math.sin(math.pi * t)
         feet = [(0, 0, 0, 0)] * 2
         return .0025 * breath, 0, .021 * math.sin(TAU * .5 * t), .019 * breath, (0, 0), (.026 * breath, -.019 * breath), feet
-    bob, turn, bank, hands, feet = dance_at(t)
-    return bob, turn, bank, -.052 * hands, (hands * .96, hands), (.12 * hands, -.08 * hands), feet
+    return dance_at(t)
+
+
+def bag_lift(t):
+    # The pouch swings up with the bag-side foot plant, clearing the compressed shin.
+    since_plant = (t - .542 + .5) % 1 - .5
+    return .036 + .016 * math.exp(-(since_plant / .095)**2)
 
 
 def rotate(pose_bone, xyz):
@@ -91,7 +119,7 @@ def rotate(pose_bone, xyz):
     pose_bone.rotation_quaternion = rest.inverted() @ Euler(xyz, 'XYZ').to_quaternion() @ rest
 
 
-def solve_leg(hip, knee, ankle, offsets, bob):
+def solve_leg(hip, knee, ankle, offsets, bob, knee_out=0):
     dx, dy, dz, pitch = offsets
     target = ankle + Vector((dx, dy, dz - bob))
     upper, lower = knee - hip, ankle - knee
@@ -101,7 +129,7 @@ def solve_leg(hip, knee, ankle, offsets, bob):
     aim = reach.normalized()
     # Let the wide side kicks fold out away from the cross-body bag.
     outward = 1.65 * max(0, min(1, (abs(dx) - .056) / .062))
-    front = Vector((math.copysign(outward, dx), -1, 0)).normalized()
+    front = Vector((knee_out + math.copysign(outward, dx), -1, 0)).normalized()
     pole = (front - aim * front.dot(aim)).normalized()
     along = (a*a - b*b + distance*distance) / (2 * distance)
     bend = math.sqrt(max(0, a*a - along*along))
@@ -112,10 +140,10 @@ def solve_leg(hip, knee, ankle, offsets, bob):
     return thigh_q, calf_q, Euler((pitch, 0, 0)).to_quaternion()
 
 
-def leg_pose(bones, side, offsets, bob):
+def leg_pose(bones, side, offsets, bob, knee_out):
     thigh, calf, foot = [bones[stem + '_' + side] for stem in ('leg', 'shin', 'foot')]
     hip, knee, ankle = [joint.bone.head_local for joint in (thigh, calf, foot)]
-    thigh_q, calf_q, foot_q = solve_leg(hip, knee, ankle, offsets, bob)
+    thigh_q, calf_q, foot_q = solve_leg(hip, knee, ankle, offsets, bob, knee_out)
     for bone, parent_q, q in ((thigh, None, thigh_q), (calf, thigh_q, calf_q),
                               (foot, calf_q, foot_q)):
         rest = bone.bone.matrix_local.to_quaternion()
@@ -129,35 +157,40 @@ def angles(clip, t):
 
 
 def secondary_motion(clip, duration):
-    # A head-relative angular spring is driven by head orientation, turn rate and
-    # vertical acceleration. Each joint follows the joint before it with a softer spring.
+    # Keep the crown seated. The longer upper locks follow the head on softer springs.
     displacement = [Vector((0, 0, 0)) for _ in range(4)]
     velocity = [v.copy() for v in displacement]
     cycle = clip != 'dance'
     clock = range(-FPS * 4 if cycle else 0, duration * FPS + 1)
     dt = 1 / (FPS * 4)
+    gain = (.14 if clip == 'idle' else .047, .145, .78, .64)
+    frequency = (28, 23, 16, 15)
+    drag = .56 if cycle else .54
     samples = []
+
+    def source(t):
+        return angles(clip, t % duration if cycle else max(0, min(duration, t)))
+
     for frame in clock:
         for s in range(4):
             time = (frame + (s - 3) / 4) / FPS
-            def source(t):
-                return angles(clip, t % duration if cycle else max(0, min(duration, t)))
             before, bot = source(time - dt)
             current, mid = source(time)
             after, top = source(time + dt)
             rate = (after - before) / (2 * dt)
             acceleration = (bot + top - 2 * mid) / dt**2
-            force = Vector((
-                -current.x * .63 - .045 * rate.x - max(-16, min(16, acceleration)) * .012,
-                -current.y * .68 - .035 * rate.y + .030 * rate.z,
-                -.022 * rate.z,
-            ))
-            for k in range(4):
-                omega = (20, 18, 16, 14)[k]
-                drag = .33 if cycle else .43
-                target = force * (1.03 - .15 * k)
+            if clip == 'walk':
+                crown_drive = walk_bob(time - 1 / FPS)
+                compression = max(0, (-crown_drive - .020) / .015)
+                extension = max(0, (crown_drive - .005) / .020)
+                pitch = .26 * compression - .28 * extension
+            else:
+                pitch = -.64 * current.x - .028 * rate.x - .006 * max(-16, min(16, acceleration))
+            force = Vector((pitch, -.86 * current.y + .038 * rate.z, -.022 * rate.z))
+            for k, omega in enumerate(frequency):
+                target = force * gain[k]
                 if k:
-                    target += displacement[k - 1] * .54
+                    target += displacement[k - 1] * .07
                 for axis in range(3):
                     target[axis] = max(-.25, min(.25, target[axis]))
                 velocity[k] += (omega**2 * (target - displacement[k]) - 2 * drag * omega * velocity[k]) * dt
@@ -166,7 +199,7 @@ def secondary_motion(clip, duration):
             samples.append([value.copy() for value in displacement])
     if cycle:
         samples[-1] = samples[0]
-    elif samples:
+    else:
         for i in range(FPS // 4):
             frame = len(samples) - 1 - i
             samples[frame] = [value * ease(i / (FPS // 4)) for value in samples[frame]]
@@ -206,6 +239,11 @@ def make_clips(rig, plume):
     for bone in bones:
         bone.rotation_mode = 'QUATERNION'
 
+    ankle = bones['foot_L'].bone.head_local
+    boot = bpy.data.objects['Felt boot and leg L']
+    sole = [(point.co.y - ankle.y, point.co.z - ankle.z)
+            for point in boot.data.vertices if point.co.z <= .051]
+
     for name, duration in CLIPS.items():
         action = bpy.data.actions.new(name)
         action.use_fake_user = True
@@ -217,30 +255,35 @@ def make_clips(rig, plume):
         prev_rotations = {}
         for frame, hair in enumerate(springs):
             t = frame / FPS
-            bob, yaw, bank, pitch, arms, swing, feet = body_pose(name, t)
+            bob, yaw, bank, pitch, arms, swing, feet = body_pose(name, t, sole)
             root = bones['root']
             rotate(root, (0, 0, yaw))
             root.location = root.bone.matrix_local.to_quaternion().inverted() @ Vector((0, 0, bob))
 
             spine = bones['spine']
             rotate(spine, (pitch, bank, 0))
-            squash = (.035 * -math.cos(TAU * t * 2 - .55) if name == 'walk'
+            squash = (1.20 * (bob - WALK_RISE + .005) if name == 'walk'
                       else (.009 * math.sin(math.pi * t) if name == 'idle' else .42 * bob))
             spine.scale = (1 - squash * .48, 1 + squash, 1 - squash * .48)
             rotate(bones['head'], (-.42 * pitch, -.47 * bank, .19 * bank))
-            rotate(bones['satchel'], (.052 * math.sin(TAU * t - .63) if name == 'walk' else -1.1 * hair[0].x,
-                                       -bank * .65 + .79 * hair[0].y, -.33 * hair[0].z))
+            satchel = bones['satchel']
+            rotate(satchel, (.052 * math.sin(TAU * t - .63) if name == 'walk' else -.32 * hair[2].x,
+                             -bank * .65 + .23 * hair[2].y, -.12 * hair[2].z))
+            satchel_shift = Vector((0, -.012, bag_lift(t))) if name == 'walk' else Vector((0, 0, 0))
+            satchel.location = satchel.bone.matrix_local.to_quaternion().inverted() @ satchel_shift
+            satchel.keyframe_insert('location', frame=frame, group='satchel')
 
             for idx, side in enumerate(('L', 'R')):
                 sign = 1 if idx == 0 else -1
                 rotate(bones['arm_' + side], (swing[idx], -sign * arms[idx], .04 * sign * arms[idx]))
-                rotate(bones['scarf_' + side], (hair[0].x * 1.9, -hair[1].x * 1.05 + .42 * bank,
-                                                  -hair[1].y * 1.4 + .23 * bank))
+                rotate(bones['scarf_' + side], (hair[1].x * 1.25, -hair[2].x * .27 + .42 * bank,
+                                                  -hair[2].y * .34 + .23 * bank))
                 blink = 0
                 if name == 'idle':
                     blink = .31 * max(0, 1 - abs(t - 1.21 - .025 * idx) / .11) ** 1.4
                 rotate(bones['eye_' + side], (blink, .08 * sign * blink, .10 * sign * blink))
-                leg_pose(bones, side, feet[idx], bob)
+                knee_out = -.85 if name == 'walk' and side == 'R' else 0
+                leg_pose(bones, side, feet[idx], bob, knee_out)
             for k, value in enumerate(hair):
                 rotate(bones[f'hair_{k}'], value)
             for bone in bones:

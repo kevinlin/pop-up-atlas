@@ -1,6 +1,7 @@
-import { NeutralToneMapping, PCFShadowMap, Vector3, WebGLRenderer } from 'three'
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import {
+  DepthTexture, HalfFloatType, NeutralToneMapping, PCFShadowMap, UnsignedIntType,
+  Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
+} from 'three'
 import { TiltShiftPass } from './tilt-shift.js'
 
 export function createRenderer(scene, camera) {
@@ -13,20 +14,22 @@ export function createRenderer(scene, camera) {
   const canvas = renderer.domElement
   document.body.append(canvas)
 
-  const composer = new EffectComposer(renderer)
-  const tiltShift = new TiltShiftPass()
-  composer.addPass(new RenderPass(scene, camera))
-  composer.addPass(tiltShift)
+  const image = new WebGLRenderTarget(1, 1, {
+    type: HalfFloatType,
+    depthTexture: new DepthTexture(1, 1, UnsignedIntType),
+  })
+  const tiltShift = new TiltShiftPass(camera)
   const focus = new Vector3()
+  const renderSize = new Vector2()
 
   function resize() {
     const width = window.innerWidth
     const height = Math.max(window.innerHeight, 1)
-    const dpr = window.devicePixelRatio
-    renderer.setPixelRatio(dpr)
+    renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(width, height, false)
-    composer.setPixelRatio(dpr)
-    composer.setSize(width, height)
+    renderer.getDrawingBufferSize(renderSize)
+    image.setSize(renderSize.x, renderSize.y)
+    tiltShift.setSize(renderSize.x, renderSize.y)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
   }
@@ -38,13 +41,15 @@ export function createRenderer(scene, camera) {
     canvas,
     // Compile every program once so first sight of a material doesn't stall a frame.
     compile: () => renderer.compileAsync(scene, camera),
-    render(dt, position) {
+    render(_dt, position) {
       camera.updateMatrixWorld()
       focus.copy(position)
-      focus.y += 0.3
-      focus.project(camera)
-      tiltShift.focusY = Math.min(0.99, Math.max(0.01, focus.y * 0.5 + 0.5))
-      composer.render(dt)
+      focus.y += 0.38
+      tiltShift.focusDepth = -focus.applyMatrix4(camera.matrixWorldInverse).z
+
+      renderer.setRenderTarget(image)
+      renderer.render(scene, camera)
+      tiltShift.render(renderer, image)
     },
   }
 }
