@@ -3,7 +3,8 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { look } from '../src/materials/stage-look.js'
+import { stageFlags } from '../src/effects/flags.js'
+import { look, lookFlags } from '../src/materials/stage-look.js'
 import { createSteppedPage, launchChromium, previewURL, writeJson } from './capture.mjs'
 import {
   addBloomWitness, characterLayers, groveInFrame, installLookProbe, readFoldFlash, readStageEffects, readStageLighting,
@@ -327,7 +328,8 @@ async function measure({ url, out, before, preStage }) {
     allOffURL.searchParams.set('lookOff', Object.keys(look).join(','))
     allOffURL.searchParams.set('effects', '')
     if (!before) trollReference = allOffURL.href
-    const disabled = new Set(captureURL.searchParams.get('lookOff')?.split(','))
+    // Same defaults as the game: layers off unless the URL turns them on.
+    const disabled = new Set(Object.entries(lookFlags(captureURL.search)).filter(([, on]) => !on).map(([name]) => name))
     referenceURL.searchParams.set('lookOff', [...new Set([...disabled, 'backlight', 'bounce'])].join(','))
     for (const [index, shot] of shots.entries()) {
       const path = join(dir, (before ? 'before-' : 'shot-') + String(index + 1).padStart(2, '0') + '.png')
@@ -347,8 +349,7 @@ async function measure({ url, out, before, preStage }) {
         if (!disabled.has('dapple')) dapple = dappleContrast(await readMask(2))
         if (!disabled.has('backlight')) rims = rimCoverage(mask, await readMask(3), viewport.width)
         if (index === 0) lighting = await readStageLighting(page)
-        const off = new Set(captureURL.searchParams.get('lookOff')?.split(','))
-        if (index === 0 && !off.has('bloom')) {
+        if (index === 0 && !disabled.has('bloom')) {
           const centers = await addBloomWitness(page)
           const witnessMask = await readMask()
           await page.locator('canvas').screenshot({ path: join(dir, 'emissive-witness.png') })
@@ -415,8 +416,7 @@ async function measure({ url, out, before, preStage }) {
           passed: stats.backdropTopMinusBottom >= 30 }
       })
       backdrop = { ...staged, ...backdrop }
-      const effects = captureURL.searchParams.get('effects')
-      if (effects === null || effects.split(',').includes('13')) {
+      if (stageFlags(captureURL.search).response) {
         const fold = { dir: 'up', i: -4, j: -3 }
         const shot = { seed: 0, x: -9.3, z: -5.1, heading: Math.PI / 4, state: 'idle', frames: 17, fold }
         await takeShot(stepped, captureURL, shot, null, async () => {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
+import { stageFlags } from '../src/effects/flags.js'
 import { trollSurfaces } from '../src/materials/stage-look.js'
 import { fileURLToPath } from 'node:url'
 import { cellAt, FIRST_PAGE_ROW, LAST_PAGE_ROW, PAGE_MAX_Z, PAGE_MIN_Z } from '../src/world/tiles.js'
@@ -89,8 +90,7 @@ export async function installLookProbe(stepped) {
     await stepped.open(url)
     const query = new URL(url).searchParams
     if (!query.has('look-probe')) return
-    const effects = query.get('effects')
-    if (effects !== null && !effects.split(',').some((id) => ['5', '7', '9', '10', '11', '13'].includes(id))) return
+    if (!Object.values(stageFlags(new URL(url).search)).some(Boolean)) return
     const deadline = Date.now() + 15_000
     while (!(await page.evaluate(() => window.__atlasLookShots?.scene.getObjectByName('atlas/stage-effects')?.visible))) {
       assert.ok(Date.now() < deadline, 'Stage effects did not warm up')

@@ -152,7 +152,13 @@ it.each([
   [5, 'moss'], [7, 'fronds'], [9, 'bokeh'], [10, 'motes'], [11, 'lanterns'], [13, 'response'],
 ])('disables only item %d when its number is omitted', (item, name) => {
   const enabled = [5, 7, 9, 10, 11, 13].filter((number) => number !== item)
-  expect(stageFlags(`?effects=${enabled.join(',')}`)).toEqual({ ...stageFlags(), [name]: false })
+  const allOn = { moss: true, fronds: true, bokeh: true, motes: true, lanterns: true, response: true }
+  expect(stageFlags(`?effects=${enabled.join(',')}`)).toEqual({ ...allOn, [name]: false })
+})
+
+it('ships bokeh, motes, lanterns and the fold-up response by default; moss and fronds only on request', () => {
+  expect(stageFlags()).toEqual({ moss: false, fronds: false, bokeh: true, motes: true, lanterns: true, response: true })
+  expect(stageFlags('?effects=')).toEqual({ moss: false, fronds: false, bokeh: false, motes: false, lanterns: false, response: false })
 })
 
 it('hides a frond if the actor can project across its corner', () => {

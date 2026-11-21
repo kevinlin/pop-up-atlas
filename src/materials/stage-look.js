@@ -6,10 +6,17 @@ import { TILE_SIZE } from '../world/tiles.js'
 import { isBlocked } from '../scene/runtime.js'
 
 const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
-const disabled = new Set(query.get('lookOff')?.split(','))
-export const look = Object.freeze(Object.fromEntries(
-  ['grade', 'backlight', 'bounce', 'zones', 'haze', 'backdrop', 'dapple', 'bloom'].map((name) => [name, !disabled.has(name)]),
-))
+// Shipped look (owner decision 2026-11-22): round-3 light and grade plus emissive-only bloom for the accents. The
+// other layers made the book mushy; ?lookOff= (empty) turns the full round-4 stage back on.
+export const DEFAULT_LOOK_OFF = 'grade,backlight,bounce,zones,haze,backdrop,dapple'
+
+export function lookFlags(search = '') {
+  const disabled = new Set((new URLSearchParams(search).get('lookOff') ?? DEFAULT_LOOK_OFF).split(','))
+  return Object.freeze(Object.fromEntries(
+    ['grade', 'backlight', 'bounce', 'zones', 'haze', 'backdrop', 'dapple', 'bloom'].map((name) => [name, !disabled.has(name)]),
+  ))
+}
+export const look = lookFlags(query.toString())
 export const referenceExposure = 1.35
 export const stageExposure = look.grade ? 0.76 : referenceExposure
 export const trollSurfaces = { hair: 0.1, body: 0.3 }
