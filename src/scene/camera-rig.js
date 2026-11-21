@@ -1,8 +1,13 @@
 import { MathUtils, Vector3 } from 'three'
 
 export function createCameraRig(camera, position) {
-  const pitch = MathUtils.degToRad(45)
-  const distance = 10 // close enough that the 0.6-unit troll reads as the subject
+  const framing = new URLSearchParams(window.location.search).get('cam')?.split(',')
+  const [requestedDistance, requestedPitch] = framing?.map(Number) ?? []
+  const validFraming = framing?.length === 2 && framing.every((value) => value.trim())
+    && Number.isFinite(requestedDistance) && requestedDistance > camera.near
+    && Number.isFinite(requestedPitch) && requestedPitch > 0 && requestedPitch < 90
+  const pitch = MathUtils.degToRad(validFraming ? requestedPitch : 45)
+  const distance = validFraming ? requestedDistance : 10
   const offset = new Vector3(0, distance * Math.sin(pitch), distance * Math.cos(pitch))
   const target = position.clone()
 

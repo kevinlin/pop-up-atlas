@@ -1,0 +1,118 @@
+{
+  "pairs": [
+    {
+      "pair": "pair-01.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-01-establishing.png",
+      "game": "game-01.png",
+      "seed": 42,
+      "camera": [
+        13.2,
+        46
+      ],
+      "player": {
+        "x": 23,
+        "z": -4,
+        "state": "idle"
+      }
+    },
+    {
+      "pair": "pair-02.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-02-walking.png",
+      "game": "game-02.png",
+      "seed": 0,
+      "camera": [
+        4.6,
+        34
+      ],
+      "player": {
+        "x": 0.11999999999999969,
+        "z": -4.8,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-03.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-03-fold-up.png",
+      "game": "game-03.png",
+      "seed": 0,
+      "camera": [
+        9.5,
+        36
+      ],
+      "player": {
+        "x": 0,
+        "z": -1.6,
+        "state": "idle"
+      },
+      "fold": {
+        "dir": "up",
+        "i": -1,
+        "j": -3
+      },
+      "foldAngleDeg": -15.7565115818673
+    },
+    {
+      "pair": "pair-04.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-claude-04-river-bridge.png",
+      "game": "game-04.png",
+      "seed": 42,
+      "camera": [
+        6.5,
+        38
+      ],
+      "player": {
+        "x": 21.999999999999982,
+        "z": -4,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-05.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-claude-05-dance.png",
+      "game": "game-05.png",
+      "seed": 157,
+      "camera": [
+        4.3,
+        34
+      ],
+      "player": {
+        "x": 4,
+        "z": 10,
+        "state": "dance"
+      }
+    },
+    {
+      "pair": "pair-06.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-06-fold-back.png",
+      "game": "game-06.png",
+      "seed": 0,
+      "camera": [
+        10,
+        34
+      ],
+      "player": {
+        "x": 0,
+        "z": 0.43999999999999967,
+        "state": "walk"
+      },
+      "fold": {
+        "dir": "down",
+        "i": -1,
+        "j": -3
+      },
+      "foldAngleDeg": -68.46606485820267
+    }
+  ]
+}

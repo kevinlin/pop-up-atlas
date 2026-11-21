@@ -10,7 +10,8 @@ export function onFold(fn) {
 }
 
 export function initWorld(debug) {
-  const layout = createLayout()
+  const seed = Number(new URLSearchParams(window.location.search).get('seed'))
+  const layout = createLayout(Number.isSafeInteger(seed) ? seed : undefined)
   const stream = createTileStream(scene, layout, (event) => {
     debug.foldLog.push(event)
     for (const listener of foldListeners) listener(event)
