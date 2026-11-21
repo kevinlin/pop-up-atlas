@@ -1,0 +1,166 @@
+{
+  "pairs": [
+    {
+      "pair": "pair-01.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-claude-01-establishing.png",
+      "game": "game-01.png",
+      "seed": 42,
+      "camera": [
+        44,
+        34
+      ],
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "start": {
+        "x": 21.45,
+        "z": -0.2
+      },
+      "player": {
+        "x": 21.45,
+        "z": -0.2,
+        "state": "idle"
+      }
+    },
+    {
+      "pair": "pair-02.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-claude-02-walking.png",
+      "game": "game-02.png",
+      "seed": 0,
+      "camera": [
+        4.5,
+        32
+      ],
+      "anchor": [
+        0.5,
+        0.72
+      ],
+      "start": {
+        "x": -0.48,
+        "z": -5.25
+      },
+      "player": {
+        "x": 0.07154328932550712,
+        "z": -4.698456710674496,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-03.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-03-fold-up.png",
+      "game": "game-03.png",
+      "seed": 0,
+      "camera": [
+        5.6,
+        38
+      ],
+      "anchor": [
+        0.3333333333333333,
+        0.71
+      ],
+      "start": {
+        "x": 0.43690513672348597,
+        "z": -2.494797539067061
+      },
+      "player": {
+        "x": 0.65,
+        "z": -2.7,
+        "state": "idle"
+      },
+      "fold": {
+        "dir": "up",
+        "i": 1,
+        "j": -2
+      },
+      "foldAngleDeg": -30.393661287416784
+    },
+    {
+      "pair": "pair-04.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-04-river-bridge.png",
+      "game": "game-04.png",
+      "seed": 42,
+      "camera": [
+        5.8,
+        24
+      ],
+      "anchor": [
+        0.5,
+        0.71
+      ],
+      "start": {
+        "x": 23.2,
+        "z": 8
+      },
+      "player": {
+        "x": 23.999999999999982,
+        "z": 8,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-05.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-claude-05-dance.png",
+      "game": "game-05.png",
+      "seed": 167,
+      "camera": [
+        4.4,
+        32
+      ],
+      "anchor": [
+        0.5,
+        0.69
+      ],
+      "start": {
+        "x": -4,
+        "z": 8.56
+      },
+      "player": {
+        "x": -4,
+        "z": 8.56,
+        "state": "dance"
+      }
+    },
+    {
+      "pair": "pair-06.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-claude-06-fold-back.png",
+      "game": "game-06.png",
+      "seed": 0,
+      "camera": [
+        4.6,
+        26
+      ],
+      "anchor": [
+        0.6666666666666666,
+        0.71
+      ],
+      "start": {
+        "x": -0.95,
+        "z": -4.75
+      },
+      "player": {
+        "x": -0.95,
+        "z": -2.849999999999995,
+        "state": "walk"
+      },
+      "fold": {
+        "dir": "down",
+        "i": -1,
+        "j": -3
+      },
+      "foldAngleDeg": -55.096106142187416
+    }
+  ]
+}
