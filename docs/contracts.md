@@ -36,22 +36,26 @@ Layout density (target, measured over a 64x64-cell area on 20 seeds): grass-sock
 - ≤ 15k triangles per tile, textures ≤ 1024 px, embedded.
 - Material name prefixes tell the runtime the material class: `felt_`, `card_`, `glitter_`, `yarn_`.
 
+## Book bounds (round 2)
+- The scrapbook is an endless accordion (concertina) book running along X: a page band j ∈ [-5, 4] (z ∈ [-11, 9]) with page-stack edges, a felt cover lip and a warm wood table beyond both Z edges; a valley fold (gutter) every 8 columns. The troll cannot leave the page band.
+- Composition: low-frequency zones (≈ 6-10 cells) alternate groves (dense, tall props) and clearings (meadow / flat appliqué), so views group into scenes instead of wallpaper; prop height varies ≈ 3:1 within a grove.
+
 ## Scrapbook page (`public/models/tiles/page_a.glb`, `page_b.glb`, `gutter.glb`)
 - `page_a` / `page_b`: flat 2x2 page tile variants (felt or paper, stitched border pieces, slight layered edges), drawn under every cell.
 - `gutter.glb`: 2-unit strip along Z marking the book spine, placed on every cell whose i is a multiple of 8, with a shallow valley (≤ 0.08 deep) the troll walks over.
 - Folded-flat tiles must read as printed/appliqué shapes on the page, not z-fighting: flat parts sit 0.005-0.02 above y = 0, stacked by hinge index.
 
 ## Fold behaviour
-- Fold up when cell centre is within 5 units of the troll; fold down when beyond 6.5 units (hysteresis). (Was 7/9; reduced in T9 so folds happen on screen at camera distance 10.)
-- Spring on the hinge angle θ from -90° to 0: up = ω 14 rad/s, ζ 0.45 → overshoot 15-25 % of the 90° travel, settle to within ±2° of target in < 0.9 s. Down = ω 12, ζ 0.85, no visible overshoot.
-- Hinges in one tile stagger by 50 ms.
+- Fold up when cell centre is within 3 units of the troll (≈ 1.5 tiles ahead); fold down when beyond 4.5 units (hysteresis), so both happen in clear view. (Was 7/9, then 5/6.5; round-2 critics: folding not legible.)
+- Spring on the hinge angle θ from -90° to 0: up = ω 8 rad/s, ζ 0.5 → first crosses upright at ≈ 0.30 s, overshoot 12-20 % of the 90° travel, settle to within ±2° of target in < 1.0 s. Down = ω 8, ζ 0.85, no visible overshoot. (Round 2: was ω 14 ζ 0.45, too fast to read.)
+- Hinges in one tile stagger by 120 ms, tallest piece first.
 - Event `fold` {dir: 'up'|'down', id, i, j, t} fired at start of motion.
 
 ## Troll (`public/models/troll.glb`)
 - Original design: round fuzzy felt body, tall upswept bright hair, stubby limbs, small satchel. No film or toy likeness, logos or text.
 - Height 0.6 units (hair tip up to 0.95), faces +Z, origin between the feet.
 - Bones: `root`, … , hair chain `hair_0`..`hair_3` (base to tip).
-- Clips: `walk` loop, 1.0 s per cycle = 2 steps, root-in-place, matches 1.2 units/s; `idle` loop 2.0 s; `dance` 4-6 s, non-loop.
+- Clips: `walk` loop, 1.0 s per cycle = 2 steps, root-in-place, matches 1.2 units/s, body bob 0.06 with the low point just after contact, each support foot planted ≈ 0.25 s; `idle` loop 2.0 s; `dance` ≈ 3 s, non-loop (camera-facing kick, turning hop, held bow). (Round 2: bob was 0.03, dance 5 s.)
 - ≤ 20k triangles, textures ≤ 1024 px.
 
 ## Look targets (from reference/concept, reference/concept-claude, reference/research)
