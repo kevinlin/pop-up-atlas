@@ -1,10 +1,11 @@
 import { createCueDirector } from './cues.js'
 import { playVoice } from './index.js'
 import { createScheduler } from './music.js'
-import { createSamplePlayback, loadSamples } from './samples.js'
+import { createSamplePlayback, loadSamples, VOICE_FADE } from './samples.js'
 import { createSoundBank } from './sounds.js'
 
-const LEAD_TIME = 0.025
+// Keep the scheduling margin when a voice fade starts before its cue marker.
+const LEAD_TIME = 0.025 + VOICE_FADE
 const UNLOCK_INPUTS = ['pointerdown', 'pointerup', 'keydown']
 let live
 

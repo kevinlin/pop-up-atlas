@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createCueDirector } from '../src/audio/cues.js'
+import { createSamplePlayback } from '../src/audio/samples.js'
 import { hash } from '../src/world/hash.js'
 import { createLayout } from '../src/world/layout.js'
 import { fixtureManifest } from './fixtures/audio/manifest.js'
@@ -263,8 +264,49 @@ describe('chorus, hum and dance', () => {
     expect(times(hum)).toEqual([4.25, 4.5625, 4.875])
     expect(hum.map((play) => pitch(play, cues))).toEqual([74, 76, 81])
     expect(times(cuts)).toEqual([4.25, 4.5625])
-    expect(hum[0].end).toBeCloseTo(hum[1].t + 0.02, 10)
-    expect(hum[1].end).toBeCloseTo(hum[2].t + 0.02, 10)
+    expect(hum[0].end).toBe(hum[1].t)
+    expect(hum[1].end).toBe(hum[2].t)
+  })
+
+  it('fades a hum tail that would overlap the next note by just 2.5 ms', () => {
+    const { director, named, cuts } = setup(0, (cues) => {
+      for (const file of cues.sing_hum.files) file.duration = 0.315
+    })
+    director.note(0.25, 69)
+    director.note(0.5, 69)
+    director.idle(1.5)
+    director.idle(1.8125)
+
+    const [previous, next] = named('sing_hum')
+    expect(previous.end).toBe(next.t)
+    expect(cuts).toEqual([previous])
+  })
+
+  it('ramps a replaced voice to zero during the 20 ms before the next voice on the audio clock', () => {
+    const { cues } = fixtureManifest()
+    const files = cues.sing_hum.files
+    const buffers = new Map(files.map(({ src, duration }) => [src, { buffer: {}, duration }]))
+    const gain = { setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn() }
+    const source = { playbackRate: {}, start: vi.fn(), stop: vi.fn() }
+    const connect = (node) => node
+    const playback = createSamplePlayback({
+      createGain: () => ({ gain, connect }),
+      createStereoPanner: () => ({ pan: {}, connect }),
+      createBufferSource: () => ({ ...source, connect }),
+    }, {}, buffers)
+    const offset = 3
+    const director = createCueDirector(cues,
+      (play) => playback.play(play, offset), (play) => playback.cut(play, offset))
+    director.note(0.25, 69)
+    director.note(0.5, 69)
+    director.idle(1.5)
+    director.idle(1.8125)
+
+    const handoff = offset + 1.8125
+    expect(gain.setValueAtTime).toHaveBeenCalledExactlyOnceWith(cues.sing_hum.gain, handoff - 0.02)
+    expect(gain.linearRampToValueAtTime).toHaveBeenCalledExactlyOnceWith(0, handoff)
+    expect(source.stop).toHaveBeenNthCalledWith(2, handoff)
+    expect(source.start).toHaveBeenNthCalledWith(2, handoff, 0)
   })
 
   it('cuts the current hum on movement, cancels pending notes, and can hum again', () => {
@@ -316,7 +358,7 @@ describe('chorus, hum and dance', () => {
     expect(dance[0].file).not.toBe(dance[1].file)
     expect(named('voice_ooh')).toHaveLength(0)
     expect(cuts.map(({ cue }) => cue)).toEqual(['voice_hmph', 'voice_giggle', 'sing_ta'])
-    expect(named('sing_ta')[0]).toMatchObject({ file: '/audio/sing_ta-2.mp3', rate: 2 ** (2 / 12), end: 3.52 })
+    expect(named('sing_ta')[0]).toMatchObject({ file: '/audio/sing_ta-2.mp3', rate: 2 ** (2 / 12), end: 3.5 })
     for (const [cue, target] of [['sing_ta', 69], ['sing_da', 74]]) {
       expect(Math.abs(pitch(named(cue)[0], cues) - target)).toBeLessThanOrEqual(0.25)
     }
@@ -324,6 +366,21 @@ describe('chorus, hum and dance', () => {
     director.surface(6, 'yarn_bridge')
     director.surface(7, 'meadow')
     expect(named('voice_whee').map(({ cause }) => cause)).toEqual(['dance', 'bridge-exit'])
+  })
+
+  it('ends each overlapping dance voice at the next voice marker', () => {
+    const { director, plays } = setup(0, (cues) => {
+      for (const file of cues.voice_whee.files) file.duration = 1.5
+    })
+    director.dance(1, 0)
+    director.dance(1.46, 0.46)
+    director.dance(2, 1)
+    director.dance(3.2, 2.2)
+    director.dance(3.51, 2.51)
+
+    const voices = plays.filter(({ kind }) => kind === 'voice')
+    expect(voices.map(({ cue }) => cue)).toEqual(['voice_giggle', 'voice_whee', 'sing_ta', 'sing_da'])
+    expect(voices.slice(0, -1).map(({ end }) => end)).toEqual(times(voices.slice(1)))
   })
 
   it('drops otherwise eligible reactions during a dance and allows new ones after it', () => {

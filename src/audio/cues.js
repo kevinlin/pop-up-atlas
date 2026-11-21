@@ -60,9 +60,9 @@ export function createCueDirector(cues, emit, cut = () => {}) {
 
   const ready = (cue, t, gap) => elapsed(t, lastStart.get(cue) ?? -Infinity, gap)
 
-  function fadeVoice(t) {
-    if (voice?.end > t + VOICE_FADE) {
-      voice.end = t + VOICE_FADE
+  function fadeVoice(end) {
+    if (voice?.end > end) {
+      voice.end = end
       cut(voice)
     }
   }
@@ -155,7 +155,7 @@ export function createCueDirector(cues, emit, cut = () => {}) {
       if (moving === walking) return
       if (walking) {
         const chance = hash(seed, starts++, 0, 33) % 3 === 0
-        if (voice?.cause === 'hum') fadeVoice(t)
+        if (voice?.cause === 'hum') fadeVoice(t + VOICE_FADE)
         hum.length = 0
         humIndex = 0
         humAt = Infinity
@@ -205,7 +205,7 @@ export function createCueDirector(cues, emit, cut = () => {}) {
     },
     dance(t, clipTime, interrupted = true) {
       if (clipTime === undefined) {
-        if (dancing && interrupted && voice?.cause === 'dance') fadeVoice(t)
+        if (dancing && interrupted && voice?.cause === 'dance') fadeVoice(t + VOICE_FADE)
         dancing = false
         return
       }
