@@ -57,3 +57,6 @@
 - Critic round 2 submitted as fresh blind sessions (look, motion, sound).
 - Anomaly: critic round 2 jobs all FAILED on Codex usage limit (reset 15:08). Not re-routed to another vendor (user's config decision). Retry scheduled 15:12; monitor loop stopped until then.
 - User reset the Codex usage limit; critic round 2 resubmitted as fresh blind jobs (critic-r2-*-retry), scheduled retry cancelled.
+- Critic round 2 results (deliverables/round-2/verdicts/): LOOK game 2-4/10, 6/6 at 99 %, not wowed (composition, missing braces, flat scarf/hair silhouettes, straight book edge). MOTION fold 6 (+2), walk 6 (+1), dance 4 (−1), hair 5 (−2). SOUND pop 7 (+1), chime 7, musicality 5 (+1), mix 8 (+1).
+- Revert rule: hair regression 7→5 traced to T8 r2 limiting the runtime spring to start/stop/turn → T8 r3 restores continuous spring (keeps recoil). Dance regression 5→4: restaging lost at gameplay framing → R3-troll gives the turn distinct poses and a held bow.
+- Round 3 (last critic round): contracts updated (fold 2/3, ω 6 ζ 0.5 ≈ 0.40 s to upright, settle < 1.4 s, stagger 180 ms; bob 0.09 + hip shift; dance turn poses + 0.35 s bow). Jobs: T6 r3, T7 r3, T8 r3 (last rounds), R2-world r2, new R3-troll and R3-tiles (Blender, driver runs host builds).

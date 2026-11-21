@@ -46,16 +46,16 @@ Layout density (target, measured over a 64x64-cell area on 20 seeds): grass-sock
 - Folded-flat tiles must read as printed/appliqué shapes on the page, not z-fighting: flat parts sit 0.005-0.02 above y = 0, stacked by hinge index.
 
 ## Fold behaviour
-- Fold up when cell centre is within 3 units of the troll (≈ 1.5 tiles ahead); fold down when beyond 4.5 units (hysteresis), so both happen in clear view. (Was 7/9, then 5/6.5; round-2 critics: folding not legible.)
-- Spring on the hinge angle θ from -90° to 0: up = ω 8 rad/s, ζ 0.5 → first crosses upright at ≈ 0.30 s, overshoot 12-20 % of the 90° travel, settle to within ±2° of target in < 1.0 s. Down = ω 8, ζ 0.85, no visible overshoot. (Round 2: was ω 14 ζ 0.45, too fast to read.)
-- Hinges in one tile stagger by 120 ms, tallest piece first.
+- Fold up when cell centre is within 2 units of the troll; fold down when beyond 3 units (hysteresis), so both happen right beside the troll. (Was 7/9 → 5/6.5 → 3/4.5; round-2 critic: fold-down easy to miss.)
+- Spring on the hinge angle θ from -90° to 0: up = ω 6 rad/s, ζ 0.5 → first crosses upright at ≈ 0.40 s, overshoot 12-20 % of the 90° travel, settle to within ±2° of target in < 1.4 s. Down = ω 7, ζ 0.85, no visible overshoot. (Round 3: critic asked for 0.40-0.45 s to upright; was ω 8, before that ω 14.)
+- Hinges in one tile stagger by 180 ms, tallest piece first.
 - Event `fold` {dir: 'up'|'down', id, i, j, t} fired at start of motion.
 
 ## Troll (`public/models/troll.glb`)
 - Original design: round fuzzy felt body, tall upswept bright hair, stubby limbs, small satchel. No film or toy likeness, logos or text.
 - Height 0.6 units (hair tip up to 0.95), faces +Z, origin between the feet.
 - Bones: `root`, … , hair chain `hair_0`..`hair_3` (base to tip).
-- Clips: `walk` loop, 1.0 s per cycle = 2 steps, root-in-place, matches 1.2 units/s, body bob 0.06 with the low point just after contact, each support foot planted ≈ 0.25 s; `idle` loop 2.0 s; `dance` ≈ 3 s, non-loop (camera-facing kick, turning hop, held bow). (Round 2: bob was 0.03, dance 5 s.)
+- Clips: `walk` loop, 1.0 s per cycle = 2 steps, root-in-place, matches 1.2 units/s, body bob 0.09 with the low point just after contact and hips shifting over the planted foot, each support foot planted ≈ 0.25 s, swing foot lifted half a boot-height; `idle` loop 2.0 s; `dance` ≈ 3 s, non-loop: sideways step with one arm above the head, a 0.75 s turn with distinct front / profile / back / finish poses, low landing, crooked one-foot bow held 0.35 s. (Round 2: bob was 0.03, dance 5 s.)
 - ≤ 20k triangles, textures ≤ 1024 px.
 
 ## Look targets (from reference/concept, reference/concept-claude, reference/research)
