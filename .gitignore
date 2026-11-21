@@ -4,3 +4,4 @@ dist/
 
 # Agent Handoff config
 .handoff/
+__pycache__/
