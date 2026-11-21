@@ -1,0 +1,49 @@
+{
+  "url": "http://localhost:4173",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "warmup_seconds": 3,
+  "route_seconds": 60,
+  "timing_unit": "ms",
+  "machine_model": "Mac17,8",
+  "runs": [
+    {
+      "dpr": 1,
+      "framebuffer": {
+        "width": 1280,
+        "height": 720
+      },
+      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36",
+      "gpu_renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M5 Pro, Unspecified Version)",
+      "estimated_refresh_hz": 120,
+      "load_ms": 392,
+      "frames": 7200,
+      "median": 8.3,
+      "p95": 9.1,
+      "p99": 10.1,
+      "max": 10.4,
+      "pct_over_20ms": 0,
+      "frames_over_50ms": 0
+    },
+    {
+      "dpr": 2,
+      "framebuffer": {
+        "width": 2560,
+        "height": 1440
+      },
+      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36",
+      "gpu_renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M5 Pro, Unspecified Version)",
+      "estimated_refresh_hz": 120,
+      "load_ms": 372,
+      "frames": 7200,
+      "median": 8.3,
+      "p95": 9.2,
+      "p99": 10.1,
+      "max": 10.3,
+      "pct_over_20ms": 0,
+      "frames_over_50ms": 0
+    }
+  ]
+}
