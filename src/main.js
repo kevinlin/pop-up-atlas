@@ -1,5 +1,5 @@
 import { Color } from 'three'
-import { initAudio, playFold } from './audio/index.js'
+import { flushAudioFolds, initAudio, playFold } from './audio/live.js'
 import { createCharacter } from './character/index.js'
 import { bindControls } from './controls/index.js'
 import { setupDebug } from './debug/index.js'
@@ -7,7 +7,7 @@ import { createCameraRig } from './scene/camera-rig.js'
 import { createLights } from './scene/lights.js'
 import { addPlaceholders } from './scene/placeholders.js'
 import { createRenderer } from './scene/renderer.js'
-import { camera, isBlocked, player, scene, updates } from './scene/runtime.js'
+import { blockedBy, camera, player, scene, updates } from './scene/runtime.js'
 import { initWorld, onFold } from './world/index.js'
 
 export { camera, isBlocked, player, registerUpdate, scene, setIsBlocked } from './scene/runtime.js'
@@ -21,8 +21,8 @@ const followLight = createLights(scene)
 const updateDebug = setupDebug(player)
 const character = createCharacter(scene, capsule, player, canvas, window.__atlas)
 Object.defineProperty(window.__atlas.player, 'state', { get: () => character.state })
-initWorld(window.__atlas)
-initAudio()
+const world = initWorld(window.__atlas)
+initAudio(`${import.meta.env.BASE_URL}audio/manifest.json`, world, player, window.__atlas)
 onFold(playFold)
 
 const loadStart = performance.now()
@@ -44,11 +44,12 @@ function frame(now) {
   const dt = Math.min(frameTime, 0.05)
   previous = now
 
-  updateControls(dt, isBlocked)
+  updateControls(dt, blockedBy)
   followPlayer(dt)
   followLight(player.position)
-  character.update(dt, frameTime)
+  character.update(dt, frameTime, elapsed)
   for (const update of updates) update(dt, elapsed)
+  flushAudioFolds()
   updateDebug(frameTime)
   render(dt, player.position)
   requestAnimationFrame(frame)

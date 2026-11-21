@@ -331,28 +331,32 @@ export function createLayout(initialSeed = 0) {
     return generated.get(key)
   }
 
+  function blockedBy(x, z) {
+    if (z < PAGE_MIN_Z || z > PAGE_MAX_Z) return 'edge'
+    const i = cellAt(x)
+    const j = Math.min(LAST_PAGE_ROW, cellAt(z))
+    const cell = getCell(i, j)
+    if (blocksPoint(cell, x - TILE_SIZE * i, z - TILE_SIZE * j)) return cell.blockedRadius ? 'prop' : 'river'
+
+    // Hero cutouts can extend into another cell. Ordinary props stay inside their own cell.
+    for (let row = Math.max(FIRST_PAGE_ROW, j - 1); row <= Math.min(LAST_PAGE_ROW, j + 1); row += 1) {
+      const dz = z - TILE_SIZE * row
+      if (Math.abs(dz) > maxPropReach) continue
+      for (let column = i - 1; column <= i + 1; column += 1) {
+        const dx = x - TILE_SIZE * column
+        if ((column === i && row === j) || Math.abs(dx) > maxPropReach) continue
+        const tile = getCell(column, row)
+        if (tile.hero && blocksPoint(tile, dx, dz)) return 'prop'
+      }
+    }
+    return null
+  }
+
   return {
     generateChunk,
     getCell,
-    isBlocked(x, z) {
-      if (z < PAGE_MIN_Z || z > PAGE_MAX_Z) return true
-      const i = cellAt(x)
-      const j = Math.min(LAST_PAGE_ROW, cellAt(z))
-      if (blocksPoint(getCell(i, j), x - TILE_SIZE * i, z - TILE_SIZE * j)) return true
-
-      // Hero cutouts can extend into another cell. Ordinary props stay inside their own cell.
-      for (let row = Math.max(FIRST_PAGE_ROW, j - 1); row <= Math.min(LAST_PAGE_ROW, j + 1); row += 1) {
-        const dz = z - TILE_SIZE * row
-        if (Math.abs(dz) > maxPropReach) continue
-        for (let column = i - 1; column <= i + 1; column += 1) {
-          const dx = x - TILE_SIZE * column
-          if ((column === i && row === j) || Math.abs(dx) > maxPropReach) continue
-          const tile = getCell(column, row)
-          if (tile.hero && blocksPoint(tile, dx, dz)) return true
-        }
-      }
-      return false
-    },
+    blockedBy,
+    isBlocked: (x, z) => Boolean(blockedBy(x, z)),
     setSeed(value) {
       seed = value >>> 0
       generated.clear()

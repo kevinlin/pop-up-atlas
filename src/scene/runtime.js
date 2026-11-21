@@ -7,9 +7,11 @@ export const player = createPlayer()
 
 // Heading is in radians from +Z. Position and velocity are world-space Vector3s.
 export let isBlocked = () => false
+export let blockedBy = isBlocked
 
-export function setIsBlocked(check) {
+export function setIsBlocked(check, reason = check) {
   isBlocked = check
+  blockedBy = reason
 }
 
 export const updates = new Set()

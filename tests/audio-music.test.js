@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createScheduler } from '../src/audio/music.js'
+import { createScheduler, harmonyMidi } from '../src/audio/music.js'
+import { TILES } from '../src/world/tiles.js'
 
 const eighth = 0.3125
 const origin = 0.125
@@ -9,6 +10,8 @@ const grid = (slot) => origin + slot * eighth
 const inSlot = (slot) => fold(slot === 0 ? origin : grid(slot) - 0.01)
 const chimes = (voices) => voices.filter(({ kind }) => kind === 'chime')
 const pops = (voices) => voices.filter(({ kind }) => kind === 'pop')
+const [flower, mushroom, cupcake, river] = ['flower', 'mushroom_house', 'cupcake_tree', 'river_straight']
+  .map((id) => TILES.find((tile) => tile.id === id).id)
 
 describe('fold music', () => {
   it('plays the eight-note question and answer with accents, short passing notes, and a ringing final D', () => {
@@ -41,14 +44,32 @@ describe('fold music', () => {
     expect(varied).toBe(true)
   })
 
-  it('restarts after six empty slots but continues after five, even if there are fold-downs', () => {
-    const restart = inSlot(13)
-    const events = [inSlot(0), inSlot(6), fold(grid(7), 'down'), restart, fold(restart.t + 0.1)]
-    const notes = chimes(events.flatMap(createScheduler()))
-
-    expect(notes.map(({ t, midi }) => [t, midi])).toEqual([
-      [origin, 74], [grid(6), 71], [restart.t, 74], [restart.t + eighth, 71],
+  it.each([[5.9, 71], [6, 74], [6.1, 74]])('uses the last up fold for a %s s phrase gap', (gap, midi) => {
+    const next = origin + gap
+    const events = [inSlot(0), fold(next - 0.2, 'down'), fold(next)]
+    expect(chimes(events.flatMap(createScheduler())).map(({ t, midi }) => [t, midi])).toEqual([
+      [origin, 74], [next, midi],
     ])
+  })
+
+  it('re-anchors after a 3 s gap and quantizes the following fold to the new grid', () => {
+    const next = origin + 3
+    const events = [inSlot(0), fold(next), fold(next + 0.1)]
+    expect(chimes(events.flatMap(createScheduler())).map(({ t, midi }) => [t, midi])).toEqual([
+      [origin, 74], [next, 71], [next + eighth, 76],
+    ])
+  })
+
+  it('keeps the old grid at six eighths since the last up fold', () => {
+    const events = [inSlot(0), fold(grid(6))]
+    expect(chimes(events.flatMap(createScheduler())).map(({ t, midi }) => [t, midi])).toEqual([
+      [origin, 74], [grid(7), 71],
+    ])
+  })
+
+  it('counts a fold merged into an occupied slot toward the phrase hold', () => {
+    const events = [inSlot(0), fold(0.2), fold(0.3), fold(6.25)]
+    expect(chimes(events.flatMap(createScheduler())).map(({ midi }) => midi)).toEqual([74, 71, 76])
   })
 
   it('starts the grid at the first up fold and plays that chime with its pop', () => {
@@ -100,7 +121,48 @@ describe('fold music', () => {
       [0.305, 'down', 'tile-0', 10 ** 0.15], [0.305, 'up', 'tile-1', 10 ** 0.15 / Math.sqrt(2)],
       [0.31, 'up', 'flower', 1 / Math.sqrt(3)], [0.32, 'down', 'flower', 10 ** 0.05 / Math.sqrt(4)],
     ])
-    expect(chimes(voices).map(({ t, id }) => [t, id])).toEqual([[0.305, 'tile-1'], [0.305 + eighth, 'flower']])
+    expect(chimes(voices).filter(({ harmony }) => !harmony).map(({ t, id }) => [t, id]))
+      .toEqual([[0.305, 'tile-1'], [0.305 + eighth, 'flower']])
+    expect(chimes(voices).filter(({ harmony }) => harmony).map(({ t, id }) => [t, id])).toEqual([[0.305, 'tile-3']])
+  })
+
+  it('needs two distinct up tile ids in a frame with a melody note', () => {
+    const events = [
+      fold(0, 'up', flower), { ...fold(0, 'up', flower), i: 3 }, fold(0, 'down', mushroom),
+      fold(0.1, 'up', flower), fold(0.2, 'up', mushroom), fold(0.2, 'up', cupcake),
+    ]
+    const notes = chimes(events.flatMap(createScheduler()))
+    expect(notes.map(({ t, id, midi }) => [t, id, midi])).toEqual([[0, flower, 74], [eighth, flower, 71]])
+    expect(notes.some(({ harmony }) => harmony)).toBe(false)
+  })
+
+  it('adds at most one harmony per melody note using the second distinct up tile', () => {
+    const events = [
+      fold(0, 'up', flower), fold(0.1, 'up', flower), fold(0.1, 'up', flower),
+      fold(0.1, 'down', river), { ...fold(0.1, 'up', mushroom), i: 3, j: 4 }, fold(0.1, 'up', cupcake),
+    ]
+    const notes = chimes(events.flatMap(createScheduler()))
+    expect(notes).toHaveLength(3)
+    const [, melody, harmony] = notes
+    expect(melody).toMatchObject({ id: flower, midi: 71, t: eighth })
+    expect(harmony).toMatchObject({ kind: 'chime', harmony: true, id: mushroom, i: 3, j: 4, midi: 66,
+      t: melody.t, end: melody.end, gain: melody.gain * 10 ** (-6 / 20) })
+  })
+
+  it('uses the upper harmony interval when two degrees below would leave D4-D6', () => {
+    expect([62, 64, 66, 86].map(harmonyMidi)).toEqual([66, 69, 62, 81])
+  })
+
+  it('drops harmony before the melody or either pop at the voice cap', () => {
+    const t = 0.311
+    const events = [
+      ...Array.from({ length: 5 }, (_, index) => fold(0.30 + index * 0.001, 'down', river)),
+      fold(t, 'up', flower), fold(t, 'up', mushroom), fold(t, 'down', cupcake),
+    ]
+    const voices = events.flatMap(createScheduler())
+    expect(chimes(voices).map(({ id, midi }) => [id, midi])).toEqual([[flower, 74]])
+    expect(pops(voices).filter((voice) => voice.t === t).map(({ dir }) => dir)).toEqual(['up', 'down'])
+    expect(voices.filter((voice) => voice.t <= t && t < voice.end)).toHaveLength(8)
   })
 
   it('enforces eight overlapping voices across distinct frames and leaves room for the next chime', () => {

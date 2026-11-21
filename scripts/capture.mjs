@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, cp, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -10,6 +10,7 @@ import { chromium } from 'playwright'
 import { createScheduler } from '../src/audio/music.js'
 import { createLayout } from '../src/world/layout.js'
 import { cellAt, LAST_PAGE_ROW, PAGE_MAX_Z, TILE_SIZE } from '../src/world/tiles.js'
+import { cueKinds, decodeAudio, ffmpeg, masterMetrics, mixReport, writeCriticPairs } from './capture-audio.mjs'
 
 export const previewURL = 'http://localhost:4173'
 export const evidenceDir = '.handoff/evidence/T10'
@@ -23,14 +24,25 @@ export const launchChromium = () => chromium.launch(headless
   : { headless: false })
 
 export function roundOptions(script) {
+  const options = { round: { type: 'string', default: String(defaultRound) } }
+  if (script === 'capture') {
+    options.stems = { type: 'boolean' }
+    options['baseline-rev'] = { type: 'string', default: '7b6489c' }
+  }
   const { positionals, values } = parseArgs({
-    options: { round: { type: 'string', default: String(defaultRound) } },
+    options,
     allowPositionals: true,
   })
+  const stemsUsage = script === 'capture' ? ' [--stems [--baseline-rev REV]]' : ''
   assert.ok(positionals.length <= 1 && /^[1-9]\d*$/.test(values.round) && Number.isSafeInteger(Number(values.round)),
-    `Usage: node scripts/${script}.mjs [PREVIEW_URL] [--round N], with N a positive integer`)
+    `Usage: node scripts/${script}.mjs [PREVIEW_URL] [--round N]${stemsUsage}, with N a positive integer`)
   const round = `round-${values.round}`
-  return { baseURL: positionals[0] ?? previewURL, roundDir: join('deliverables', round), evidence: join(evidenceDir, round) }
+  return {
+    baseURL: positionals[0] ?? previewURL,
+    roundDir: join('deliverables', round),
+    evidence: join(values.stems ? '.handoff/evidence/P0' : evidenceDir, round),
+    ...(script === 'capture' && { stems: values.stems, baselineRev: values['baseline-rev'] }),
+  }
 }
 
 export async function readDanceSeconds(page) {
@@ -78,7 +90,7 @@ export async function createSteppedPage(browser, viewport, { waitForAudio = fals
     }
     const resume = AudioContext.prototype.resume
     AudioContext.prototype.resume = async function () {
-      if (!waitForAudio) return // Capture renders audio offline.
+      if (!waitForAudio) return
       await resume.call(this)
       if (this.state !== 'running') return
       // After a real gesture unlock, hold the device clock while testing the game-time schedule.
@@ -117,8 +129,6 @@ const cameraPitch = 37
 const faceCameraFrame = 20 * fps
 const faceCameraFrames = 20
 const preRollFrames = 120
-const ffmpeg = (args) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args],
-  { maxBuffer: 16 * 1024 * 1024 })
 
 export function lineClear(layout, from, to) {
   const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 0.02))
@@ -170,76 +180,190 @@ export function planCaptureRoute() {
   return best
 }
 
-async function offlineAudio(page, filepath, clipStart) {
+export async function offlineAudio(page, filepath, clipStart, durationSec = duration, { stemsDir, baselineRev } = {}) {
   const folder = new URL('/__atlas_capture_audio/', page.url())
   await page.route(`${folder.href}*.js`, (route) => {
     const name = new URL(route.request().url()).pathname.split('/').at(-1)
-    assert.match(name, /^(index|music|sounds)\.js$/)
+    assert.match(name, /^(index|music|sounds|samples)\.js$/)
     return route.fulfill({
       path: fileURLToPath(new URL(`../src/audio/${name}`, import.meta.url)),
       contentType: 'text/javascript',
     })
   })
-  const download = page.waitForEvent('download')
-  const result = await page.evaluate(async ({ moduleURL, duration, clipStart }) => {
-    const events = window.__atlas.foldLog.map((event) => ({ ...event, t: Math.max(0, event.t - clipStart) }))
-    const { renderOffline, encodeWav } = await import(moduleURL)
-    window.__atlas.audioLog.length = 0
-    const buffer = await renderOffline(events, duration)
-    const url = URL.createObjectURL(new Blob([encodeWav(buffer)], { type: 'audio/wav' }))
-    const link = Object.assign(document.createElement('a'), { href: url, download: 'atlas.wav' })
-    link.click()
-    return { events, notes: window.__atlas.audioLog }
-  }, { moduleURL: new URL('index.js', folder).href, duration, clipStart })
-  await (await download).saveAs(filepath)
-  return result
+  const { events, pops, cues } = await page.evaluate(({ clipStart, duration }) => {
+    const atlas = window.__atlas
+    const relative = (entries) => entries
+      .filter(({ t }) => t >= clipStart && t < clipStart + duration)
+      .map((event) => ({ ...event, t: event.t - clipStart }))
+    return {
+      events: relative(atlas.foldLog),
+      pops: relative(atlas.popLog),
+      cues: relative(atlas.cueLog).map((cue) => ({ ...cue, end: cue.end - clipStart })),
+    }
+  }, { clipStart, duration: durationSec })
+
+  async function render(path, folds, sampleCues, { source = folder, baseline = false, chimesOnly = false } = {}) {
+    const [download, result] = await Promise.all([
+      page.waitForEvent('download'),
+      page.evaluate(async ({ source, duration, events, cues, baseline, chimesOnly }) => {
+        const atlas = window.__atlas
+        const { renderOffline, encodeWav } = await import(new URL('index.js', source))
+        const manifestURL = new URL('audio/manifest.json', document.baseURI).href
+        const sampleRate = 48_000
+        const liveNotes = atlas.audioLog
+        const notes = []
+        atlas.audioLog = notes
+        let buffer
+        try {
+          if (chimesOnly) {
+            const { createScheduler } = await import(new URL('music.js', source))
+            const { createSoundBank } = await import(new URL('sounds.js', source))
+            const context = new OfflineAudioContext(2, Math.round(duration * sampleRate), sampleRate)
+            const sound = createSoundBank(context)
+            // Keep scheduler decisions from the full fold log, then omit pops from the mix.
+            const ordered = events.toSorted((a, b) => a.t - b.t)
+            for (const voice of ordered.flatMap(createScheduler())) {
+              if (voice.kind === 'chime' && voice.t < duration) sound(voice, 0)
+            }
+            buffer = await context.startRendering()
+          } else {
+            // The pre-change renderer accepts a positional sample rate.
+            buffer = await renderOffline(events, duration, baseline ? sampleRate : { cues, sampleRate, manifestURL })
+          }
+        } finally {
+          atlas.audioLog = liveNotes
+        }
+        let peak = 0
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+          for (const sample of buffer.getChannelData(channel)) peak = Math.max(peak, Math.abs(sample))
+        }
+        const url = URL.createObjectURL(new Blob([encodeWav(buffer)], { type: 'audio/wav' }))
+        Object.assign(document.createElement('a'), { href: url, download: 'atlas.wav' }).click()
+        return { notes, peakDbfs: peak > 0 ? 20 * Math.log10(peak) : null, url }
+      }, { source: source.href, duration: durationSec, events: folds, cues: sampleCues, baseline, chimesOnly }),
+    ])
+    await download.saveAs(path)
+    await page.evaluate((url) => URL.revokeObjectURL(url), result.url)
+    return result
+  }
+
+  const full = await render(filepath, events, cues)
+  const result = { events, pops, cues, notes: full.notes }
+  if (!stemsDir) return result
+
+  const revision = execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${baselineRev}^{commit}`],
+    { encoding: 'utf8' }).trim()
+  const baselineFolder = new URL('/__atlas_baseline_audio/', page.url())
+  const modules = new Map(['index.js', 'music.js', 'sounds.js'].map((name) => [name,
+    execFileSync('git', ['show', `${revision}:src/audio/${name}`], { encoding: 'utf8' })]))
+  await page.route(`${baselineFolder.href}*.js`, (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').at(-1)
+    assert.ok(modules.has(name), `Unexpected baseline audio module ${name}`)
+    return route.fulfill({ body: modules.get(name), contentType: 'text/javascript' })
+  })
+
+  const wav = (stem) => join(stemsDir, `${stem}.wav`)
+  await copyFile(filepath, wav('full'))
+  const peaks = { full: full.peakDbfs }
+  peaks.folds = (await render(wav('folds'), events, [])).peakDbfs
+  peaks.chimes = (await render(wav('chimes'), events, [], { chimesOnly: true })).peakDbfs
+  peaks.baseline = (await render(wav('baseline'), events, [], { source: baselineFolder, baseline: true })).peakDbfs
+  await copyFile(wav('baseline'), wav('folds-baseline'))
+  peaks['folds-baseline'] = peaks.baseline
+  for (const kind of cueKinds) {
+    peaks[kind] = (await render(wav(kind), [], cues.filter((cue) => cue.kind === kind))).peakDbfs
+    const ablation = `full-minus-${kind}`
+    peaks[ablation] = (await render(wav(ablation), events, cues.filter((cue) => cue.kind !== kind))).peakDbfs
+  }
+  return { ...result, peaks, baselineRev: revision }
 }
 
-function measureOnsets(video, events, notes) {
+function detectOnsets(pcm, ablated) {
   const rate = 48_000
   const channels = 2
   const sampleBytes = 4
-  const pcm = ffmpeg(['-i', video, '-map', '0:a:0', '-t', String(duration), '-ac', '2', '-ar', String(rate),
-    '-f', 'f32le', 'pipe:1'])
+  if (ablated) assert.equal(pcm.length, ablated.length, 'Ablation must have the same duration as the full mix')
   const windowSeconds = 0.005
   const windowBytes = windowSeconds * rate * channels * sampleBytes
   const onsets = []
+  const envelope = []
   let previous = 0
+  let prior = 0
   let peak = 0
   for (let offset = 0; offset + windowBytes <= pcm.length; offset += windowBytes) {
     let energy = 0
     for (let sample = offset; sample < offset + windowBytes; sample += sampleBytes) {
-      const amplitude = pcm.readFloatLE(sample)
+      const amplitude = pcm.readFloatLE(sample) - (ablated ? ablated.readFloatLE(sample) : 0)
       energy += amplitude ** 2
       peak = Math.max(peak, Math.abs(amplitude))
     }
     const rms = Math.sqrt(energy / (windowBytes / sampleBytes))
+    envelope.push(rms)
     const t = offset / (rate * channels * sampleBytes)
-    if (rms - previous > 0.0015 && rms > 1.45 * previous && t - (onsets.at(-1) ?? -1) >= 0.025) {
-      onsets.push(t)
+    const risesFrom = (level) => rms - level > 0.0015 && rms > 1.45 * level
+    const singleWindowRise = risesFrom(previous)
+    // A quiet sample over a sustained note can take two windows to clear the threshold.
+    const twoWindowRise = rms > previous && previous > prior && risesFrom(prior)
+    const onset = singleWindowRise ? t : t - windowSeconds
+    if ((singleWindowRise || twoWindowRise) && onset - (onsets.at(-1) ?? -1) >= 0.025) {
+      onsets.push(onset)
     }
+    prior = previous
     previous = rms
   }
+  return { onsets, envelope, peak, windowSeconds }
+}
 
+export function measureOnsets(video, { events, notes, pops, cues }, { stemsDir } = {}) {
+  const pcm = ffmpeg(['-i', video, '-map', '0:a:0', '-t', String(duration), '-ac', '2', '-ar', '48000',
+    '-f', 'f32le', 'pipe:1'])
+  const { onsets, envelope, peak, windowSeconds } = detectOnsets(pcm)
   const voices = events.flatMap(createScheduler()).filter(({ t }) => t < duration).sort((a, b) => a.t - b.t)
   const chimes = voices.filter(({ kind }) => kind === 'chime')
-  assert.deepEqual(notes.map(({ t, midi }) => [t, midi]), chimes.map(({ t, midi }) => [t, midi]),
+  assert.deepEqual(notes.map(({ t, midi, harmony }) => [t, midi, harmony]),
+    chimes.map(({ t, midi, harmony }) => [t, midi, harmony]),
     'Offline notes differ from the game scheduler')
-  let matched = 0
-  let cursor = 0
+  const scheduledPops = voices.filter(({ kind }) => kind === 'pop')
+  assert.deepEqual(pops.map(({ t, dir, id }) => [t, dir, id]),
+    scheduledPops.map(({ t, dir, id }) => [t, dir, id]),
+    'Offline pops differ from the live pop log')
   const tolerance = 0.025
-  for (const onset of onsets) {
-    while (voices[cursor]?.t < onset - tolerance) cursor++
-    if (Math.abs(voices[cursor]?.t - onset) <= tolerance) {
-      matched++
-      cursor++
-    }
+  const matches = (sounds, times = onsets) => sounds.filter(({ t }) => times.some((onset) => Math.abs(onset - t) <= tolerance))
+  const required = {
+    chime: [chimes],
+    pop: [scheduledPops],
+    footstep: [cues.filter(({ cause, file }) => cause === 'step' && file !== null), 'step'],
+    foldLayer: [cues.filter(({ cause }) => cause === 'fold'), 'sfx'],
+    sing_ta: [cues.filter(({ cue }) => cue === 'sing_ta'), 'voice'],
+    sing_da: [cues.filter(({ cue }) => cue === 'sing_da'), 'voice'],
+    chorus_yay: [cues.filter(({ cue }) => cue === 'chorus_yay'), 'chorus'],
   }
-  assert.ok(chimes.length > 0 && voices.length > chimes.length && matched > 0 && peak > 0,
-    'Expected chimes, pops, and detectable audio in the MP4')
+  const matchedByAblation = {}
+  let fullPcm
+  const matchedByCategory = Object.fromEntries(Object.entries(required).map(([name, [sounds, kind]]) => {
+    let matched = matches(sounds)
+    if (!matched.length && sounds.length && stemsDir && kind) {
+      // A louder overlapping cue can mask the rise in the final mix. Check the cue's effect on the mix directly.
+      fullPcm ??= decodeAudio(join(stemsDir, 'full.wav'))
+      const ablation = `full-minus-${kind}.wav`
+      const difference = detectOnsets(fullPcm, decodeAudio(join(stemsDir, ablation)))
+      matched = matches(sounds, difference.onsets)
+      if (matched.length) matchedByAblation[name] = `full.wav minus ${ablation} (before AAC)`
+    }
+    if (!matched.length) {
+      const nearby = sounds.slice(0, 1).map(({ t }) => {
+        const index = Math.round(t / windowSeconds)
+        const rms = envelope.slice(Math.max(0, index - 5), index + 6)
+        return { t, rms: rms.map((value) => Number(value.toFixed(4))) }
+      })
+      assert.fail(`Capture needs a logged ${name} with an onset within 25 ms (${sounds.length} scheduled). ${JSON.stringify(nearby)}`)
+    }
+    return [name, matched.length]
+  }))
+  if (!stemsDir) assert.ok(peak <= 10 ** (-1 / 20), `Decoded AAC peak is ${(20 * Math.log10(peak)).toFixed(2)} dBFS`)
   return {
     source: 'Decoded AAC stream of gameplay-30s.mp4',
-    method: 'Stereo 5 ms RMS windows. Rise above 0.0015 and 1.45x prior RMS, spaced by at least 25 ms.',
+    method: 'Stereo 5 ms RMS windows. A rise greater than 0.0015 and 1.45x prior RMS over one or two rising windows, spaced at least 25 ms apart.',
     foldUpEvents: events.filter(({ dir }) => dir === 'up').length,
     foldDownEvents: events.filter(({ dir }) => dir === 'down').length,
     scheduledChimes: chimes.length,
@@ -247,19 +371,19 @@ function measureOnsets(video, events, notes) {
     scheduledFoldDownPops: voices.filter(({ kind, dir }) => kind === 'pop' && dir === 'down').length,
     scheduledSounds: voices.length,
     detectedOnsets: onsets.length,
-    matchedWithin25ms: matched,
+    scheduledCues: cues.length,
+    matchedWithin25ms: matches(voices).length,
+    matchedByCategory,
+    ...(stemsDir && { matchedByAblation }),
     peakDbfs: 20 * Math.log10(peak),
     note: 'Voice limits drop some pops and merge chimes on the same eighth-note slot. Simultaneous voices can produce one energy onset.',
     onsetTimesSec: onsets,
   }
 }
 
-async function capture({ baseURL, roundDir, evidence }) {
+export async function runCaptureRoute({ page, open, advance }, baseURL, captureFrame) {
   const { seed, layout, start, approach, clickTarget, edgeFrames, alignFrames, approachFrames } = planCaptureRoute()
-  await Promise.all([mkdir(roundDir, { recursive: true }), mkdir(evidence, { recursive: true })])
-  const temp = await mkdtemp(join(tmpdir(), 'atlas-capture-'))
-  const video = join(temp, 'gameplay-30s.mp4')
-  const wav = join(temp, 'audio.wav')
+  const { width, height } = page.viewportSize()
   const url = new URL(baseURL)
   url.searchParams.set('seed', seed)
   url.searchParams.set('cam', `${cameraDistance},${cameraPitch}`)
@@ -268,79 +392,108 @@ async function capture({ baseURL, roundDir, evidence }) {
   url.searchParams.delete('plain')
   const click = edgeFrames + alignFrames + approachFrames
   const clipStart = (preRollFrames + 1) / fps
-  let audio
   let danceFrames = 0
   let danceRun = 0
-  let expectedDanceSeconds
   let completeDance = false
   let bridgeFrames = 0
   let edgeEnd
   let clickedFrom
   let arrival
-  try {
-    const browser = await launchChromium()
-    try {
-      const { page, open, advance, errors } = await createSteppedPage(browser, viewport)
-      await open(url.href)
-      expectedDanceSeconds = await readDanceSeconds(page)
-      await page.waitForFunction(() => window.__atlasLookShots, undefined, { polling: 50, timeout: 5000 })
-      await page.evaluate((pose) => window.__atlasLookShots.pose(pose), start)
-      await advance(1, fps, preRollFrames)
-      assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Capture camera did not settle')
-      await page.evaluate(() => { window.__atlas.foldLog.length = 0 })
+  await open(url.href)
+  await page.waitForFunction(() => Number.isFinite(window.__atlas.audioReadyMs), undefined,
+    { polling: 50, timeout: 30_000 })
+  const expectedDanceSeconds = await readDanceSeconds(page)
+  await page.waitForFunction(() => window.__atlasLookShots, undefined, { polling: 50, timeout: 5000 })
+  await page.evaluate((pose) => window.__atlasLookShots.pose(pose), start)
+  await advance(1, fps, preRollFrames)
+  assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Capture camera did not settle')
+  await page.evaluate(() => { window.__atlas.foldLog.length = 0 })
 
-      const player = () => page.evaluate(() => ({ ...window.__atlas.player }))
-      for (let frame = 0; frame < duration * fps; frame++) {
-        if (frame === 1) await page.keyboard.down('KeyD')
-        if (frame === edgeFrames + 1) {
-          edgeEnd = await player()
-          await page.keyboard.down('KeyW')
-        }
-        if (frame === edgeFrames + alignFrames + 1) await page.keyboard.up('KeyW')
-        if (frame === click + 1) {
-          await page.keyboard.up('KeyD')
-          clickedFrom = await player()
-          // The camera follows 0.25 s behind the eastbound troll. At mid-height
-          // the ray lands on the camera target's Z, already aligned with the bridge.
-          assert.ok(Math.hypot(clickedFrom.x - approach.x, clickedFrom.z - approach.z) < 0.08,
-            `Troll did not reach the bridge approach: ${JSON.stringify(clickedFrom)}`)
-          const cameraX = clickedFrom.x - (walkSpeed / fps) / Math.expm1(1 / (fps * 0.25))
-          const x = viewport.width / 2
-            + (clickTarget.x - cameraX) * viewport.height / (2 * cameraDistance * Math.tan(Math.PI / 12))
-          assert.ok(x > 0 && x < viewport.width, `Bridge click projected outside the canvas at x=${x}`)
-          await page.mouse.click(x, viewport.height / 2)
-        }
-        if (frame === faceCameraFrame) {
-          assert.ok(arrival, 'Click walk did not finish before the dance staging step')
-          await page.keyboard.down('KeyS')
-        }
-        if (frame === faceCameraFrame + faceCameraFrames) await page.keyboard.up('KeyS')
-        await advance(preRollFrames + 1 + frame, fps)
+  const player = () => page.evaluate(() => ({ ...window.__atlas.player }))
+  for (let frame = 0; frame < duration * fps; frame++) {
+    if (frame === 1) {
+      await page.keyboard.down('KeyD')
+      await page.waitForFunction(() => window.__atlasAudioUnlocked, undefined, { polling: 50, timeout: 5000 })
+    }
+    if (frame === edgeFrames + 1) {
+      edgeEnd = await player()
+      await page.keyboard.down('KeyW')
+    }
+    if (frame === edgeFrames + alignFrames + 1) await page.keyboard.up('KeyW')
+    if (frame === click + 1) {
+      await page.keyboard.up('KeyD')
+      clickedFrom = await player()
+      // The camera follows 0.25 s behind the eastbound troll. At mid-height
+      // the ray lands on the camera target's Z, already aligned with the bridge.
+      assert.ok(Math.hypot(clickedFrom.x - approach.x, clickedFrom.z - approach.z) < 0.08,
+        `Troll did not reach the bridge approach: ${JSON.stringify(clickedFrom)}`)
+      const cameraX = clickedFrom.x - (walkSpeed / fps) / Math.expm1(1 / (fps * 0.25))
+      const x = width / 2
+        + (clickTarget.x - cameraX) * height / (2 * cameraDistance * Math.tan(Math.PI / 12))
+      assert.ok(x > 0 && x < width, `Bridge click projected outside the canvas at x=${x}`)
+      await page.mouse.click(x, height / 2)
+    }
+    if (frame === faceCameraFrame) {
+      assert.ok(arrival, 'Click walk did not finish before the dance staging step')
+      await page.keyboard.down('KeyS')
+    }
+    if (frame === faceCameraFrame + faceCameraFrames) await page.keyboard.up('KeyS')
+    await advance(preRollFrames + 1 + frame, fps)
+    if (captureFrame) await captureFrame(frame)
+    if (frame > click) {
+      const pose = await player()
+      if (!arrival && pose.state === 'idle') arrival = pose
+      if (pose.state === 'walk' && layout.getCell(cellAt(pose.x), cellAt(pose.z)).id === 'yarn_bridge') {
+        bridgeFrames++
+      }
+      if (pose.state === 'dance') danceRun++
+      else if (danceRun) {
+        danceFrames = danceRun
+        completeDance = pose.state === 'idle'
+        danceRun = 0
+      }
+    }
+  }
+  assert.ok(edgeEnd && edgeEnd.x - start.x >= 15 && Math.abs(edgeEnd.z - start.z) < 0.05,
+    'Route did not follow the front book edge')
+  assert.ok(arrival && Math.hypot(arrival.x - clickTarget.x, arrival.z - clickTarget.z) <= 0.5,
+    `Click from ${JSON.stringify(clickedFrom)} missed: ${JSON.stringify(arrival)}`)
+  assert.ok(bridgeFrames > 0, 'Route did not cross a yarn bridge')
+  assert.ok(completeDance && Math.abs(danceFrames / fps - expectedDanceSeconds) <= 2 / fps,
+    `Dance lasted ${danceFrames / fps}s, expected the full ${expectedDanceSeconds}s clip`)
+  return {
+    clipStart,
+    route: {
+      seed, headless, camera: [cameraDistance, cameraPitch], start, edgeEnd, clickedFrom, arrival,
+      bridgeSeconds: bridgeFrames / fps, danceSeconds: danceFrames / fps, expectedDanceSeconds,
+    },
+  }
+}
+
+async function capture({ baseURL, roundDir, evidence, stems, baselineRev }) {
+  await Promise.all([mkdir(roundDir, { recursive: true }), mkdir(evidence, { recursive: true })])
+  const temp = await mkdtemp(join(tmpdir(), 'atlas-capture-'))
+  const stagedDir = join(temp, 'deliverables')
+  const stemsDir = stems ? join(stagedDir, 'audio') : undefined
+  const video = join(temp, 'gameplay-30s.mp4')
+  const wav = join(temp, 'audio.wav')
+  let audio
+  let route
+  try {
+    if (stemsDir) await mkdir(stemsDir, { recursive: true })
+    const browser = headless && process.platform === 'darwin'
+      ? await chromium.launch({ headless: true, args: ['--use-angle=metal'] })
+      : await launchChromium()
+    try {
+      const stepped = await createSteppedPage(browser, viewport, { waitForAudio: true })
+      const { page, errors } = stepped
+      const gameplay = await runCaptureRoute(stepped, baseURL, async (frame) => {
         await page.screenshot({ path: join(temp, `frame-${String(frame).padStart(4, '0')}.jpg`),
           type: 'jpeg', quality: 94, timeout: 15_000 })
-        if (frame > click) {
-          const pose = await player()
-          if (!arrival && pose.state === 'idle') arrival = pose
-          if (pose.state === 'walk' && layout.getCell(cellAt(pose.x), cellAt(pose.z)).id === 'yarn_bridge') {
-            bridgeFrames++
-          }
-          if (pose.state === 'dance') danceRun++
-          else if (danceRun) {
-            danceFrames = danceRun
-            completeDance = pose.state === 'idle'
-            danceRun = 0
-          }
-        }
         if ((frame + 1) % 120 === 0) console.log(`Captured ${frame + 1}/${duration * fps} frames`)
-      }
-      assert.ok(edgeEnd && edgeEnd.x - start.x >= 15 && Math.abs(edgeEnd.z - start.z) < 0.05,
-        'Route did not follow the front book edge')
-      assert.ok(arrival && Math.hypot(arrival.x - clickTarget.x, arrival.z - clickTarget.z) <= 0.5,
-        `Click from ${JSON.stringify(clickedFrom)} missed: ${JSON.stringify(arrival)}`)
-      assert.ok(bridgeFrames > 0, 'Route did not cross a yarn bridge')
-      assert.ok(completeDance && Math.abs(danceFrames / fps - expectedDanceSeconds) <= 2 / fps,
-        `Dance lasted ${danceFrames / fps}s, expected the full ${expectedDanceSeconds}s clip`)
-      audio = await offlineAudio(page, wav, clipStart)
+      })
+      route = gameplay.route
+      audio = await offlineAudio(page, wav, gameplay.clipStart, duration, { stemsDir, baselineRev })
       assert.deepEqual(errors, [], 'Browser errors during capture')
     } finally {
       await browser.close()
@@ -361,14 +514,20 @@ async function capture({ baseURL, roundDir, evidence }) {
       [viewport.width, viewport.height, `${fps}/1`, duration * fps])
     assert.ok(Number(probe.format.duration) >= 29 && Number(probe.format.duration) <= 31)
 
-    const onsets = measureOnsets(video, audio.events, audio.notes)
-    onsets.route = {
-      seed, headless, camera: [cameraDistance, cameraPitch], start, edgeEnd, clickedFrom, arrival,
-      bridgeSeconds: bridgeFrames / fps, danceSeconds: danceFrames / fps, expectedDanceSeconds,
-    }
+    const onsets = measureOnsets(video, audio, { stemsDir })
+    onsets.route = route
     const output = join(roundDir, 'gameplay-30s.mp4')
-    // Read from the temporary encode before installing the validated file.
-    await copyFile(video, output)
+    if (stemsDir) {
+      const mix = mixReport(audio.peaks, masterMetrics(decodeAudio(video)), audio.baselineRev)
+      await writeJson(join(stemsDir, 'mix.json'), mix)
+      await writeCriticPairs(stagedDir, roundDir)
+      // Publish the validated encode and its critic inputs after all renders succeed.
+      await rename(video, join(stagedDir, 'gameplay-30s.mp4'))
+      await cp(stagedDir, roundDir, { recursive: true })
+      console.log(JSON.stringify(mix))
+    } else {
+      await copyFile(video, output)
+    }
     probe.format.filename = output
     await writeJson(join(evidence, 'capture-ffprobe.json'), probe)
     await writeJson(join(evidence, 'capture-onsets.json'), onsets)

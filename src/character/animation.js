@@ -1,4 +1,5 @@
 import { AnimationMixer, LoopOnce, MathUtils } from 'three'
+import { playFootstep } from '../audio/live.js'
 
 const names = ['idle', 'walk', 'dance']
 
@@ -24,14 +25,19 @@ export function createAnimation(model, clips) {
 
   return {
     get danceFinished() { return dance.time >= danceDuration },
-    update(next, speed, dt) {
+    get danceTime() { return dance.time },
+    update(next, speed, dt, t) {
+      let walkStart = false
       if (next !== state) {
         duration = state === 'dance' && dance.time < danceDuration ? 0.1 : 0.18
         elapsed = 0
         // Keep the current mix when a transition interrupts another one.
         startWeights = names.map((name) => actions[name].getEffectiveWeight())
         const incoming = actions[next]
-        if (incoming.getEffectiveWeight() === 0) incoming.reset().play()
+        if (incoming.getEffectiveWeight() === 0) {
+          incoming.reset().play()
+          walkStart = incoming === walk
+        }
         state = next
       }
 
@@ -46,8 +52,14 @@ export function createAnimation(model, clips) {
         }
       }
 
-      walk.setEffectiveTimeScale(speed / 1.2)
+      const walkRate = speed / 1.2
+      walk.setEffectiveTimeScale(walkRate)
+      const previousWalkTime = walk.time
       mixer.update(dt)
+      if (state !== 'walk') return
+      if (walkStart) playFootstep(t)
+      else if (walk.time < previousWalkTime) playFootstep(t - walk.time / walkRate)
+      else if (previousWalkTime < 0.5 && walk.time >= 0.5) playFootstep(t - (walk.time - 0.5) / walkRate)
     },
   }
 }

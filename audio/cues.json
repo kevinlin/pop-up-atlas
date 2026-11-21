@@ -5,8 +5,8 @@
     "outputFormat": "mp3_44100_128"
   },
   "rates": {
-    "sfxCreditsPerSecond": null,
-    "ttsCreditsPerChar": null,
+    "sfxCreditsPerSecond": 12,
+    "ttsCreditsPerChar": 0.46153846153846156,
     "designCreditsPerCall": null
   },
   "voice": {
@@ -36,9 +36,9 @@
       "prompt": "soft felt flap lifting off cardboard with a tiny cheek pop, muffled, close and dry, single short sound" },
     { "cue": "fold_down", "kind": "sfx", "source": "sfx", "duration": 0.5, "takes": 4, "keep": 4, "gain": 0.3,
       "prompt": "paper flap folding shut onto felt, soft and muffled, close and dry, single short sound" },
-    { "cue": "step_felt", "kind": "step", "source": "sfx", "duration": 0.5, "takes": 6, "keep": 6, "gain": 0.3,
+    { "cue": "step_felt", "kind": "step", "source": "sfx", "duration": 0.5, "takes": 6, "keep": 6, "gain": 0.17,
       "prompt": "one tiny soft footstep on thick felt over cardboard, muffled pat, very light, single hit, close and dry" },
-    { "cue": "step_paper", "kind": "step", "source": "sfx", "duration": 0.5, "takes": 6, "keep": 6, "gain": 0.3,
+    { "cue": "step_paper", "kind": "step", "source": "sfx", "duration": 0.5, "takes": 6, "keep": 6, "gain": 0.17,
       "prompt": "one tiny light footstep on stiff paper, soft tap with a faint crinkle, single hit, close and dry" },
     { "cue": "sfx_hair_swish", "kind": "sfx", "source": "sfx", "duration": 0.5, "takes": 3, "keep": 3, "gain": 0.35,
       "prompt": "quick soft swish of a fluffy yarn hair tuft swinging, close and dry, single short sound" },
@@ -67,11 +67,11 @@
     { "cue": "voice_ooh", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.8,
       "texts": ["[amazed] Ooooh!", "[delighted] Ooh!", "[amazed] Woah!"] },
     { "cue": "voice_giggle", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.75,
-      "texts": ["[giggles] Hee-hee!", "[giggles]", "[giggles] Hee!"] },
+      "texts": ["[giggles] Hee-hee!", "[giggles] Hehe!", "[giggles] Hee!"] },
     { "cue": "voice_whee", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.8,
       "texts": ["[excited] Wheeee!", "[joyfully] Wheee!", "[excited] Whee!"] },
-    { "cue": "sing_hum", "kind": "voice", "source": "tts", "sung": true, "takes": 4, "keep": 4, "gain": 0.7,
-      "texts": ["[hums] Mmmmm.", "[hums softly] Mmmmm.", "[hums] Hmmmm.", "[hums happily] Mmmmm."] },
+    { "cue": "sing_hum", "kind": "voice", "source": "tts", "sung": true, "sungWindow": 0.35, "takes": 8, "keep": 8, "gain": 0.7,
+      "texts": ["[sings] Mmmmm.", "[sings softly] Mmmmm.", "[sings, high and light] Mmmmm.", "[sings, very high] Mmmm."] },
     { "cue": "sing_ta", "kind": "voice", "source": "tts", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
       "texts": ["[sings] Taaa!", "[sings] Taaaa!", "[sings brightly] Taaa!", "[sings] Taaa!"] },
     { "cue": "sing_da", "kind": "voice", "source": "tts", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,

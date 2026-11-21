@@ -1,61 +1,31 @@
 import { createScheduler } from './music.js'
 import { createSoundBank } from './sounds.js'
+import { createSamplePlayback, loadSamples } from './samples.js'
 
-const LEAD_TIME = 0.025
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-const UNLOCK_INPUTS = ['pointerdown', 'pointerup', 'keydown']
-let listening = false
-let live
-let pending = []
 
-export function initAudio() {
-  if (listening || typeof window === 'undefined' || !window.AudioContext) return
-  listening = true
-  // Create it suspended during load: opening the audio device costs ~120 ms, which stalled the first input frame.
-  const context = new window.AudioContext()
-  live = { context, schedule: createScheduler(), sound: createSoundBank(context), origin: undefined }
-
-  const unlock = async () => {
-    try {
-      await live.context.resume()
-    } catch {
-      return // A later gesture can retry a resume rejected by the browser.
-    }
-    for (const input of UNLOCK_INPUTS) window.removeEventListener(input, unlock, true)
-  }
-
-  for (const input of UNLOCK_INPUTS) window.addEventListener(input, unlock, true)
-}
-
-function playVoice(sound, voice, offset) {
+export function playVoice(sound, voice, offset) {
   sound(voice, offset)
   const atlas = globalThis.window?.__atlas
   if (voice.kind === 'chime' && atlas) {
     const { t, id, i, j, midi } = voice
     const note = `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`
     const log = (atlas.audioLog ??= [])
-    log.push({ t, id, i, j, midi, note })
+    log.push({ t, id, i, j, midi, note, ...(voice.harmony !== undefined && { harmony: voice.harmony }) })
   }
 }
 
-export function playFold(event) {
-  if (live?.context.state !== 'running') return
-  live.origin ??= live.context.currentTime + LEAD_TIME - event.t
-  if (!pending.length) {
-    // All folds from the world's frame callback arrive before this microtask.
-    queueMicrotask(() => {
-      const frame = pending
-      pending = []
-      for (const voice of frame.flatMap(live.schedule)) playVoice(live.sound, voice, live.origin)
-    })
-  }
-  pending.push(event)
-}
-
-export async function renderOffline(events, durationSec, sampleRate = 48_000) {
+export async function renderOffline(events, durationSec, { cues = [], sampleRate = 48_000, manifestURL } = {}) {
   const context = new OfflineAudioContext(2, Math.round(durationSec * sampleRate), sampleRate)
   const sound = createSoundBank(context)
   const ordered = events.filter(({ t }) => t < durationSec).sort((a, b) => a.t - b.t)
+  const plays = cues.filter(({ t, end }) => t < durationSec && end > 0)
+  if (plays.length) {
+    const files = new Set(plays.map(({ file }) => file).filter(Boolean))
+    const { buffers } = await loadSamples(context, files.size ? manifestURL : undefined, files)
+    const playback = createSamplePlayback(context, sound, buffers)
+    for (const play of plays) playback.play(play, 0)
+  }
   for (const voice of ordered.flatMap(createScheduler())) {
     if (voice.t < durationSec) playVoice(sound, voice, 0)
   }

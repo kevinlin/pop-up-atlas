@@ -1,15 +1,62 @@
 import { createRandom } from './music.js'
 
-const PARTIALS = [
+const BELL = [
   { ratio: 1, gain: 0.18, attack: 0.009 },
   { ratio: 2.01, gain: 0.045, attack: 0.006, lengthRatio: 0.6 },
   { ratio: 2.76, gain: 0.022, attack: 0.004, maxLength: 0.25, treble: true, finalGain: 10 ** (-3 / 20) },
   { ratio: 4.05, gain: 0.009, attack: 0.003, maxLength: 0.15, treble: true },
 ]
+const MARIMBA = [
+  { ratio: 1, gain: 0.29, attack: 0.004, lengthRatio: 0.7 },
+  { ratio: 4, gain: 0.088, attack: 0.002, maxLength: 0.09 },
+  { ratio: 9.7, gain: 0.017, attack: 0.002, maxLength: 0.046, treble: true },
+]
+const MUSIC_BOX = [
+  { ratio: 1, gain: 0.19, attack: 0.004 },
+  { ratio: 2, gain: 0.094, attack: 0.003, lengthRatio: 0.65 },
+  { ratio: 3, gain: 0.048, attack: 0.002, maxLength: 0.19 },
+  { ratio: 6.25, gain: 0.023, attack: 0.002, maxLength: 0.1, treble: true },
+]
+const GLOCKENSPIEL = [
+  { ratio: 1, gain: 0.152, attack: 0.005 },
+  { ratio: 2.76, gain: 0.075, attack: 0.003, lengthRatio: 0.85 },
+  { ratio: 5.4, gain: 0.033, attack: 0.002, maxLength: 0.22, treble: true },
+  { ratio: 8.9, gain: 0.012, attack: 0.002, maxLength: 0.12, treble: true },
+]
+const TILE_PARTIALS = new Map([
+  ['mushroom_house', MARIMBA],
+  ['cupcake_tree', MUSIC_BOX],
+  ['river_straight', GLOCKENSPIEL],
+  ['river_corner', GLOCKENSPIEL],
+])
 const PUFF_ATTACK = Float32Array.from({ length: 17 }, (_, index) => {
   const t = index / 16
   return t * t * (3 - 2 * t)
 })
+const frequencyForMidi = (midi) => 440 * 2 ** ((midi - 69) / 12)
+
+function yarnString(context) {
+  const { sampleRate } = context
+  const delay = Math.round(sampleRate / frequencyForMidi(62) - 0.5)
+  // Leave enough source audio for the cadence length with two octaves of retuning.
+  const buffer = context.createBuffer(1, Math.ceil(sampleRate * 4.4), sampleRate)
+  const samples = buffer.getChannelData(0)
+  const random = createRandom(491)
+  // Band-limit the noise excitation so the pluck stays soft when pitched up two octaves.
+  for (let mode = 1; mode <= 6; mode++) {
+    const phase = 2 * Math.PI * random()
+    const level = (0.7 + 0.3 * random()) / mode ** 1.4
+    for (let i = 0; i < delay; i++) samples[i] += level * Math.sin(2 * Math.PI * mode * i / delay + phase)
+  }
+  samples[delay] = 0.498 * (samples[0] + samples[delay - 1])
+  for (let i = delay + 1; i < samples.length; i++) {
+    samples[i] = 0.498 * (samples[i - delay] + samples[i - delay - 1])
+  }
+  const peak = samples.reduce((max, sample) => Math.max(max, Math.abs(sample)), 0)
+  for (let i = 0; i < samples.length; i++) samples[i] /= peak
+  // The averaging filter contributes half a sample of delay per round trip.
+  return { buffer, frequency: sampleRate / (delay + 0.5) }
+}
 
 function noiseBuffer(context) {
   const random = createRandom(1207)
@@ -42,7 +89,7 @@ function envelope(context, output, start, end, attack, peak, passing = false) {
   shape.gain.setValueAtTime(0, start)
   shape.gain.linearRampToValueAtTime(peak, start + attack)
   if (passing) shape.gain.exponentialRampToValueAtTime(peak * 10 ** (-12 / 20), start + 0.065)
-  shape.gain.exponentialRampToValueAtTime(0.00005, end - 0.006)
+  shape.gain.exponentialRampToValueAtTime(0.00005, end - Math.min(0.006, (end - start) / 3))
   shape.gain.linearRampToValueAtTime(0, end)
   shape.connect(output)
   return shape
@@ -78,20 +125,45 @@ export function createSoundBank(context) {
   master.connect(compressor).connect(context.destination)
 
   const noise = noiseBuffer(context)
+  const yarn = yarnString(context)
   // `output` lets sample playback share the master bus and compressor.
-  return Object.assign((voice, offset) => {
+  return Object.assign((voice, offset = 0) => {
     const start = voice.t + offset
     const end = voice.end + offset
 
+    if (voice.kind === 'pluck' || (voice.kind === 'chime' && voice.id === 'yarn_bridge')) {
+      const source = context.createBufferSource()
+      source.buffer = yarn.buffer
+      source.playbackRate.value = frequencyForMidi(voice.midi) / yarn.frequency
+      const peak = (voice.passing ? 0.267 : 0.31) * voice.gain * (voice.final ? 0.96 : 1)
+      const shape = envelope(context, chimeBus, start, end, Math.min(0.004, (end - start) / 3), peak, voice.passing)
+      if (voice.kind === 'pluck') {
+        const panner = context.createStereoPanner()
+        panner.pan.value = voice.pan
+        source.connect(panner).connect(shape)
+      } else {
+        source.connect(shape)
+      }
+      source.start(start)
+      source.stop(end)
+      return
+    }
+
     if (voice.kind === 'chime') {
-      const fundamental = 440 * 2 ** ((voice.midi - 69) / 12)
+      const fundamental = frequencyForMidi(voice.midi)
       const highRegister = Math.max(0, Math.min(1, (voice.midi - 81) / (86 - 81))) // A5 to D6
       const trebleGain = 10 ** (-4 * highRegister / 20)
-      for (const { ratio, gain, attack, maxLength = Infinity, lengthRatio = 1, treble, finalGain = 1 } of PARTIALS) {
+      const partials = TILE_PARTIALS.get(voice.id) ?? BELL
+      const noteGain = voice.gain * (voice.passing && partials === MARIMBA ? 0.81 : 1)
+      for (const { ratio, gain, attack, maxLength = Infinity, lengthRatio = 1, treble, finalGain = 1 } of partials) {
+        const frequency = fundamental * ratio
+        // Taper upper partials before 8 kHz to leave room for their attack transients.
+        const bandwidthGain = Math.min(1, (7800 - frequency) / 1800)
+        if (bandwidthGain <= 0) continue
         const partialEnd = start + Math.min((end - start) * lengthRatio, maxLength)
-        const peak = gain * voice.gain * (treble ? trebleGain : 1) * (voice.final ? finalGain : 1)
+        const peak = gain * noteGain * (treble ? trebleGain : 1) * (voice.final ? finalGain : 1) * bandwidthGain
         const oscillator = context.createOscillator()
-        oscillator.frequency.value = fundamental * ratio
+        oscillator.frequency.value = frequency
         const passing = ratio === 1 && voice.passing
         oscillator.connect(envelope(context, chimeBus, start, partialEnd, attack, peak, passing))
         oscillator.start(start)

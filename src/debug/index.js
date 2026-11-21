@@ -9,6 +9,9 @@ export function setupDebug(player) {
     hingeTrace: () => [],
     hairBones: [],
     audioLog: [],
+    cueLog: [],
+    popLog: [],
+    audioReadyMs: null,
     setSeed: () => {},
   }
 

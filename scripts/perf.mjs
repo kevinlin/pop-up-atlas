@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
 import { chromium } from 'playwright'
+import { CHUNK_SIZE } from '../src/world/layout.js'
+import { PAGE_MAX_Z, TILE_SIZE } from '../src/world/tiles.js'
+import { perfMisses } from './perf-contract.mjs'
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -11,64 +13,61 @@ const { positionals, values } = parseArgs({
 })
 if (positionals.length > 1) throw new Error('Usage: node scripts/perf.mjs [URL] [--out PATH]')
 
-const url = positionals[0] ?? 'http://localhost:4173'
+const url = new URL(positionals[0] ?? 'http://localhost:4173')
+url.searchParams.set('look-shots', '')
+url.searchParams.set('seed', '112')
+for (const flag of ['plain', 'debug', 'effects', 'lookOff']) url.searchParams.delete(flag)
 const viewport = { width: 1280, height: 720 }
-const route = [
-  { keys: ['KeyW'], ms: 15_000 },
-  { keys: ['KeyW', 'KeyD'], ms: 15_000 },
-  { keys: ['KeyD'], ms: 15_000 },
-  { keys: ['KeyW', 'KeyD'], ms: 15_000 },
-]
 const warmupMs = 3_000
-const routeMs = route.reduce((total, leg) => total + leg.ms, 0)
+const routeMs = 60_000
+// Start just west of a chunk seam on seed 112's clear front edge.
+const startPose = { x: 30.5, z: PAGE_MAX_Z - 0.02, zoom: 1, heading: Math.PI / 2 }
 
-async function playRoute(keyboard) {
-  let held = []
-  for (const { keys, ms } of route) {
-    for (const key of held) if (!keys.includes(key)) await keyboard.up(key)
-    for (const key of keys) if (!held.includes(key)) await keyboard.down(key)
-    held = keys
-    await delay(ms)
-  }
-  for (const key of held) await keyboard.up(key)
-}
-
-function frameDeltas(page, duration) {
-  return page.evaluate((ms) => new Promise((resolve) => {
+function sampleFrames(page, duration, trackChunks = false) {
+  return page.evaluate(({ ms, trackChunks, cellOffset, chunkSpan }) => new Promise((resolve) => {
     const deltas = []
+    const chunks = []
+    const player = window.__atlas.player
+    function visitChunk() {
+      const x = Math.floor((player.x + cellOffset) / chunkSpan)
+      const z = Math.floor((player.z + cellOffset) / chunkSpan)
+      const previous = chunks.at(-1)
+      if (!previous || previous[0] !== x || previous[1] !== z) chunks.push([x, z])
+    }
     requestAnimationFrame((start) => {
       let previous = start
+      if (trackChunks) visitChunk()
       function sample(now) {
         deltas.push(now - previous)
         previous = now
+        if (trackChunks) visitChunk()
         if (now - start < ms) requestAnimationFrame(sample)
-        else resolve(deltas)
+        else resolve({ deltas, chunks })
       }
       requestAnimationFrame(sample)
     })
-  }), duration)
+  }), { ms: duration, trackChunks, cellOffset: TILE_SIZE / 2, chunkSpan: CHUNK_SIZE * TILE_SIZE })
 }
 
 function summarize(deltas) {
   const sorted = deltas.toSorted((a, b) => a - b)
   const frames = sorted.length
   const p = (fraction) => sorted[Math.ceil(fraction * frames) - 1]
-  const round = (value) => Number(value.toFixed(3))
   const middle = Math.floor(frames / 2)
   const median = frames % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
   return {
     frames,
-    median: round(median),
-    p95: round(p(0.95)),
-    p99: round(p(0.99)),
-    max: round(sorted.at(-1)),
-    pct_over_20ms: round(100 * sorted.filter((delta) => delta > 20).length / frames),
+    median,
+    p95: p(0.95),
+    p99: p(0.99),
+    max: sorted.at(-1),
+    pct_over_20ms: 100 * sorted.filter((delta) => delta > 20).length / frames,
     frames_over_50ms: sorted.filter((delta) => delta > 50).length,
   }
 }
 
 const results = {
-  url,
+  url: url.href,
   viewport,
   warmup_seconds: warmupMs / 1000,
   route_seconds: routeMs / 1000,
@@ -88,12 +87,15 @@ try {
     page.on('console', (message) => {
       if (message.type() === 'error' && message.text().startsWith('THREE.')) errors.push(message.text())
     })
-    await page.goto(url)
+    await page.goto(url.href)
     await page.waitForFunction(() => window.__atlas?.player)
     // Steady-state budget starts once assets are loaded and shaders compiled; load time is reported separately.
     await page.waitForFunction(() => window.__atlas.ready, undefined, { timeout: 30_000 })
     const loadMs = await page.evaluate(() => window.__atlas.loadMs)
     await page.bringToFront()
+    await page.waitForFunction(() => window.__atlasLookShots)
+    await page.evaluate((pose) => window.__atlasLookShots.pose(pose), startPose)
+    await page.keyboard.press('Shift')
     const device = await page.evaluate(() => {
       const canvas = document.querySelector('canvas')
       const gl = canvas.getContext('webgl2')
@@ -105,15 +107,23 @@ try {
         gpu_renderer: extension ? gl.getParameter(extension.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
       }
     })
-    const warmup = summarize(await frameDeltas(page, warmupMs))
-    const [deltas] = await Promise.all([frameDeltas(page, routeMs), playRoute(page.keyboard)])
+    const warmup = summarize((await sampleFrames(page, warmupMs)).deltas)
+    await page.keyboard.down('KeyD')
+    const { deltas, chunks } = await sampleFrames(page, routeMs, true)
+    await page.keyboard.up('KeyD')
+    const audioReadyMs = await page.evaluate(() => window.__atlas.audioReadyMs ?? null)
     if (errors.length) throw new Error(errors.join('\n'))
-    results.runs.push({
+    const run = {
       ...device,
       estimated_refresh_hz: Math.round(1000 / warmup.median),
       load_ms: loadMs,
+      audio_ready_ms: audioReadyMs,
+      chunks_crossed: new Set(chunks.map((chunk) => chunk.join(','))).size,
+      chunk_itinerary: chunks,
       ...summarize(deltas),
-    })
+    }
+    run.misses = perfMisses(run)
+    results.runs.push(run)
     await page.close()
   }
 } finally {
@@ -126,3 +136,7 @@ if (values.out) {
   await writeFile(values.out, json)
 }
 process.stdout.write(json)
+for (const { dpr, misses } of results.runs) {
+  for (const miss of misses) process.stderr.write(`DPR ${dpr}: ${miss}\n`)
+  if (misses.length) process.exitCode = 1
+}

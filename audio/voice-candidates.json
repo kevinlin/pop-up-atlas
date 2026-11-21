@@ -1,0 +1,44 @@
+[
+  {
+    "id": "Mzvivqy62Nut5xiGm9Q6",
+    "brief": "Original voice for a thumb-sized felt troll. Gender-neutral, young-sounding but not a baby. Bright, slightly breathy, soft fuzzy edges. High pitch, like a warm adult voice raised five to seven semitones with small-creature formants. Quick and bouncy, sing-song rises at phrase ends, giggles easily. No accent. Dry studio recording, no reverb.",
+    "medianF0Hz": 453.18463899617785,
+    "voicedRatio": 0.41488451668092385,
+    "file": "deliverables/round-4/voice-candidates/Mzvivqy62Nut5xiGm9Q6.mp3"
+  },
+  {
+    "id": "0pE0ol5ZUa3dlTwADVDE",
+    "brief": "Original voice for a thumb-sized felt troll. Gender-neutral, young-sounding but not a baby. Bright, slightly breathy, soft fuzzy edges. High pitch, like a warm adult voice raised five to seven semitones with small-creature formants. Quick and bouncy, sing-song rises at phrase ends, giggles easily. No accent. Dry studio recording, no reverb.",
+    "medianF0Hz": 499.5929072095528,
+    "voicedRatio": 0.37845923709798057,
+    "file": "deliverables/round-4/voice-candidates/0pE0ol5ZUa3dlTwADVDE.mp3"
+  },
+  {
+    "id": "Do4PArWCA5d0ypOpy8DY",
+    "brief": "Original voice for a thumb-sized felt troll. Gender-neutral, young-sounding but not a baby. Bright, slightly breathy, soft fuzzy edges. High pitch, like a warm adult voice raised five to seven semitones with small-creature formants. Quick and bouncy, sing-song rises at phrase ends, giggles easily. No accent. Dry studio recording, no reverb.",
+    "medianF0Hz": 360.1560501622514,
+    "voicedRatio": 0.37351308485329104,
+    "file": "deliverables/round-4/voice-candidates/Do4PArWCA5d0ypOpy8DY.mp3"
+  },
+  {
+    "id": "egUHYi5eyuzCRZgn12L2",
+    "brief": "Original voice for a tiny fuzzy craft-felt creature. Gender-neutral, childlike wonder without sounding like a baby. Very high, light and airy, a little squeaky, cheerful and curious, with playful sing-song inflection and easy giggles. No accent. Close, dry studio recording, no reverb.",
+    "medianF0Hz": 520.8184516293754,
+    "voicedRatio": 0.6019512195121951,
+    "file": "deliverables/round-4/voice-candidates/egUHYi5eyuzCRZgn12L2.mp3"
+  },
+  {
+    "id": "7u2DxIoiwuWpzJhhNhJR",
+    "brief": "Original voice for a tiny fuzzy craft-felt creature. Gender-neutral, childlike wonder without sounding like a baby. Very high, light and airy, a little squeaky, cheerful and curious, with playful sing-song inflection and easy giggles. No accent. Close, dry studio recording, no reverb.",
+    "medianF0Hz": 415.1265157057734,
+    "voicedRatio": 0.40602696272799366,
+    "file": "deliverables/round-4/voice-candidates/7u2DxIoiwuWpzJhhNhJR.mp3"
+  },
+  {
+    "id": "CR0sa1JW6SPkrGuB66vR",
+    "brief": "Original voice for a tiny fuzzy craft-felt creature. Gender-neutral, childlike wonder without sounding like a baby. Very high, light and airy, a little squeaky, cheerful and curious, with playful sing-song inflection and easy giggles. No accent. Close, dry studio recording, no reverb.",
+    "medianF0Hz": 409.514604638607,
+    "voicedRatio": 0.4016516516516517,
+    "file": "deliverables/round-4/voice-candidates/CR0sa1JW6SPkrGuB66vR.mp3"
+  }
+]

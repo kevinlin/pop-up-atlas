@@ -1,0 +1,547 @@
+{
+  "version": 1,
+  "cues": {
+    "fold_flower": {
+      "kind": "sfx",
+      "gain": 0.55,
+      "files": [
+        {
+          "src": "fold_flower-1.mp3",
+          "duration": 0.38639455782312926
+        },
+        {
+          "src": "fold_flower-2.mp3",
+          "duration": 0.4024716553287982
+        },
+        {
+          "src": "fold_flower-3.mp3",
+          "duration": 0.4406122448979592
+        }
+      ]
+    },
+    "fold_mushroom_house": {
+      "kind": "sfx",
+      "gain": 0.55,
+      "files": [
+        {
+          "src": "fold_mushroom_house-1.mp3",
+          "duration": 0.36480725623582766
+        },
+        {
+          "src": "fold_mushroom_house-2.mp3",
+          "duration": 0.36891156462585034
+        },
+        {
+          "src": "fold_mushroom_house-3.mp3",
+          "duration": 0.3679591836734694
+        }
+      ]
+    },
+    "fold_cupcake_tree": {
+      "kind": "sfx",
+      "gain": 0.55,
+      "files": [
+        {
+          "src": "fold_cupcake_tree-1.mp3",
+          "duration": 0.26249433106575965
+        },
+        {
+          "src": "fold_cupcake_tree-2.mp3",
+          "duration": 0.32383219954648523
+        },
+        {
+          "src": "fold_cupcake_tree-3.mp3",
+          "duration": 0.35219954648526075
+        }
+      ]
+    },
+    "fold_yarn_bridge": {
+      "kind": "sfx",
+      "gain": 0.5,
+      "files": [
+        {
+          "src": "fold_yarn_bridge-1.mp3",
+          "duration": 0.3228798185941043
+        },
+        {
+          "src": "fold_yarn_bridge-2.mp3",
+          "duration": 0.3
+        }
+      ]
+    },
+    "fold_river": {
+      "kind": "sfx",
+      "gain": 0.5,
+      "files": [
+        {
+          "src": "fold_river-1.mp3",
+          "duration": 0.7920408163265306
+        },
+        {
+          "src": "fold_river-2.mp3",
+          "duration": 0.8
+        },
+        {
+          "src": "fold_river-3.mp3",
+          "duration": 0.7697732426303855
+        }
+      ]
+    },
+    "fold_path": {
+      "kind": "sfx",
+      "gain": 0.5,
+      "files": [
+        {
+          "src": "fold_path-1.mp3",
+          "duration": 0.4338321995464853
+        },
+        {
+          "src": "fold_path-2.mp3",
+          "duration": 0.39913832199546484
+        },
+        {
+          "src": "fold_path-3.mp3",
+          "duration": 0.45351473922902497
+        }
+      ]
+    },
+    "fold_meadow": {
+      "kind": "sfx",
+      "gain": 0.45,
+      "files": [
+        {
+          "src": "fold_meadow-1.mp3",
+          "duration": 0.38160997732426305
+        },
+        {
+          "src": "fold_meadow-2.mp3",
+          "duration": 0.3697278911564626
+        },
+        {
+          "src": "fold_meadow-3.mp3",
+          "duration": 0.3839909297052154
+        }
+      ]
+    },
+    "fold_down": {
+      "kind": "sfx",
+      "gain": 0.3,
+      "files": [
+        {
+          "src": "fold_down-1.mp3",
+          "duration": 0.3677097505668934
+        },
+        {
+          "src": "fold_down-2.mp3",
+          "duration": 0.36106575963718823
+        },
+        {
+          "src": "fold_down-3.mp3",
+          "duration": 0.3789342403628118
+        },
+        {
+          "src": "fold_down-4.mp3",
+          "duration": 0.37997732426303854
+        }
+      ]
+    },
+    "step_felt": {
+      "kind": "step",
+      "gain": 0.17,
+      "files": [
+        {
+          "src": "step_felt-1.mp3",
+          "duration": 0.41086167800453516
+        },
+        {
+          "src": "step_felt-2.mp3",
+          "duration": 0.3891156462585034
+        },
+        {
+          "src": "step_felt-3.mp3",
+          "duration": 0.28197278911564627
+        },
+        {
+          "src": "step_felt-4.mp3",
+          "duration": 0.4222222222222222
+        },
+        {
+          "src": "step_felt-5.mp3",
+          "duration": 0.4311111111111111
+        },
+        {
+          "src": "step_felt-6.mp3",
+          "duration": 0.4064172335600907
+        }
+      ]
+    },
+    "step_paper": {
+      "kind": "step",
+      "gain": 0.17,
+      "files": [
+        {
+          "src": "step_paper-1.mp3",
+          "duration": 0.4145124716553288
+        },
+        {
+          "src": "step_paper-2.mp3",
+          "duration": 0.4718140589569161
+        },
+        {
+          "src": "step_paper-3.mp3",
+          "duration": 0.431859410430839
+        },
+        {
+          "src": "step_paper-4.mp3",
+          "duration": 0.48
+        },
+        {
+          "src": "step_paper-5.mp3",
+          "duration": 0.34959183673469385
+        },
+        {
+          "src": "step_paper-6.mp3",
+          "duration": 0.48
+        }
+      ]
+    },
+    "sfx_hair_swish": {
+      "kind": "sfx",
+      "gain": 0.35,
+      "files": [
+        {
+          "src": "sfx_hair_swish-1.mp3",
+          "duration": 0.3929024943310658
+        },
+        {
+          "src": "sfx_hair_swish-2.mp3",
+          "duration": 0.38560090702947847
+        },
+        {
+          "src": "sfx_hair_swish-3.mp3",
+          "duration": 0.3929024943310658
+        }
+      ]
+    },
+    "sfx_hair_settle": {
+      "kind": "sfx",
+      "gain": 0.3,
+      "files": [
+        {
+          "src": "sfx_hair_settle-1.mp3",
+          "duration": 0.3939455782312925
+        },
+        {
+          "src": "sfx_hair_settle-2.mp3",
+          "duration": 0.42106575963718823
+        }
+      ]
+    },
+    "sfx_bump": {
+      "kind": "sfx",
+      "gain": 0.5,
+      "files": [
+        {
+          "src": "sfx_bump-1.mp3",
+          "duration": 0.4061224489795918
+        },
+        {
+          "src": "sfx_bump-2.mp3",
+          "duration": 0.4626984126984127
+        },
+        {
+          "src": "sfx_bump-3.mp3",
+          "duration": 0.4085034013605442
+        }
+      ]
+    },
+    "sfx_plip": {
+      "kind": "sfx",
+      "gain": 0.45,
+      "files": [
+        {
+          "src": "sfx_plip-1.mp3",
+          "duration": 0.48
+        },
+        {
+          "src": "sfx_plip-2.mp3",
+          "duration": 0.389297052154195
+        }
+      ]
+    },
+    "sfx_clap": {
+      "kind": "sfx",
+      "gain": 0.45,
+      "files": [
+        {
+          "src": "sfx_clap-1.mp3",
+          "duration": 0.3707709750566893
+        },
+        {
+          "src": "sfx_clap-2.mp3",
+          "duration": 0.48
+        },
+        {
+          "src": "sfx_clap-3.mp3",
+          "duration": 0.38922902494331063
+        }
+      ]
+    },
+    "sfx_spin": {
+      "kind": "sfx",
+      "gain": 0.45,
+      "files": [
+        {
+          "src": "sfx_spin-1.mp3",
+          "duration": 0.7749886621315193
+        },
+        {
+          "src": "sfx_spin-2.mp3",
+          "duration": 0.7354875283446712
+        }
+      ]
+    },
+    "chorus_ooh": {
+      "kind": "chorus",
+      "gain": 0.4,
+      "files": [
+        {
+          "src": "chorus_ooh-1.mp3",
+          "duration": 0.9771428571428571
+        },
+        {
+          "src": "chorus_ooh-2.mp3",
+          "duration": 0.9278684807256236
+        },
+        {
+          "src": "chorus_ooh-3.mp3",
+          "duration": 0.9015873015873016
+        }
+      ]
+    },
+    "chorus_yay": {
+      "kind": "chorus",
+      "gain": 0.4,
+      "files": [
+        {
+          "src": "chorus_yay-1.mp3",
+          "duration": 1.2
+        },
+        {
+          "src": "chorus_yay-2.mp3",
+          "duration": 1.1584126984126983
+        },
+        {
+          "src": "chorus_yay-3.mp3",
+          "duration": 1.1539909297052153
+        }
+      ]
+    },
+    "voice_hup": {
+      "kind": "voice",
+      "gain": 0.8,
+      "files": [
+        {
+          "src": "voice_hup-1.mp3",
+          "duration": 0.7618367346938776
+        },
+        {
+          "src": "voice_hup-2.mp3",
+          "duration": 0.6142630385487529
+        },
+        {
+          "src": "voice_hup-3.mp3",
+          "duration": 0.998639455782313
+        }
+      ]
+    },
+    "voice_hm": {
+      "kind": "voice",
+      "gain": 0.6,
+      "files": [
+        {
+          "src": "voice_hm-1.mp3",
+          "duration": 1.188639455782313
+        },
+        {
+          "src": "voice_hm-2.mp3",
+          "duration": 1.0626530612244898
+        }
+      ]
+    },
+    "voice_hmph": {
+      "kind": "voice",
+      "gain": 0.75,
+      "files": [
+        {
+          "src": "voice_hmph-1.mp3",
+          "duration": 0.8453061224489796
+        },
+        {
+          "src": "voice_hmph-2.mp3",
+          "duration": 1.176575963718821
+        },
+        {
+          "src": "voice_hmph-3.mp3",
+          "duration": 0.8556235827664399
+        }
+      ]
+    },
+    "voice_eep": {
+      "kind": "voice",
+      "gain": 0.75,
+      "files": [
+        {
+          "src": "voice_eep-1.mp3",
+          "duration": 0.761655328798186
+        },
+        {
+          "src": "voice_eep-2.mp3",
+          "duration": 0.7530385487528345
+        }
+      ]
+    },
+    "voice_ooh": {
+      "kind": "voice",
+      "gain": 0.8,
+      "files": [
+        {
+          "src": "voice_ooh-1.mp3",
+          "duration": 1.5031746031746032
+        },
+        {
+          "src": "voice_ooh-2.mp3",
+          "duration": 1.1479138321995466
+        },
+        {
+          "src": "voice_ooh-3.mp3",
+          "duration": 1.4938548752834466
+        }
+      ]
+    },
+    "voice_giggle": {
+      "kind": "voice",
+      "gain": 0.75,
+      "files": [
+        {
+          "src": "voice_giggle-1.mp3",
+          "duration": 1.9303401360544217
+        },
+        {
+          "src": "voice_giggle-2.mp3",
+          "duration": 1.7031292517006802
+        },
+        {
+          "src": "voice_giggle-3.mp3",
+          "duration": 1.6165986394557823
+        }
+      ]
+    },
+    "voice_whee": {
+      "kind": "voice",
+      "gain": 0.8,
+      "files": [
+        {
+          "src": "voice_whee-1.mp3",
+          "duration": 1.487437641723356
+        },
+        {
+          "src": "voice_whee-2.mp3",
+          "duration": 1.4639455782312925
+        },
+        {
+          "src": "voice_whee-3.mp3",
+          "duration": 1.278888888888889
+        }
+      ]
+    },
+    "sing_hum": {
+      "kind": "voice",
+      "gain": 0.7,
+      "files": [
+        {
+          "src": "sing_hum-1.mp3",
+          "duration": 0.35,
+          "baseMidi": 62.02851556615075
+        },
+        {
+          "src": "sing_hum-2.mp3",
+          "duration": 0.35,
+          "baseMidi": 60.23548949521034
+        },
+        {
+          "src": "sing_hum-3.mp3",
+          "duration": 0.3283673469387755,
+          "baseMidi": 68.2789117424329
+        },
+        {
+          "src": "sing_hum-4.mp3",
+          "duration": 0.35,
+          "baseMidi": 75.09652574520896
+        },
+        {
+          "src": "sing_hum-5.mp3",
+          "duration": 0.35,
+          "baseMidi": 61.808065021916164
+        },
+        {
+          "src": "sing_hum-6.mp3",
+          "duration": 0.35,
+          "baseMidi": 60.03338029057933
+        },
+        {
+          "src": "sing_hum-8.mp3",
+          "duration": 0.35,
+          "baseMidi": 77.54392645605759
+        }
+      ]
+    },
+    "sing_ta": {
+      "kind": "voice",
+      "gain": 0.8,
+      "files": [
+        {
+          "src": "sing_ta-1.mp3",
+          "duration": 0.3993424036281179,
+          "baseMidi": 71.15704853906725
+        },
+        {
+          "src": "sing_ta-2.mp3",
+          "duration": 0.4,
+          "baseMidi": 70.81695997241853
+        },
+        {
+          "src": "sing_ta-4.mp3",
+          "duration": 0.4,
+          "baseMidi": 71.07950680241673
+        }
+      ]
+    },
+    "sing_da": {
+      "kind": "voice",
+      "gain": 0.8,
+      "files": [
+        {
+          "src": "sing_da-1.mp3",
+          "duration": 0.3995918367346939,
+          "baseMidi": 71.34657588602904
+        },
+        {
+          "src": "sing_da-2.mp3",
+          "duration": 0.4,
+          "baseMidi": 70.87033304231353
+        },
+        {
+          "src": "sing_da-3.mp3",
+          "duration": 0.4,
+          "baseMidi": 71.03433909440254
+        },
+        {
+          "src": "sing_da-4.mp3",
+          "duration": 0.4,
+          "baseMidi": 71.38994674283398
+        }
+      ]
+    }
+  }
+}

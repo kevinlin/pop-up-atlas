@@ -1,7 +1,10 @@
 const EIGHTH = 60 / 96 / 2
-const REST_SLOTS = 6
+const REANCHOR_GAP = 6 * EIGHTH
+const PHRASE_HOLD = 6
 const VOICE_LIMIT = 8
 const ACCENT = 10 ** (2 / 20)
+const HARMONY_GAIN = 10 ** (-6 / 20)
+const SCALE = [62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86]
 const PHRASE = [
   { midi: 74, length: 0.46, gain: ACCENT },
   { midi: 71, length: 0.2, gain: 1 },
@@ -26,11 +29,17 @@ function slotAfter(t, origin) {
   return nearest + Number(origin + nearest * EIGHTH <= t)
 }
 
+export function harmonyMidi(midi) {
+  const degree = SCALE.indexOf(midi)
+  return SCALE[degree >= 2 ? degree - 2 : degree + 2]
+}
+
 // Use flatMap with chronological folds. A frame's folds share the same game timestamp.
 export function createScheduler() {
   const random = createRandom(96)
   let active = []
   let origin
+  let lastUpTime
   let lastSlot = 0
   let earliestSlot = 0
   let phraseIndex = 0
@@ -40,24 +49,31 @@ export function createScheduler() {
     const { t } = event
     if (events[index - 1]?.t === t) return []
     const groups = new Map()
+    let secondUpFold
     for (let next = index; events[next]?.t === t; next++) {
       const fold = events[next]
       const group = groups.get(fold.dir)
-      if (group) group.count++
-      else groups.set(fold.dir, { first: fold, count: 1 })
+      if (group) {
+        group.count++
+        if (fold.dir === 'up' && fold.id !== group.first.id) secondUpFold ??= fold
+      } else {
+        groups.set(fold.dir, { first: fold, count: 1 })
+      }
     }
 
     active = active.filter((voice) => voice.end > t)
     const scheduled = []
     const upFold = groups.get('up')?.first
     const slot = slotAfter(t, origin)
-    const restart = origin === undefined || slot - lastSlot > REST_SLOTS
+    const reanchor = lastUpTime === undefined || t > lastUpTime + REANCHOR_GAP
     let chime
-    if (upFold && (restart || slot > lastSlot)) {
+    if (upFold && (reanchor || slot > lastSlot)) {
       let chimeSlot = Math.max(slot, earliestSlot)
-      if (restart) {
+      if (reanchor) {
         origin = t
         chimeSlot = 0
+      }
+      if (lastUpTime === undefined || t >= lastUpTime + PHRASE_HOLD) {
         phraseIndex = 0
         varyQuestion = false
       }
@@ -74,19 +90,21 @@ export function createScheduler() {
       phraseIndex = (phraseIndex + 1) % PHRASE.length
       if (final) varyQuestion = random() < 0.5
     }
+    if (upFold) lastUpTime = t
 
     const nextSlot = slotAfter(t, origin)
     const nextBoundary = origin === undefined ? Infinity : origin + nextSlot * EIGHTH
-    // Preserve a seat for a new chime right now after a rest, or on the next grid line.
-    const reserveNow = origin === undefined || nextSlot - lastSlot > REST_SLOTS
+    // A pop can overlap the first unquantized chime after a gap or a chime on the grid.
+    const nextAnchor = Math.max(t, (lastUpTime ?? -Infinity) + REANCHOR_GAP)
     const reserveAtBoundary = nextSlot >= earliestSlot
+    const playingAt = (time) => active.filter((voice) => voice.t <= time && voice.end > time)
 
     for (const [dir, { first, count }] of groups) {
       const end = t + (dir === 'down' ? 0.03 : 0.045)
-      const playing = active.filter((voice) => voice.t <= t)
-      if (playing.length + Number(reserveNow) >= VOICE_LIMIT) continue
-      const playingAtBoundary = active.filter((voice) => voice.t <= nextBoundary && voice.end > nextBoundary).length
-      if (end > nextBoundary && playingAtBoundary + Number(reserveAtBoundary) >= VOICE_LIMIT) continue
+      const playing = playingAt(t)
+      if (playing.length >= VOICE_LIMIT) continue
+      if (end > nextAnchor && playingAt(nextAnchor).length + 1 >= VOICE_LIMIT) continue
+      if (end > nextBoundary && playingAt(nextBoundary).length + Number(reserveAtBoundary) >= VOICE_LIMIT) continue
 
       const overlap = playing.filter(({ kind }) => kind === 'pop').length
       const gain = 10 ** (Math.min(3, Math.log2(count)) / 20) / Math.sqrt(overlap + 1)
@@ -95,7 +113,17 @@ export function createScheduler() {
       active.push(pop)
     }
 
-    if (chime) scheduled.push(chime)
+    if (chime) {
+      scheduled.push(chime)
+      const nextChime = origin + earliestSlot * EIGHTH
+      if (secondUpFold && playingAt(chime.t).length < VOICE_LIMIT
+        && (chime.end <= nextChime || playingAt(nextChime).length + 1 < VOICE_LIMIT)) {
+        const { id, i, j } = secondUpFold
+        const harmony = { ...chime, id, i, j, midi: harmonyMidi(chime.midi), gain: chime.gain * HARMONY_GAIN, harmony: true }
+        scheduled.push(harmony)
+        active.push(harmony)
+      }
+    }
     return scheduled
   }
 }

@@ -8,6 +8,7 @@ export function createPlayer() {
     heading: 0,
     velocity: new Vector3(),
     state: 'idle',
+    blockedBy: null,
   }
 }
 
@@ -44,6 +45,7 @@ export function createMovement(player, camera) {
     const z = arrives ? destination.z : position.z + direction.z * step
     const moved = x !== position.x || z !== position.z
     const blocked = moved && isBlocked(x, z)
+    player.blockedBy = typeof blocked === 'string' ? blocked : null
     if (moved && !blocked) {
       position.x = x
       position.z = z

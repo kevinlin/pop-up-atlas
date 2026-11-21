@@ -1,4 +1,5 @@
 import { Group, MathUtils, Quaternion, Vector3 } from 'three'
+import { playDance, updateCharacterAudio } from '../audio/live.js'
 import { applyCraftMaterials } from '../materials/index.js'
 import { createAnimation } from './animation.js'
 import { createFootShadows } from './foot-shadows.js'
@@ -64,11 +65,12 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
   return {
     ready,
     get state() { return state },
-    update(dt, frameTime) {
+    update(dt, frameTime, t) {
       const hasInput = heldKeys.size > 0 || receivedInput
       receivedInput = false
       const moving = player.state === 'walk'
       state = animation ? updateState(frameTime, moving, hasInput, animation.danceFinished) : player.state
+      updateCharacterAudio(t, state, animation?.danceFinished)
 
       const turn = player.heading - heading.value
       const target = heading.value + Math.atan2(Math.sin(turn), Math.cos(turn))
@@ -83,7 +85,8 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
 
       // The mixer can skip writing an unchanged pose, so restore it before mixing.
       for (const { bone, baked } of hair) bone.quaternion.copy(baked)
-      animation.update(state, velocity.length(), dt)
+      animation.update(state, velocity.length(), dt, t)
+      if (state === 'dance') playDance(t, animation.danceTime)
       const bend = updateHairMotion(dt, velocity, heading, hips?.position.y ?? 0, state === 'dance')
       for (const [index, { bone, baked }] of hair.entries()) {
         baked.copy(bone.quaternion)
