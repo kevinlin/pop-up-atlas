@@ -1,0 +1,22 @@
+{
+  "name": "pop-up-atlas-troll-edition",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "perf": "node scripts/perf.mjs"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "playwright": "^1.65.1",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

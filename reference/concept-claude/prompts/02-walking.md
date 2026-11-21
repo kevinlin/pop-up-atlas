@@ -1,0 +1,1 @@
+Shot: closer, the traveller mid-stride on a dashed-stitch path across the cream page, hair plume swinging back with motion, satchel bouncing. Giant felt flowers taller than the traveller line the path; just ahead a flat printed flower shape is lifting off the page on its hinge tab.

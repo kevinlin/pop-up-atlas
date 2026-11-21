@@ -1,0 +1,1 @@
+Shot: the traveller dancing alone in a small clearing ringed by giant felt flowers, arms up, one foot raised, the tall yarn hair plume whipping sideways in an arc. Tiny cut-paper music-note confetti and a few glitter flecks on the page around it.

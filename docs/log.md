@@ -1,0 +1,46 @@
+# Production log (append-only)
+
+## 2026-11-20
+- Run started. Driver: Claude Code. Workers: codex (deep_reasoner, fast_worker, operator), copilot (arbiter).
+- A1: folder was not a git repo; `git init` + baseline commit so worker diffs are reviewable.
+- A2: Blender 5.2.1 headless at /Applications/Blender.app; Blender work is bpy scripts in `blender/` so it re-runs.
+- A3: Codex imagegen runs on the user's Codex subscription, not a metered API; no spend cap.
+- A4: blind critic loop capped at 3 rounds per group; unmet thresholds reported as unmet.
+- A5: sound, motion feel and taste are scored by critics against the brief; final call is the user's.
+- A6: reference photos only openly licensed, kept under `reference/`, not shipped.
+- A7: no e2e_tester identity configured; e2e lives in T10.
+- A8: perf claim covers only this Mac, headed Chrome at fixed resolution.
+- A9: fold = runtime spring between Blender-authored flat and upright poses.
+- Spec review round 1: 7 blocking + 1 advisory, all accepted, plan revised (see .handoff/goal.md).
+- Contracts written: `docs/contracts.md`.
+- T1 (reference frames, textures, photos) delegated.
+- Note: .handoff/config.toml changed at 23:21 (not by driver): fast_worker permission_mode = allow-all (codex sandbox bypassed). Treated as deliberate; fast_worker scope enforced by packet + on-disk review only. T2 delegated.
+- User request: driver (Claude Code) also authors concept frames → reference/concept-claude/ (Claude-written prompts rendered via baoyu-image-gen codex-cli provider, same Codex subscription), informed by a research sub-agent (web-search-researcher) on real pop-up/felt/scrapbook/glitter/tilt-shift traits + licensed photos → reference/research/.
+- T1 accepted: 6 concept frames, 6 textures, 10 licensed photos. Gaps vs brief: palette warmer/more pastel than "saturated rainbow", glitter faint. Troll design in T1 frames leans toward classic troll-doll look (orange body, pink upswept hair).
+- T2 accepted: scaffold, build + 4 tests pass on rerun; placeholder perf median 8.3 ms (M5 Pro, 120 Hz). Note: this machine is well above "mid-range laptop".
+- Research sub-agent returned traits + 14 photo candidates; driver downloaded 12 (Commons thumbnails, licences re-read from Commons metadata), viewed them, wrote reference/research/README.md.
+- T0: contracts updated with look targets (palette, felt/glitter/cardstock), camera pitch 55°→45° and tilt-shift band numbers from research.
+- Driver concept frames (reference/concept-claude/) generating: push saturated palette, visible glitter, pink-violet fill, and an alternative original troll (mint felt body, sunset-ombre yarn plume, mustard scarf, red satchel).
+- T3 (world), T6 (audio) delegated; T2 fix round 1 for contract camera/tilt-shift update.
+- T2 fix round 1 accepted (pitch 45°, tracked tilt-shift band, +25 % saturation, wood bg). Watch: 5-tap blur at 19 px may band.
+- Decision: troll design for T5 = driver concept (mint felt pear body, button eyes, peach nose, sunset-ombre yarn plume, mustard knit scarf, tomato satchel): original, consistent across frames, distinct from classic troll-doll look. T1 troll kept as alternative only. Tile construction target = concept-claude-03 (flat felt cards on paper v-folds with glue tabs, felt appliqué page).
+- Driver concept frames done: 6 x 1672x941 in reference/concept-claude/ (prompts in prompts/). Contact sheet .handoff/evidence/concept-claude/. Reference set for critics = reference/concept (codex) + reference/concept-claude (driver) + photos.
+- T4 (Blender tiles, target concept-claude-03 construction) and T5 (Blender troll, driver design) delegated to operator.
+- T6 accepted: 56 tests pass; demo.wav 20 s 48 kHz stereo, peak -9.6 dBFS, 97/106 onsets matched (misses = pop+chime merged within 25 ms). Melody is a ±1/±2 random walk: meets contract, musicality left to critic + user listen (.handoff/evidence/T6/demo.wav).
+- T3 review: tests 57/57, perf fine, but layout ~50 % path/river (forced road every chunk row, river every chunk column) → contracts weights lowered + "Layout density" targets added; T3 fix round 1 (sparse hash-derived seams, density test, switch to glTF tiles).
+- T4 review: inspect 12/12 pass, construction right, but per-tile pink borders (grid), sparse dressing, flat-blue river, crisp vector felt, 22 MB duplicated textures → T4 fix round 1. Tile names will gain meadow_a/b/c and page_deco_a/b/c; T9 integration maps them.
+- Anomaly: T4 worker patched a Blender copy in /private/tmp to dodge a sandbox-only Metal crash; driver re-ran build with installed Blender OK (46 s) and deleted the copy.
+- T5 review: inspector passes with installed Blender (reproducible); reads as needle-felted, walk bob 0.03, hair joint travel 0.18-0.26 rad walk / 0.36-0.40 dance. Fix round 1: fluffier wavy orange→pink→violet plume, mustard scarf, satchel clip in dance. T5 had also used the patched temp Blender (deleted).
+- T4 fix1: worker could not run Blender in sandbox; driver ran host build (61 s, 18/18 inspect, 11 shared textures, 11 MB) and installed it. Seamless pages, glitter river, stitching accepted; density/scale still short of concept → last fix round (r3).
+- T3 fix1 accepted on layout (86-89 % grass, ~10 % path, 3.4 % river, 77 tests). New findings: props render edge-on from random 90° rotations; tilt-shift 5-tap blur streaks. → T3 r3 (props face camera, new tile ids, meadow weight 6→9) and T2 r3 (smooth blur).
+- T5 fix1 accepted: worker patched GLB buffers directly; driver rebuilt from scripts on host (18,626 tris, inspect PASS) and shipped the host build. Mustard scarf, fluffier plume, satchel clearance fixed; orange hair root still weak (critic loop).
+- T8 (character) delegated.
+- T4 final (pass 3/3) accepted: host build 61 s, 18/18 inspect, coverage 75 % (target 60 %), visible felt fringe, hero props enlarged. Remaining gap vs concept: paler/greener palette, less depth layering → critic loop.
+- T3 final (pass 3/3) accepted: props face camera ±12°, meadow weight 9, page decorations 24.8 %, 83 tests, perf p95 ≤ 9 ms. Screenshot shows dull orange-tan cast and visible meadow repeats → assigned to T7 (lighting/tone + per-cell jitter).
+- T7 (materials, glitter, lighting/tone) delegated.
+- T2 fix2 accepted: half-res separable Gaussian tilt-shift, no streaks, p95 8.9 ms.
+- T8 accepted: driver re-ran e2e (walk 3.56 u/3 s, dance after idle, click error 0.000, hair tip travel 0.117). Look issues for T9: troll too small at camera distance 14 (concept frames make it the subject) → camera ~8-9; meadow tiles read as a repeating grid of felt islands on tan page → continuous ground cover layer + variant mixing at runtime (T4 is at its fix-round cap). Note: duplicate spring math in src/world/spring.js and src/character/spring.js (DRY, fold in T9).
+- T7 accepted: page reads #F6EAD2, saturated palette, visible violet fill, matte felt sheen, glitter pinpoints; p95 8.8 ms with glitter. Remaining: felt islands on page, hero props cluster (T9).
+- T9 (driver) integration: audio wired to fold events; camera distance 14→10 (troll is the subject); fold radii 7/9→5/6.5 so folds happen on screen (contracts + hysteresis test updated to new values, same strictness); meadow per-cell offset/scale jitter to hide tile grid; shared spring in src/lib/spring.js (DRY); assets-ready gate + shader precompile, `__atlas.ready`/`loadMs`; perf script waits for ready and reports load_ms.
+- Perf finding: a ~120 ms frame on first key press = Chrome opening the audio device in `new AudioContext()` on first input. Fixed by creating the context suspended at load; first input only resumes. After fix: 7 runs, 6 with 0 frames > 50 ms; 1 DPR-2 run with a single 92 ms frame (intermittent, not reproduced in 3 targeted probes). Load 330-900 ms.
+- T10 (e2e gate, 30 s capture with offline-rendered game audio, blind A/B pairs, final perf) delegated.

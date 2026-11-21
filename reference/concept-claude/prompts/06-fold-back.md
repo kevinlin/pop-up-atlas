@@ -1,0 +1,1 @@
+Shot: looking back over the traveller's shoulder along the path walked. Behind, pop-up pieces are folding back down flat onto the page one after another, a cupcake tree half-folded, a mushroom house nearly flat, the farthest already lying flat as printed felt appliqué. Ahead (bottom of frame, blurred) new pieces stand upright.

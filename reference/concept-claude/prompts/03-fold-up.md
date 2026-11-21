@@ -1,0 +1,1 @@
+Shot: the moment terrain folds up. In the foreground the page is still flat with printed appliqué shapes; in the middle a row of mushroom houses and giant flowers are partway through rising on their paper hinges at different angles (some at 30 degrees, some at 70, one slightly past upright and wobbling), small motion blur on the moving pieces. The traveller watches from the path.

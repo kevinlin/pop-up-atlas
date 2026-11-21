@@ -1,0 +1,1 @@
+Shot: a winding river of blue-violet glitter cardstock with layered cut-paper banks crosses the page; an arched bridge made of wrapped knitting yarn and felt planks spans it. Cupcake trees with pink felt frosting and glitter sprinkles stand on both banks. The traveller crosses the bridge. The glitter river sparkles with bright pinpoints.
