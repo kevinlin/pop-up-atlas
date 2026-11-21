@@ -326,7 +326,6 @@ async function measure({ url, out, before, preStage }) {
     const referenceURL = new URL(captureURL)
     const allOffURL = new URL(captureURL)
     allOffURL.searchParams.set('lookOff', Object.keys(look).join(','))
-    allOffURL.searchParams.set('effects', '')
     if (!before) trollReference = allOffURL.href
     // Same defaults as the game: layers off unless the URL turns them on.
     const disabled = new Set(Object.entries(lookFlags(captureURL.search)).filter(([, on]) => !on).map(([name]) => name))
@@ -476,7 +475,7 @@ async function measure({ url, out, before, preStage }) {
   const creamMethod = before ? 'sRGB color estimate' : 'visible page material mask'
   const methods = {
     cream: creamMethod,
-    troll: 'Matching visible hair and body masks against the same pose with all stage flags disabled',
+    troll: 'Matching visible hair and body masks at the same pose with all lookOff layers disabled and the same effects',
     rims: 'Connected sharp-band prop silhouettes with measurable backlight along their perimeter',
     moss: 'Median luma ratio of directly lit focus-band moss pixels against the same frame with the key removed',
     darkForeground: 'Visible frond mask and projected conservative troll bounds',

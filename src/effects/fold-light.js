@@ -2,6 +2,7 @@ import {
   AdditiveBlending, BufferGeometry, Color, DynamicDrawUsage, InterleavedBuffer,
   InterleavedBufferAttribute, Matrix4, Mesh, Points, ShaderMaterial, SphereGeometry, Vector3,
 } from 'three'
+import { look } from '../materials/stage-look.js'
 import { UPRIGHT } from '../world/spring.js'
 import { GUTTER_INTERVAL } from '../world/tiles.js'
 import { craft, emitterColors, palette } from './craft.js'
@@ -18,7 +19,7 @@ const sprig = { pigment: 1, width: 0.048, height: 0.052 }
 
 function shadeInsert(shader) {
   shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `
-    outgoingLight = diffuseColor.rgb * 0.63 + totalEmissiveRadiance * 2.35;
+    outgoingLight = diffuseColor.rgb * 0.63 + totalEmissiveRadiance * ${look.grade ? '2.35' : '1.95'};
     #include <opaque_fragment>
   `)
 }

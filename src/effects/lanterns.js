@@ -3,6 +3,7 @@ import {
   Object3D, PlaneGeometry, ShaderMaterial, SphereGeometry, TubeGeometry, Vector2, Vector3,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { look } from '../materials/stage-look.js'
 import { cellAt, GUTTER_INTERVAL } from '../world/tiles.js'
 import { craft, craftMap, emitterColors, palette } from './craft.js'
 import { placeLantern } from './placement.js'
@@ -116,7 +117,7 @@ export function createLanterns(scene) {
           float distantGlow = smoothstep(10.6, 11.8, vViewPosition.z);
           float sky = smoothstep(0.095, 0.14, vColor.b - max(vColor.r, vColor.g));
           vec3 tint = vColor.rgb + vec3(0.0, 0.0, 0.08 * sky);
-          outgoingLight = tint * (1.15 + 0.08 * max(0.0, dot(normal, normalize(vViewPosition)))
+          outgoingLight = tint * (${look.grade ? '1.15' : '1.08'} + 0.08 * max(0.0, dot(normal, normalize(vViewPosition)))
             + 0.90 * distantGlow + 0.30 * sky);
           #include <opaque_fragment>
         `)
