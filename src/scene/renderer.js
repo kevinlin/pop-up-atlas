@@ -1,14 +1,16 @@
 import {
-  DepthTexture, HalfFloatType, NeutralToneMapping, PCFShadowMap, UnsignedIntType,
+  DepthTexture, HalfFloatType, NearestFilter, NeutralToneMapping, PCFShadowMap, UnsignedByteType, UnsignedIntType,
   Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three'
 import { parseFocusPoint } from './focus.js'
 import { TiltShiftPass } from './tilt-shift.js'
+import { stageExposure, surfaceBuffer } from '../materials/stage-look.js'
+import { trackStageMaterials } from '../materials/stage-surfaces.js'
 
 export function createRenderer(scene, camera) {
   const renderer = new WebGLRenderer({ powerPreference: 'high-performance' })
   renderer.toneMapping = NeutralToneMapping
-  renderer.toneMappingExposure = 1.35
+  renderer.toneMappingExposure = stageExposure
   renderer.shadowMap.enabled = true
   // Recent Three.js releases implement soft PCF through PCFShadowMap and shadow.radius.
   renderer.shadowMap.type = PCFShadowMap
@@ -17,8 +19,15 @@ export function createRenderer(scene, camera) {
 
   const image = new WebGLRenderTarget(1, 1, {
     type: HalfFloatType,
+    count: surfaceBuffer ? 2 : 1,
     depthTexture: new DepthTexture(1, 1, UnsignedIntType),
   })
+  if (surfaceBuffer) {
+    const emission = image.textures[1]
+    emission.type = UnsignedByteType
+    emission.minFilter = emission.magFilter = NearestFilter
+  }
+  trackStageMaterials(scene)
   const tiltShift = new TiltShiftPass(camera)
   const focus = new Vector3()
   const story = parseFocusPoint(new URLSearchParams(window.location.search).get('focus'))
@@ -42,7 +51,9 @@ export function createRenderer(scene, camera) {
   return {
     canvas,
     // Compile every program once so first sight of a material doesn't stall a frame.
-    compile: () => renderer.compileAsync(scene, camera),
+    compile(root = scene) {
+      return renderer.compileAsync(root, camera, scene)
+    },
     render(_dt, position) {
       camera.updateMatrixWorld()
       focus.copy(position)
@@ -51,7 +62,6 @@ export function createRenderer(scene, camera) {
       const storyDepth = story ? -focus.copy(story).applyMatrix4(camera.matrixWorldInverse).z : eyeDepth
       const depth = storyDepth >= camera.near && storyDepth <= camera.far ? storyDepth : eyeDepth
       tiltShift.focusRange.set(Math.min(eyeDepth, depth), Math.max(eyeDepth, depth))
-
       renderer.setRenderTarget(image)
       renderer.render(scene, camera)
       tiltShift.render(renderer, image)

@@ -28,6 +28,8 @@ const tileMasks = new Map(VARIANTS.map(({ sockets }) => [
 ]))
 
 const ZONE_SIZE = 8
+export const ZONE_KEYS = Object.freeze(['green-gold', 'amber', 'pink-lavender', 'teal'])
+const zoneSeeds = new WeakMap()
 const riverCornerWeight = TILES.find(({ id }) => id === 'river_corner').weight
 const riverStraightWeight = TILES.find(({ id }) => id === 'river_straight').weight
 const meanderChance = riverCornerWeight / (riverCornerWeight + riverStraightWeight)
@@ -41,12 +43,41 @@ const [clearingWeights, groveWeights, trailWeights] = [0.12, 0.76, 0.97].map((pr
   return tile.weight
 }))
 
+const zoneU = (seed, i, j) => (i + (hash(seed, 0, 0, 13) % ZONE_SIZE) + 1.6 * Math.sin(j / 2.9)) / ZONE_SIZE
+const zoneV = (seed, i, j) => (j + (hash(seed, 0, 0, 14) % ZONE_SIZE) + 1.6 * Math.sin(i / 3.1)) / ZONE_SIZE
+
 function zoneAt(seed, i, j) {
-  // Warp the alternating zones across chunk seams so their borders do not follow the tile grid.
-  const u = Math.floor((i + (hash(seed, 0, 0, 13) % ZONE_SIZE) + 1.6 * Math.sin(j / 2.9)) / ZONE_SIZE)
-  const v = Math.floor((j + (hash(seed, 0, 0, 14) % ZONE_SIZE) + 1.6 * Math.sin(i / 3.1)) / ZONE_SIZE)
-  return (u + v + hash(seed, 0, 0, 15)) & 1
+  return (Math.floor(zoneU(seed, i, j)) + Math.floor(zoneV(seed, i, j)) + hash(seed, 0, 0, 15)) & 1
 }
+
+function keyIndex(seed, u, v) {
+  const roll = hash(seed, u, v, 22) % 12
+  return roll < 6 ? 0 : 1 + (roll - 6) % 3
+}
+
+export function zoneKeyAt(seed, i, j) {
+  return ZONE_KEYS[keyIndex(seed, Math.floor(zoneU(seed, i, j)), Math.floor(zoneV(seed, i, j)))]
+}
+
+const seamWeight = (coordinate, seam) => {
+  const t = Math.min(1, Math.max(0, (coordinate - seam) * ZONE_SIZE / 2 + 0.5))
+  return t * t * (3 - 2 * t)
+}
+
+// Coordinates are in cell units. Blend the four neighbors at a warped zone corner.
+export function zoneBlendAt(seed, i, j, weights) {
+  const u = zoneU(seed, i, j), v = zoneV(seed, i, j)
+  const a = Math.round(u), b = Math.round(v)
+  const x = seamWeight(u, a), y = seamWeight(v, b)
+  weights.fill(0)
+  weights[keyIndex(seed, a - 1, b - 1)] += (1 - x) * (1 - y)
+  weights[keyIndex(seed, a, b - 1)] += x * (1 - y)
+  weights[keyIndex(seed, a - 1, b)] += (1 - x) * y
+  weights[keyIndex(seed, a, b)] += x * y
+  return weights
+}
+
+export const zoneSeedFor = (isBlocked) => zoneSeeds.get(isBlocked)?.() ?? 0
 
 const cells = Array.from({ length: CELL_COUNT }, (_, index) => {
   const x = index % CHUNK_SIZE
@@ -352,11 +383,15 @@ export function createLayout(initialSeed = 0) {
     return null
   }
 
+  const isBlocked = (x, z) => Boolean(blockedBy(x, z))
+  // The renderer can read the active layout's seed through the existing world binding.
+  zoneSeeds.set(isBlocked, () => seed)
   return {
     generateChunk,
     getCell,
     blockedBy,
-    isBlocked: (x, z) => Boolean(blockedBy(x, z)),
+    isBlocked,
+    zoneKeyAt: (i, j) => zoneKeyAt(seed, i, j),
     setSeed(value) {
       seed = value >>> 0
       generated.clear()

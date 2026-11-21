@@ -15,3 +15,7 @@ window.__atlasLookShots = {
     return scene.children.some((node) => node.count > 0 && node.name.startsWith(`atlas/${id}/`))
   },
 }
+
+if (new URLSearchParams(window.location.search).has('look-probe')) {
+  Object.assign(window.__atlasLookShots, { camera, scene })
+}

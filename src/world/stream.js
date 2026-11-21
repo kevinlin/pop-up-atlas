@@ -1,4 +1,9 @@
 import { Frustum, Matrix4, Sphere, Vector3 } from 'three'
+import { stage } from '../effects/flags.js'
+import { createFoldLight } from '../effects/fold-light.js'
+import { createLanterns } from '../effects/lanterns.js'
+import { createMoss } from '../effects/moss.js'
+import { afterWorldReady } from '../effects/startup.js'
 import { createArt } from './art.js'
 import { createBook } from './book.js'
 import { FLAT, HINGE_STAGGER, stepSpring, UPRIGHT } from './spring.js'
@@ -30,6 +35,10 @@ function traceSamples(trace) {
 export function createTileStream(scene, layout, emitFold, camera) {
   const art = createArt(scene, camera, layout)
   const placeBook = createBook(scene)
+  let moss
+  let lanterns
+  let foldLight
+  let capacity = 0
   const visible = new Map()
   const frustum = new Frustum()
   const projection = new Matrix4()
@@ -37,6 +46,24 @@ export function createTileStream(scene, layout, emitFold, camera) {
   const tileBounds = new Sphere(new Vector3(), 4.25)
   let lastArea
   let lastRevision = -1
+
+  if (stage.moss || stage.lanterns || stage.response) {
+    afterWorldReady(scene, (root) => {
+      moss = stage.moss ? createMoss(root) : null
+      lanterns = stage.lanterns ? createLanterns(root) : null
+      foldLight = stage.lanterns || stage.response ? createFoldLight(root, camera) : null
+      moss?.begin(capacity)
+      lanterns?.begin(capacity)
+      for (const cell of visible.values()) {
+        foldLight?.prepare(cell)
+        if (!cell.drawn) continue
+        moss?.place(cell, layout)
+        lanterns?.place(cell, layout)
+      }
+      moss?.end()
+      lanterns?.end()
+    })
+  }
 
   function sync(centerI, radiusX, t) {
     const cameraArea = camera ? cellKey(cellAt(camera.position.x), cellAt(camera.position.z)) : ''
@@ -56,7 +83,10 @@ export function createTileStream(scene, layout, emitFold, camera) {
     }
 
     placeBook(centerI - radiusX, centerI + radiusX)
-    art.begin((2 * radiusX + 1) * (LAST_PAGE_ROW - FIRST_PAGE_ROW + 1))
+    capacity = (2 * radiusX + 1) * (LAST_PAGE_ROW - FIRST_PAGE_ROW + 1)
+    art.begin(capacity)
+    moss?.begin(capacity)
+    lanterns?.begin(capacity)
     for (let j = FIRST_PAGE_ROW; j <= LAST_PAGE_ROW; j += 1) {
       for (let i = centerI - radiusX; i <= centerI + radiusX; i += 1) {
         const key = cellKey(i, j)
@@ -79,13 +109,20 @@ export function createTileStream(scene, layout, emitFold, camera) {
               if (elapsed > 0) stepSpring(hinge, cell.up ? 'up' : 'down', elapsed)
             }
           }
+          foldLight?.prepare(cell)
         }
         tileBounds.center.set(cell.x, 0.4, cell.z)
         cell.drawn = !camera || frustum.intersectsSphere(tileBounds)
-        if (cell.drawn) art.placeTile(cell)
+        if (cell.drawn) {
+          art.placeTile(cell)
+          moss?.place(cell, layout)
+          lanterns?.place(cell, layout)
+        }
       }
     }
     art.end()
+    moss?.end()
+    lanterns?.end()
   }
 
   function distanceSquared(cell, position) {
@@ -98,6 +135,7 @@ export function createTileStream(scene, layout, emitFold, camera) {
       const distance = camera ? Math.hypot(camera.position.y, camera.position.z - position.z) : 10
       const framing = camera ? Math.min(distance, camera.far) / (10 * camera.zoom) : 1
       sync(cellAt(position.x), Math.max(6, Math.ceil(3.25 * aspect * framing)), t - dt)
+      foldLight?.begin()
       for (const cell of visible.values()) {
         if (!cell.art.hinges.length) continue
         const distance = distanceSquared(cell, position)
@@ -106,6 +144,7 @@ export function createTileStream(scene, layout, emitFold, camera) {
           cell.up = up
           cell.foldStarted = t
           emitFold({ dir: up ? 'up' : 'down', id: cell.tile.id, i: cell.i, j: cell.j, t })
+          foldLight?.fold(cell, t)
         }
 
         const target = up ? UPRIGHT : FLAT
@@ -121,7 +160,9 @@ export function createTileStream(scene, layout, emitFold, camera) {
           if (cell.drawn) art.poseHinge(cell.art, hinge)
         }
         recordTrace(cell, t, cell.art.hinges[0].angle)
+        foldLight?.update(cell, t, distance)
       }
+      foldLight?.end(t)
     },
     hingeTrace(id, position) {
       const byCell = visible.get(id)
@@ -142,6 +183,11 @@ export function createTileStream(scene, layout, emitFold, camera) {
       visible.clear()
       art.begin(0)
       art.end()
+      moss?.begin(0)
+      moss?.end()
+      lanterns?.begin(0)
+      lanterns?.end()
+      foldLight?.reset()
       lastArea = undefined
     },
   }

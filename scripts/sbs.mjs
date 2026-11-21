@@ -81,10 +81,11 @@ export function planShot(shot, layout) {
   return nearest
 }
 
-export async function takeShot({ page, open, advance, errors }, baseURL, shot, path) {
+export async function takeShot({ page, open, advance, errors }, baseURL, shot, path, inspect) {
   const url = new URL(baseURL)
   url.searchParams.set('seed', shot.seed)
-  url.searchParams.set('cam', shot.cam.join(','))
+  if (shot.cam) url.searchParams.set('cam', shot.cam.join(','))
+  else url.searchParams.delete('cam')
   url.searchParams.set('look-shots', '')
   url.searchParams.delete('debug')
   url.searchParams.delete('plain')
@@ -130,6 +131,7 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
       'Troll is outside the bridge tile')
   }
   assert.deepEqual(errors, [], 'Browser errors during still capture')
+  await inspect?.()
   const anchor = shot.anchor ?? [0.5, 0.5]
   if (path) {
     await page.screenshot({ path, clip: {
@@ -164,11 +166,12 @@ function stripMetadata(bytes) {
   return Buffer.concat(chunks)
 }
 
-async function compose(page, rows, panelWidth, panelHeight, labels) {
-  const encoded = await page.evaluate(async ({ rows, panelWidth, panelHeight, labels }) => {
+async function compose(page, rows, panelWidth, panelHeight, labels, crops) {
+  const columns = labels.length
+  const encoded = await page.evaluate(async ({ rows, panelWidth, panelHeight, labels, columns, crops }) => {
     const canvas = document.createElement('canvas')
     const labelHeight = 40
-    canvas.width = panelWidth * 2
+    canvas.width = panelWidth * columns
     canvas.height = rows.length * (panelHeight + labelHeight)
     const ctx = canvas.getContext('2d')
     ctx.fillStyle = '#151515'
@@ -186,17 +189,32 @@ async function compose(page, rows, panelWidth, panelHeight, labels) {
       return img
     }))
     for (const [index, img] of images.entries()) {
-      const column = index % 2
+      const column = index % columns
       const x = column * panelWidth
-      const y = Math.floor(index / 2) * (panelHeight + labelHeight)
-      ctx.fillText(labels[column], x + panelWidth / 2, y + labelHeight / 2)
-      ctx.drawImage(img, x, y + labelHeight, panelWidth, panelHeight)
+      const row = Math.floor(index / columns)
+      const y = row * (panelHeight + labelHeight)
+      const crop = crops?.[row]
+      ctx.fillText(crop ? `Shot ${row + 1} · ${labels[column]}` : labels[column],
+        x + panelWidth / 2, y + labelHeight / 2)
+      ctx.drawImage(img, ...(crop ?? [0, 0, img.width, img.height]), x, y + labelHeight, panelWidth, panelHeight)
     }
     return canvas.toDataURL('image/png').split(',')[1]
-  }, { rows, panelWidth, panelHeight, labels })
+  }, { rows, panelWidth, panelHeight, labels, columns, crops })
   const bytes = Buffer.from(encoded, 'base64')
-  assert.deepEqual(pngSize(bytes), [panelWidth * 2, rows.length * (panelHeight + 40)])
+  assert.deepEqual(pngSize(bytes), [panelWidth * columns, rows.length * (panelHeight + 40)])
   return stripMetadata(bytes)
+}
+
+export async function compareStills(page, reference, game, out, { width, height }) {
+  const images = await Promise.all([reference, game].map((path) => readFile(path, 'base64')))
+  const comparison = await compose(page, [images], width, height, ['Reference', 'Game'])
+  await writeFile(out, comparison)
+}
+
+export async function compareTrollStills(page, rows, crops, out) {
+  const encoded = rows.map((row) => row.map((png) => png.toString('base64')))
+  const strip = await compose(page, encoded, 320, 320, ['Pre-stage', 'After', 'All off'], crops)
+  await writeFile(out, strip)
 }
 
 async function sbs({ baseURL, roundDir, evidence }) {
