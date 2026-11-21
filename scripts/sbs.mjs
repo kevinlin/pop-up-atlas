@@ -11,7 +11,12 @@ const panel = { width: 1672, height: 941 }
 // Overscan gives the fixed follow camera room for an off-centre 1672x941 composition.
 export const shotViewport = { width: 2232, height: 1381 }
 const fps = 60
-const referenceDir = 'reference/concept-claude'
+// Round 4 concepts each name their earlier concept in reference/concept-r4/style.md; reuse that concept's shot.
+const referenceSets = {
+  claude: { dir: 'reference/concept-claude', pattern: /^concept-claude-\d\d-.+\.png$/, shotFor: [0, 1, 2, 3, 4, 5] },
+  r4: { dir: 'reference/concept-r4', pattern: /^concept-r4-\d\d-.+\.png$/, shotFor: [0, 1, 1, 3, 2, 4] },
+}
+export const referenceSet = (round) => referenceSets[round >= 4 ? 'r4' : 'claude']
 export const shots = [
   // Wide enough to see both long edges of the accordion and tabletop beyond the cover.
   { seed: 42, cam: [44, 34], x: 21, z: 0, heading: 0.9, state: 'idle', model: 'yarn_bridge' },
@@ -217,12 +222,13 @@ export async function compareTrollStills(page, rows, crops, out) {
   await writeFile(out, strip)
 }
 
-async function sbs({ baseURL, roundDir, evidence }) {
+async function sbs({ baseURL, round, roundDir, evidence }) {
   const gameDir = join(roundDir, 'game')
   const criticDir = join(roundDir, 'critic')
   const keyDir = join(roundDir, 'key')
-  const references = (await readdir(referenceDir)).filter((name) => /^concept-claude-\d\d-.+\.png$/.test(name)).sort()
-  assert.equal(references.length, shots.length, 'Expected one concept per shot')
+  const { dir: referenceDir, pattern, shotFor } = referenceSet(round)
+  const references = (await readdir(referenceDir)).filter((name) => pattern.test(name)).sort()
+  assert.equal(references.length, shotFor.length, 'Expected one concept per mapped shot')
   const blindNames = shots.map((_, i) => `pair-${String(i + 1).padStart(2, '0')}.png`)
   await Promise.all([gameDir, criticDir, keyDir, evidence].map((dir) => mkdir(dir, { recursive: true })))
   assert.ok((await readdir(criticDir)).every((name) => blindNames.includes(name)),
@@ -236,9 +242,12 @@ async function sbs({ baseURL, roundDir, evidence }) {
     for (const [index, reference] of references.entries()) {
       const rawName = `game-${String(index + 1).padStart(2, '0')}.png`
       const path = join(gameDir, rawName)
-      const shot = await takeShot(steppedPage, baseURL, shots[index], path)
+      const shot = await takeShot(steppedPage, baseURL, shots[shotFor[index]], path)
       const images = await Promise.all([join(referenceDir, reference), path].map((name) => readFile(name)))
-      for (const img of images) assert.deepEqual(pngSize(img), [panel.width, panel.height])
+      assert.deepEqual(pngSize(images[1]), [panel.width, panel.height])
+      // compose() scales each panel; references only need the panel's 16:9 aspect.
+      const [width, height] = pngSize(images[0])
+      assert.ok(Math.abs(width / height - panel.width / panel.height) < 0.01, `${reference} is not 16:9`)
       rows.push(images.map((img) => img.toString('base64')))
       framing.push({ reference, game: rawName, ...shot })
       console.log(`Captured still ${index + 1}/${shots.length}`)

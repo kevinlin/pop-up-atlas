@@ -39,6 +39,7 @@ export function roundOptions(script) {
   const round = `round-${values.round}`
   return {
     baseURL: positionals[0] ?? previewURL,
+    round: Number(values.round),
     roundDir: join('deliverables', round),
     evidence: join(values.stems ? '.handoff/evidence/P0' : evidenceDir, round),
     ...(script === 'capture' && { stems: values.stems, baselineRev: values['baseline-rev'] }),
@@ -263,6 +264,8 @@ export async function offlineAudio(page, filepath, clipStart, durationSec = dura
   })
 
   const wav = (stem) => join(stemsDir, `${stem}.wav`)
+  // The cue list behind every stem, so a stem's loudest moment can be traced to its cue.
+  await writeJson(join(stemsDir, 'cues.json'), cues)
   await copyFile(filepath, wav('full'))
   const peaks = { full: full.peakDbfs }
   peaks.folds = (await render(wav('folds'), events, [])).peakDbfs

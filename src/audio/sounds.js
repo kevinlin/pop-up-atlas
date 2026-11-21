@@ -84,8 +84,10 @@ function roomImpulse(context) {
   return buffer
 }
 
-function envelope(context, output, start, end, attack, peak, passing = false) {
+export function envelope(context, output, start, end, attack, peak, passing = false) {
   const shape = context.createGain()
+  // A gain node is 1 until its first event; a start time with float noise can let one raw sample through.
+  shape.gain.value = 0
   shape.gain.setValueAtTime(0, start)
   shape.gain.linearRampToValueAtTime(peak, start + attack)
   if (passing) shape.gain.exponentialRampToValueAtTime(peak * 10 ** (-12 / 20), start + 0.065)
