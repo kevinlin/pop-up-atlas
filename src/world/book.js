@@ -5,7 +5,8 @@ import {
 import { GUTTER_INTERVAL, PAGE_MAX_Z, PAGE_MIN_Z, TILE_SIZE } from './tiles.js'
 
 const PANEL_LENGTH = GUTTER_INTERVAL * TILE_SIZE
-const COVER_LIP = 0.54
+const COVER_LIP = 0.37
+const COVER_LAYER = 4
 const TABLE_Y = -0.68
 const gutterMarks = [0, 0.025, 0.06, 0.10, 0.14, 0.18, 0.22, 0.26]
 const marks = [
@@ -23,26 +24,34 @@ function texture(path, colorSpace) {
   return map
 }
 
+function edgePoint(side, layer, x, lip, height) {
+  const edge = side === -1 ? PAGE_MIN_Z : PAGE_MAX_Z
+  const gutter = Math.min(x, PANEL_LENGTH - x)
+  const phase = x * 2 * Math.PI / PANEL_LENGTH
+  // The top rim joins the authored valley. Deeper sheets compress over a broader crease.
+  const valley = -0.069 * Math.max(0, 1 - (gutter / 0.22) ** 2) ** 2
+  const fold = Math.exp(-((gutter / 0.83) ** 2))
+  const depth = Math.min(1, -height / 0.34)
+  const dip = valley * (1 - depth) - 0.144 * fold * depth
+  const undulation = Math.sin(phase * (3 + layer) + layer + side)
+  const wave = Math.min(1, Math.abs(lip) / 0.12) * (0.045 * undulation - 0.10 * fold)
+  const bow = depth * (0.016 * Math.sin(phase * 2 + layer) + 0.012 * undulation)
+  return [x, Math.max(TABLE_Y, height + bow + dip), edge + side * (lip + wave)]
+}
+
 function edgeGeometry(profiles) {
   const positions = []
   const colors = []
   const uvs = []
   const indices = []
   for (const side of [-1, 1]) {
-    const edge = side === -1 ? PAGE_MIN_Z : PAGE_MAX_Z
     for (const [layer, profile] of profiles) {
       for (let face = 1; face < profile.length; face += 1) {
         const start = positions.length / 3
         const color = new Color(profile[face][2])
         for (const x of marks) {
-          const gutter = Math.min(x, PANEL_LENGTH - x)
-          // Match the authored valley at the cut edge, then let the lower sheets bow more gently.
-          const dip = -0.069 * Math.max(0, 1 - (gutter / 0.22) ** 2) ** 2
-          const phase = x * 2 * Math.PI / PANEL_LENGTH
-          const wave = layer ? Math.sin(phase * (3 + layer) + layer + side) * 0.035 : 0
-          const bow = layer ? Math.sin(phase * 2 + layer) * 0.014 : 0
           for (const [lip, y] of [profile[face - 1], profile[face]]) {
-            positions.push(x, y + bow + dip / (1 + layer * 0.23), edge + side * (lip + wave))
+            positions.push(...edgePoint(side, layer, x, lip, y))
             colors.push(color.r, color.g, color.b)
             uvs.push(x / 1.7, (lip - y * 2) * 1.7)
           }
@@ -61,6 +70,22 @@ function edgeGeometry(profiles) {
   geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2))
   geometry.setAttribute('color', new Float32BufferAttribute(colors, 3))
   geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function coverStitches() {
+  const positions = []
+  for (const side of [-1, 1]) {
+    for (let x = 0.034; x < PANEL_LENGTH - 0.027; x += 0.058) {
+      const points = [[-0.024, 0.292], [-0.020, 0.308], [0.024, 0.322], [0.020, 0.306]]
+        .map(([dx, lip]) => edgePoint(side, COVER_LAYER, x + dx, lip, -0.384 - (lip - 0.25) * 0.25 + 0.007))
+      const order = side === 1 ? [0, 1, 3, 1, 2, 3] : [0, 3, 1, 1, 3, 2]
+      for (const index of order) positions.push(...points[index])
+    }
+  }
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
   geometry.computeVertexNormals()
   return geometry
 }
@@ -117,19 +142,20 @@ export function createBook(scene) {
     map: texture('models/tiles/textures/felt-base_albedo-7ec1a3f63acb.png', SRGBColorSpace),
   })
   const sheets = [
-    [0, [[0, 0], [0.004, -0.014, 0xfff4dc], [0.016, -0.067, 0xecd7b5], [-0.01, -0.080, 0xa57b5c]]],
-    [1, [[-0.22, -0.079], [0.087, -0.088, 0xf2dfbf], [0.092, -0.142, 0xffe8c7], [0.053, -0.161, 0x977050]]],
-    [2, [[-0.22, -0.153], [0.048, -0.169, 0xf4dbb8], [0.057, -0.235, 0xe8caa3], [0.018, -0.250, 0xa68260]]],
-    [3, [[-0.22, -0.241], [0.132, -0.254, 0xffedcf], [0.146, -0.329, 0xf5dcb6], [0.102, -0.347, 0xa57855]]],
-    [4, [[-0.22, -0.335], [0.104, -0.350, 0xffe5c6], [0.098, -0.431, 0xeaca9e], [0.065, -0.449, 0xa17a56]]],
+    [0, [[0, 0], [0.04, -0.023, 0xfff8e9], [0.058, -0.065, 0xf8e9d0], [0.012, -0.091, 0xb39474]]],
+    [1, [[-0.24, -0.075], [0.122, -0.096, 0xfff3de], [0.143, -0.159, 0xf7e9d0], [0.076, -0.181, 0xa88365]]],
+    [2, [[-0.22, -0.166], [0.091, -0.187, 0xf7e6ca], [0.102, -0.246, 0xffefda], [0.055, -0.271, 0xb28a70]]],
+    [3, [[-0.24, -0.247], [0.185, -0.272, 0xfff2d7], [0.203, -0.343, 0xeee0c6], [0.119, -0.391, 0x967258]]],
   ]
-  const cover = [[5, [
-    [-0.24, -0.438], [0.28, -0.454, 0xb55768], [COVER_LIP - 0.04, -0.471, 0xa94b62],
-    [COVER_LIP, -0.508, 0x984056], [COVER_LIP, -0.594, 0x82334b], [0.48, -0.647, 0x672a3d],
+  const cover = [[COVER_LAYER, [
+    [-0.24, -0.366], [0.25, -0.384, 0xe3a0b1], [COVER_LIP - 0.02, -0.409, 0xd97e9b],
+    [COVER_LIP, -0.439, 0xc76588], [0.338, -0.491, 0xb75979], [0.06, -0.533, 0x944760],
+    [-0.09, TABLE_Y, 0x6e3e46],
   ]]]
   const layers = [
     ['atlas/page-stack', edgeGeometry(sheets), paper],
     ['atlas/felt-cover', edgeGeometry(cover), felt],
+    ['atlas/cover-stitches', coverStitches(), new MeshLambertMaterial({ color: 0xffdec8 })],
   ]
   const panels = new Group()
   const table = makeTable()

@@ -2,11 +2,11 @@ import { stepSpring as stepDamped } from '../lib/spring.js'
 
 export const FLAT = -Math.PI / 2
 export const UPRIGHT = 0
-export const HINGE_STAGGER = 0.12
+export const HINGE_STAGGER = 0.18
 
 const springs = {
-  up: { omega: 8, damping: 0.5, target: UPRIGHT },
-  down: { omega: 8, damping: 0.85, target: FLAT },
+  up: { omega: 6, damping: 0.5, target: UPRIGHT },
+  down: { omega: 7, damping: 0.85, target: FLAT },
 }
 const scratch = { value: 0, velocity: 0 }
 

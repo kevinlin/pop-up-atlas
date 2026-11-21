@@ -5,7 +5,10 @@ import {
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { applyCraftMaterial } from '../materials/index.js'
 import { hash } from './hash.js'
-import { BRIDGE_HALF_WIDTH, GUTTER_INTERVAL, RIVER_HALF_WIDTH, TILES, TILE_SIZE } from './tiles.js'
+import {
+  BRIDGE_HALF_WIDTH, cellAt, GUTTER_INTERVAL, PAGE_MAX_Z, PAGE_MIN_Z,
+  RIVER_HALF_WIDTH, riverHalfWidth, TILES, TILE_SIZE,
+} from './tiles.js'
 import { FLAT } from './spring.js'
 
 const mat = new MeshLambertMaterial({ vertexColors: true })
@@ -20,6 +23,16 @@ function piece(geometry, color, x, y, z) {
 
 function box(color, x, y, z, width, height, depth, angle = 0) {
   return piece(new BoxGeometry(width, height, depth).rotateZ(angle), color, x, y, z)
+}
+
+function paperTie(color, height, width, z) {
+  const geometry = new BoxGeometry(width, height, 0.009)
+  const points = geometry.attributes.position
+  for (let i = 0; i < points.count; i += 1) {
+    if (points.getY(i) > 0) points.setX(i, points.getX(i) * 0.56 + 0.07)
+  }
+  geometry.computeVertexNormals()
+  return piece(geometry, color, -0.045, height / 2, z)
 }
 
 function disc(color, x, y, z, radius, scaleY = 1, sides = 16) {
@@ -39,6 +52,17 @@ function corner(color, halfWidth) {
     strip(color, 0, -center, 2 * halfWidth, length),
     strip(color, center, 0, length, 2 * halfWidth, 0.003),
   ]
+}
+
+function widenRiver(geometry) {
+  const positions = geometry.attributes.position
+  for (let i = 0; i < positions.count; i += 1) {
+    const x = positions.getX(i)
+    const taper = Math.min(1, Math.max(0, (1 - Math.abs(x)) / (1 - RIVER_HALF_WIDTH)))
+    const swell = riverHalfWidth(positions.getZ(i)) / RIVER_HALF_WIDTH - 1
+    positions.setX(i, x + x * swell * taper)
+  }
+  return geometry
 }
 
 function placeholderParts() {
@@ -91,7 +115,7 @@ function placeholderParts() {
     ]] },
     path_straight: { base: [strip(path, 0, 0, 0.47, 2)] },
     path_corner: { base: corner(path, 0.235) },
-    river_straight: { base: [strip(sky, 0, 0, 2 * RIVER_HALF_WIDTH, 2)] },
+    river_straight: { base: [piece(new BoxGeometry(2 * RIVER_HALF_WIDTH, 0.003, 2, 1, 1, 16), sky, 0, 0.002, 0)] },
     river_corner: { base: corner(sky, RIVER_HALF_WIDTH) },
     yarn_bridge: {
       base: [
@@ -116,7 +140,7 @@ const PAGE_DECORATIONS = ['page_deco_a', 'page_deco_b', 'page_deco_c']
 const hingeIndex = (name) => /^hinge_(\d+)$/.exec(name)
 const hingeOrder = (a, b) => b.height - a.height || a.index - b.index
 
-export function createArt(scene) {
+export function createArt(scene, camera, layout) {
   const batches = []
   const models = new Map()
   const pageModels = new Map()
@@ -168,18 +192,27 @@ ${shader.fragmentShader}`.replace(
     strip(0xc7aa86, 0, 0, 2, 2, -0.002),
     strip(0xf6ead2, 0, 0, 1.973, 1.973, -0.0015),
   ], false, clipPageAtGutter(mat.clone()))
-  const placeholders = new Map(Object.entries(placeholderParts()).map(([id, parts]) => [
-    id, {
-      base: primitiveBatch(parts.base),
+  const crease = primitiveBatch([
+    box(0xaf7f5d, 0, 0.008, 0, 0.49, 0.010, 0.14),
+    box(0xffedce, 0, 0.015, 0, 0.47, 0.010, 0.124),
+    box(0xb87264, 0, 0.022, 0, 0.43, 0.005, 0.022),
+  ])
+  const placeholders = new Map(Object.entries(placeholderParts()).map(([id, parts]) => {
+    const wideBase = id === 'river_straight' ? primitiveBatch(parts.base.map((part) => widenRiver(part.clone()))) : null
+    return [id, {
+      base: primitiveBatch(parts.base), wideBase,
       hinges: (parts.hinges ?? []).map((geometry, index) => {
         const batches = primitiveBatch(geometry, true)
         batches[0].geometry.computeBoundingBox()
-        return { index, height: batches[0].geometry.boundingBox.max.y, batches, z: parts.hingeZ?.[index] ?? 0 }
+        const bounds = batches[0].geometry.boundingBox
+        const height = 0.010 + Math.min(index, 2) * 0.003
+        const pivot = new Matrix4().makeTranslation(0, height, parts.hingeZ?.[index] ?? 0)
+        return { index, height: bounds.max.y, depth: bounds.max.z, pivot, batches }
       }).sort(hingeOrder),
-    },
-  ]))
+    }]
+  }))
 
-  function modelBatches(root, id, moving = false, isPage = false) {
+  function modelBatches(root, id, moving = false, isPage = false, wide = false) {
     const parts = []
     const gutter = id === 'gutter'
     const page = isPage || gutter
@@ -190,6 +223,7 @@ ${shader.fragmentShader}`.replace(
       if (!node.isMesh) return
       const transform = new Matrix4().multiplyMatrices(inversePivot, node.matrixWorld)
       const geometry = node.geometry.clone().applyMatrix4(transform)
+      if (wide) widenRiver(geometry)
       if (page) clipPageAtGutter(node.material, gutter)
       parts.push(addBatch(geometry, applyCraftMaterial(node.material, { moving, page, tile: id }), moving, `atlas/${id}/${node.name}`))
     })
@@ -218,17 +252,36 @@ ${shader.fragmentShader}`.replace(
         const match = hingeIndex(node.name)
         if (!match) return
         // Bake each mesh into its authored pivot space so a tile can share draw calls.
-        const pivot = node.clone(false)
-        node.matrixWorld.decompose(pivot.position, pivot.quaternion, pivot.scale)
+        const batches = modelBatches(node, id, true)
+        const bounds = new Box3()
+        for (const { geometry } of batches) {
+          geometry.computeBoundingBox()
+          bounds.union(geometry.boundingBox)
+        }
         hinges.push({
           index: Number(match[1]),
           height: new Box3().setFromObject(node, true).max.y,
-          node: pivot,
-          batches: modelBatches(node, id, true),
+          depth: bounds.max.z,
+          bottom: bounds.min.y,
+          pivot: node.matrixWorld.clone(),
+          batches,
         })
       })
       hinges.sort(hingeOrder)
-      models.set(id, { base: base ? modelBatches(base, id) : [], hinges })
+      const [lead] = hinges
+      // A separate floating crown needs paper between the hinge and the crown cutout.
+      if (TILES.find((tile) => tile.id === id)?.blockedRadius && lead?.bottom > 0.12) {
+        const tieHeight = lead.bottom + 0.16
+        lead.batches.push(...primitiveBatch([
+          paperTie(0xe6cb9c, tieHeight, 0.20, -0.008),
+          paperTie(0xffedd1, tieHeight, 0.155, 0.001),
+        ], true))
+      }
+      models.set(id, {
+        base: base ? modelBatches(base, id) : [],
+        wideBase: base && id === 'river_straight' ? modelBatches(base, id, false, false, true) : null,
+        hinges,
+      })
     }
     revision += 1
   }
@@ -279,6 +332,54 @@ ${shader.fragmentShader}`.replace(
     return models.get(id)
   }
 
+  function aimLead(lead, tile, tileMatrix, i, j) {
+    const side = hash(0, i, j, 22) & 1 ? -1 : 1
+    const towardCamera = new Vector3(0, 0, 1)
+    if (camera) towardCamera.applyQuaternion(camera.quaternion)
+    towardCamera.y = 0
+    towardCamera.normalize()
+    const awayFromTrail = tile.hero ? new Vector3(tile.offsetX, 0, tile.offsetZ).normalize() : null
+    const scale = new Vector3().setFromMatrixColumn(tileMatrix, 0).length()
+    const length = lead.height * scale
+    let best = -Infinity
+    let placement = tileMatrix
+    const diagonal = side * Math.PI * 0.18
+    const lateral = side * Math.PI / 4
+    for (const yaw of [diagonal, -diagonal, lateral, -lateral]) {
+      // Turn the whole tile so the crown lines up with its body again at upright.
+      const turn = tileMatrix.clone().multiply(new Matrix4().makeRotationY(yaw))
+      const world = new Matrix4().multiplyMatrices(turn, lead.pivot)
+      const pivot = new Vector3().setFromMatrixPosition(world)
+      const north = new Vector3().setFromMatrixColumn(world, 2).normalize()
+      for (const facing of [1, -1]) {
+        const direction = north.clone().multiplyScalar(facing)
+        const cameraSide = direction.dot(towardCamera)
+        // Only favor the back of the book when the forward sweep would leave the page.
+        let score = 3 * cameraSide + (cameraSide > 0 ? 8 : 0)
+        if (awayFromTrail) score += 3 * Math.min(0, direction.dot(awayFromTrail))
+        for (const fraction of [0.57, 0.95]) {
+          const x = pivot.x + direction.x * length * fraction
+          const z = pivot.z + direction.z * length * fraction
+          if (z < PAGE_MIN_Z + 0.06 || z > PAGE_MAX_Z - 0.06) {
+            score -= 12
+          } else if (cellAt(x) !== i || cellAt(z) !== j) {
+            const landing = layout?.getCell(cellAt(x), cellAt(z))
+            if (landing?.blockedRadius || landing?.sockets.includes('r')) score -= 1.15
+            if (landing?.sockets.includes('p')) score -= 2.2
+            if (landing?.id === 'meadow' && landing.zone === 'clearing') score += 0.55
+          }
+        }
+        if (score <= best) continue
+        best = score
+        placement = turn
+        lead.sign = -facing
+      }
+    }
+    // On a toward-camera fold the front felt becomes the underside.
+    lead.lift = Math.max(0, lead.depth + 0.008) * scale
+    return placement
+  }
+
   function create({ tile, i, j, x, z }, model) {
     const template = model ?? placeholders.get(tile.id)
     const meadow = tile.id === 'meadow'
@@ -287,12 +388,15 @@ ${shader.fragmentShader}`.replace(
     const yaw = tile.sockets === 'gggg'
       ? (2 * hash(0, i, j, 7) / 0xffffffff - 1) * CARD_YAW_LIMIT
       : tile.rotation * Math.PI / 2
+    let tileMatrix = meadow ? meadowMatrix(yaw, i, j, x, z) : new Matrix4().makeRotationY(yaw)
+      .scale(new Vector3(scale, scale, scale)).setPosition(x + (tile.offsetX ?? 0), 0, z + (tile.offsetZ ?? 0))
+    const hinges = clearing ? [] : template.hinges.map((hinge) => ({ ...hinge }))
+    if (tile.blockedRadius && hinges.length) tileMatrix = aimLead(hinges[0], tile, tileMatrix, i, j)
     return {
       model,
-      base: clearing && hash(0, i, j, 17) % 4 !== 0 ? [] : template.base,
-      hinges: clearing ? [] : template.hinges.map((hinge) => ({ ...hinge, node: hinge.node?.clone(false) })),
-      tileMatrix: meadow ? meadowMatrix(yaw, i, j, x, z) : new Matrix4().makeRotationY(yaw)
-        .scale(new Vector3(scale, scale, scale)).setPosition(x + (tile.offsetX ?? 0), 0, z + (tile.offsetZ ?? 0)),
+      base: clearing && hash(0, i, j, 17) % 4 !== 0 ? [] : ((tile.wideRiver && template.wideBase) || template.base),
+      hinges,
+      tileMatrix,
     }
   }
 
@@ -317,6 +421,8 @@ ${shader.fragmentShader}`.replace(
     }
 
     place(art.base, art.tileMatrix)
+    const [lead] = art.hinges
+    if (lead?.sign) place(crease, hingeMatrix.multiplyMatrices(art.tileMatrix, lead.pivot))
     for (const hinge of art.hinges) {
       if (!hinge.batches.length) continue
       hinge.slot = hinge.batches[0].count
@@ -326,17 +432,9 @@ ${shader.fragmentShader}`.replace(
   }
 
   function poseHinge(art, hinge) {
-    const angle = hinge.angle ?? FLAT
-    let transform
-    if (hinge.node) {
-      hinge.node.rotation.x = angle
-      hinge.node.updateMatrix()
-      transform = hinge.node.matrix
-    } else {
-      const height = 0.010 + Math.min(hinge.index, 2) * 0.003
-      transform = angleMatrix.makeRotationX(angle).setPosition(0, height, hinge.z)
-    }
-    hingeMatrix.multiplyMatrices(art.tileMatrix, transform)
+    const angle = (hinge.angle ?? FLAT) * (hinge.sign ?? 1)
+    hingeMatrix.multiplyMatrices(art.tileMatrix, hinge.pivot).multiply(angleMatrix.makeRotationX(angle))
+    if (hinge.lift && angle > 0) hingeMatrix.elements[13] += hinge.lift * Math.sin(angle)
     for (const batch of hinge.batches) {
       batch.mesh.setMatrixAt(hinge.slot, hingeMatrix)
       batch.mesh.instanceMatrix.needsUpdate = true

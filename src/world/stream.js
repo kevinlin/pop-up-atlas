@@ -5,8 +5,8 @@ import { FLAT, HINGE_STAGGER, stepSpring, UPRIGHT } from './spring.js'
 import { cellAt, cellKey, FIRST_PAGE_ROW, LAST_PAGE_ROW, TILE_SIZE } from './tiles.js'
 
 // Inside the camera view so folds are seen happening (camera distance 10).
-const FOLD_UP_DISTANCE_SQUARED = 3 ** 2
-const FOLD_DOWN_DISTANCE_SQUARED = 4.5 ** 2
+const FOLD_UP_DISTANCE_SQUARED = 2 ** 2
+const FOLD_DOWN_DISTANCE_SQUARED = 3 ** 2
 const TRACE_SIZE = 200
 
 function recordTrace(cell, t, angle) {
@@ -28,7 +28,7 @@ function traceSamples(trace) {
 }
 
 export function createTileStream(scene, layout, emitFold, camera) {
-  const art = createArt(scene)
+  const art = createArt(scene, camera, layout)
   const placeBook = createBook(scene)
   const visible = new Map()
   const frustum = new Frustum()
@@ -70,7 +70,7 @@ export function createTileStream(scene, layout, emitFold, camera) {
           const previous = cell.art
           cell.art = art.create(cell, model)
           for (const [order, hinge] of cell.art.hinges.entries()) {
-            const oldHinge = previous?.hinges.find(({ index }) => index === hinge.index)
+            const oldHinge = previous?.hinges[order]
             hinge.angle = oldHinge?.angle ?? FLAT
             hinge.velocity = oldHinge?.velocity ?? 0
             if (!oldHinge && cell.foldStarted !== undefined) {

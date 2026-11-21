@@ -4,12 +4,16 @@ from random import Random
 
 from mathutils import Vector
 
-from craft import curves, front, level, oval, rect, skew_rect
+from craft import ccw, curves, front, level, oval, rect, skew_rect
 
 
 RIVER_HALF = .36
 PATH_HALF = .235
 BRIDGE_HALF = .32
+# Cupped petals: depth of the bowl at the tip, across the width, the curled rim and the stitch groove.
+PETAL_CORE, PETAL_BOWL, PETAL_ACROSS, PETAL_ROLL, PETAL_GROOVE = .12, .030, .009, .008, .003
+# The front row of petals rides above the back row by more than felt + rim, so it shades it.
+PETAL_FRONT_ROW = .022
 
 
 def mapped(points, x, y, sx, sy):
@@ -45,6 +49,59 @@ def fold(c, rear, forward, height):
     x, y = rear[0] + dx * .46, rear[1] + dy * .46
     c.cut(c.base, skew_rect(x, y, length * .88, .091, heading), 0, .004,
           "card_cream", side="card_core", bevel=.0007, place=level)
+
+
+def brace(c, foot, toe, height, outward, layer=0):
+    """A cream paper wedge standing in front of a facade, glued to the page by a scored tab.
+
+    The tall edge rests against the facade at foot; the slope runs down to toe on the page.
+    Its hinge lies along the base so it folds flat beside its tab, away from the facade.
+    """
+    dx, dy = toe[0] - foot[0], toe[1] - foot[1]
+    length = hypot(dx, dy)
+    # Hinge at whichever end makes the wedge's flat side (local +Y) face outward.
+    tall_first = dx * outward[1] - dy * outward[0] >= 0
+    start, end = (foot, toe) if tall_first else (toe, foot)
+    heading = atan2(end[1] - start[1], end[0] - start[0])
+    hinge = c.hinge(*start, heading)
+    drop = height * .028 / length
+    if tall_first:
+        outline = [(0, .003), (length, .003), (.028, height - drop), (0, height)]
+    else:
+        outline = [(0, .003), (length, .003), (length, height), (length - .028, height - drop)]
+    # Thinner than the facade's card so the two never share a plane when both lie flat.
+    c.cut(hinge, outline, .0012, .0046, "card_cream", side="card_core", bevel=.0006)
+    c.tube(hinge, [front((.012, .0045), .0029), front((length - .012, .0045), .0029)],
+           .0011, "card_core", 4)
+    ux, uy = cos(heading), sin(heading)
+    rx, ry = uy, -ux
+    inner = .08 / length
+    a = (start[0] + ux * length * (inner if tall_first else .04),
+         start[1] + uy * length * (inner if tall_first else .04))
+    b = (start[0] + ux * length * (.96 if tall_first else 1 - inner),
+         start[1] + uy * length * (.96 if tall_first else 1 - inner))
+    mid = ((a[0] + b[0]) / 2 + rx * .036, (a[1] + b[1]) / 2 + ry * .036)
+    low = .0045 + layer * .0006
+    span = hypot(b[0] - a[0], b[1] - a[1])
+    c.cut(c.base, skew_rect(*mid, span, .068, heading), low, low + .0032,
+          "card_cream", side="card_core", bevel=.0006, place=level)
+    c.tube(c.base, [level((a[0] + rx * .004, a[1] + ry * .004), low + .0033),
+                    level((b[0] + rx * .004, b[1] + ry * .004), low + .0033)],
+           .001, "card_core", 4)
+
+
+def v_brace(c, apex, height, length, splay):
+    """Two wedges meeting under a narrow stem, opening toward the reader like a V-fold."""
+    for layer, side in enumerate((-1, 1)):
+        toe = (apex[0] + side * length * sin(splay), apex[1] - length * cos(splay))
+        brace(c, apex, toe, height, (side, 0), layer)
+
+
+def side_braces(c, feet, height, length, splay):
+    """A wedge under each side of a wide facade, splayed outward."""
+    for layer, (side, foot) in enumerate(zip((-1, 1), feet)):
+        toe = (foot[0] + side * length * sin(splay), foot[1] - length * cos(splay))
+        brace(c, foot, toe, height, (side, 0), layer)
 
 
 def leaf_outline(x, y, dx, dy, width):
@@ -128,6 +185,43 @@ def flower_shape(x, y, radius, lobes=5, spin=0):
         r = radius * (1 + .25 * cos(lobes * t + spin) + .034 * sin(3 * t + spin))
         points.append((x + r * cos(t), y + r * sin(t)))
     return points
+
+
+def petal_lift(center, angle, reach, rx, ry, layer):
+    """Depth above the card for a cupped petal: bowl to the tip, curled rim, stitch groove."""
+    px, py = center[0] + cos(angle) * reach, center[1] + sin(angle) * reach
+    ux, uy = cos(angle), sin(angle)
+    tip = reach + rx
+
+    def frame(p):
+        dx, dy = p[0] - px, p[1] - py
+        return (dx * ux + dy * uy) / rx, (dy * ux - dx * uy) / ry
+
+    def lift(p, top=True):
+        a, b = frame(p)
+        rho = min(1, hypot(a, b))
+        s = min(1, max(0, (reach + a * rx - PETAL_CORE) / (tip - PETAL_CORE)))
+        rim = max(0, (rho - .8) / .2) ** 2
+        depth = layer + PETAL_BOWL * s ** 1.5 + PETAL_ACROSS * min(1, b * b) * s
+        if not top:
+            return depth + PETAL_ROLL * .7 * rim
+        return depth + PETAL_ROLL * rim - PETAL_GROOVE * max(0, 1 - abs(rho - .86) / .05)
+
+    return (px, py), frame, lift
+
+
+def cupped_petal(c, hinge, center, angle, reach, rx, ry, shade, front_row):
+    middle, frame, lift = petal_lift(center, angle, reach, rx, ry,
+                                     PETAL_FRONT_ROW if front_row else 0)
+    outline = oval(*middle, rx, ry, 22, angle)
+    c.shell(hinge, outline, middle, .007, .017, shade, lift)
+    # Stitch only the rim that stays visible: the whole outer arc of the front row,
+    # the tip of the back row.
+    groove = [Vector(middle).lerp(Vector(p), .86) for p in outline]
+    shown = -.38 if front_row else .12
+    arc = [groove[j] for j in range(-len(groove) // 2, len(groove) // 2) if frame(groove[j])[0] > shown]
+    c.sew(hinge, arc, .017, "yarn_cream", place=lambda p, d: front(p, d + lift(p)),
+          spacing=.05, radius=.0026, rise=.0046, sink=.0026, caps=False)
 
 
 def cluster(c, x, ground, size, shifts, heading=0):
@@ -274,29 +368,30 @@ def flower(c):
     c.felt(display, stem, "felt_leaf")
     c.sew(display, [(.012, .11), (-.015, .42), (-.043, .75), (.01, 1.09)],
           .018, "yarn_lime", radius=.0016)
+    # Stem leaves sit just above the V-fold brace, below the lowest petal.
+    leaf(c, display, -.058, .435, -.29, .155, .088, "lime", layer=.012)
+    leaf(c, display, -.026, .468, .25, .175, .074, "mint", layer=.013, stitch=False)
     center = (.02, 1.073)
     c.cut(display, oval(*center, .165, .156), .005, .009, "card_pink", bevel=.0007)
-    for i in range(6):
-        angle = i * tau / 6 + .25
-        reach = .237 + .024 * sin(i * 3.9)
-        x = center[0] + cos(angle) * reach
-        y = center[1] + sin(angle) * reach
-        petal = oval(x, y, .252 + .018 * cos(i * 3.17), .159 + .006 * i, 22, angle)
-        # A very small stagger keeps adjacent overlapping petals readable in the flat pose.
-        layer = .007 + .0023 * (i % 2)
-        c.felt(display, petal, "felt_hot_pink" if i % 3 else "felt_pink",
-               start=layer, end=layer + .012, stitch="yarn_cream", rim="glitter_rim")
-    c.felt(display, oval(*center, .131, .125), "felt_orange", start=.011, end=.023)
+    # Three back petals, then three smaller front petals that overlap and shade them.
+    for front_row in (False, True):
+        for i in range(int(front_row), 6, 2):
+            angle = i * tau / 6 + .25
+            reach = (.222 if front_row else .246) + .012 * sin(i * 3.9)
+            rx = (.232 if front_row else .262) + .012 * cos(i * 3.17)
+            ry = (.150 if front_row else .170) + .004 * (i % 3)
+            cupped_petal(c, display, center, angle, reach, rx, ry,
+                         "felt_pink" if i == 3 else "felt_hot_pink", front_row)
+    c.felt(display, oval(*center, .131, .125), "felt_orange", start=.037, end=.049,
+           rim="glitter_rim")
     for i in range(7):
         t = tau * i / 7
         c.felt(display, oval(center[0] + .072 * cos(t), center[1] + .071 * sin(t), .035, .035, 12),
-               "felt_butter", start=.014, end=.026)
-    c.felt(display, oval(*center, .042, .042, 14), "felt_butter", start=.015, end=.027)
+               "felt_butter", start=.047, end=.059)
+    c.felt(display, oval(*center, .042, .042, 14), "felt_butter", start=.049, end=.061)
     c.scale_card(display, 1.36, 1.115)
-    foliage = c.hinge(-.041, -.70, .13)
-    leaf(c, foliage, .017, .018, -.50, .48, .16, "lime")
-    leaf(c, foliage, .04, .023, .45, .60, .13, "mint", layer=.008)
-    tab(c, -.047, -.70, .24, .13)
+    # The bloom stands on a V-fold whose base is about a quarter of its height.
+    v_brace(c, (-.027, front_y - .019), .46, .43, .79)
     felt_ground(c, 31, ("sage", "seafoam", "mint"))
     hill(c, .59, -.73, .73, .24, "mint", 43, -.32)
     cluster(c, -.72, -.36, .91, [(-.15, .14, "lavender"), (.01, .26, "tomato"), (.17, .18, "pink")], .30)
@@ -337,6 +432,8 @@ def mushroom_house(c):
         c.tube(h, [front(a, .0264), front(b, .0264)], .0025, "yarn_cream")
 
     c.scale_card(h, 1.11, 1.18)
+    # A wedge under each wall of the wide house, splayed outward on the page.
+    side_braces(c, [(-.42, front_y - .025), (.32, front_y - .025)], .42, .43, .52)
     roof = c.hinge(-.045, -.60)
     cap = curves((-.588, .758), [
         ((-.558, .938), (-.332, 1.23), (-.152, 1.331)),
@@ -354,11 +451,11 @@ def mushroom_house(c):
         c.felt(roof, oval(x, y, rx, ry, 17, -.2), "felt_cream", start=.014, end=.026)
     c.scale_card(roof, 1.19, 1.18)
     felt_ground(c, 19, ("seafoam", "fern", "lilac_ground"))
-    grass(c, .56, -.72, .67, .69, "mint", -.31)
+    grass(c, .75, -.47, .36, .52, "mint", -.31)
     bud(c, -.69, -.14, .31, "lavender", 1.0)
     hill(c, .53, .24, .89, .49, "violet", 80, -.35)
     hill(c, -.51, .19, .84, .35, "lime", 29, .38)
-    cluster(c, -.64, -.65, 1.12, [(-.17, .14, "pink"), (.025, .236, "tomato"), (.18, .13, "hot_pink")], .27)
+    cluster(c, -.80, -.46, .80, [(-.17, .14, "pink"), (.025, .236, "tomato"), (.18, .13, "hot_pink")], .27)
     bells(c, .72, -.19, .69, "lavender", -.26, -1)
 
 
@@ -391,6 +488,7 @@ def cupcake_tree(c):
                   (i * .090 + .019, .90), (i * .090 - .025, .904)],
               .020, .023, "card_butter", side="card_core", bevel=.0006)
     c.scale_card(h, 1.16, 1.10)
+    v_brace(c, (.033, front_y - .02), .44, .43, .79)
     ice = c.hinge(.025, -.63)
     frosting = curves((-.487, .881), [
         ((-.569, .95), (-.474, 1.067), (-.407, 1.067)),
@@ -423,7 +521,7 @@ def cupcake_tree(c):
                  front((.111, 1.602), .012)], .006, "yarn_leaf", 5)
     c.scale_card(ice, 1.29, 1.075)
     felt_ground(c, 27, ("sage", "moss", "seafoam"))
-    grass(c, -.55, -.70, .83, .69, "lime", -.31)
+    grass(c, -.72, -.63, .46, .56, "lime", -.31)
     bud(c, .66, -.68, .31, "hot_pink", 1.0)
     hill(c, .48, .37, .92, .49, "violet", 88, .35)
     hill(c, .53, .06, .89, .33, "sky", 23, -.31)
@@ -590,28 +688,46 @@ def bridge(c):
             for y in (-.235, .235):
                 c.sew(c.base, [(x - .025, y), (x + .026, y)], .016, "yarn_cream",
                       spacing=.062, radius=.0022, place=deck)
-    # The rail's two twisted strands fit the 0.03-unit flat envelope.
+    # Near arch edge: a raised felt lip, stitched along its length, proud of the kraft side.
+    near = -(BRIDGE_HALF - .021) - .012
+
+    def lip(p, d):
+        return (p[0], near - d, max(.0006, p[1]))
+
+    edge = [(x, max(.01, arch(x) + .006 - .072)) for x in (-.62 + .062 * i for i in range(21))]
+    band = [(x, z - .008) for x, z in edge] + [(x, z + .028) for x, z in edge[::-1]]
+    c.cut(c.base, band, -.002, .010, "felt_lime", bevel=0, place=lip)
+    c.fringe(c.base, ccw(band), .009, "felt_fringe_lime", lip)
+    c.sew(c.base, [(x, z + .010) for x, z in edge], .010, "yarn_hot_pink", place=lip,
+          spacing=.05, radius=.0026, rise=.004, sink=.002, caps=False)
+    # Chunky two-strand yarn rails; they lie flat inside a 0.08-unit envelope.
+    rail_depth = .038
     for side in (-1, 1):
-        y = side * (BRIDGE_HALF - .022) + .008
+        y = side * (BRIDGE_HALF - .03) + rail_depth
         rail = c.hinge(0, y)
         for x in (-.66, -.33, .33, .66):
             tab(c, x, y, .095)
             bottom = arch(x) - .006
-            top = arch(x) + .19
-            c.tube(rail, [(x, -.0157, bottom), (x, -.0157, top)], .0105, "yarn_violet", 7)
-            for j in range(4):
-                ring = []
-                for k in range(10):
-                    angle = tau * k / 9
-                    ring.append((x + .0108 * cos(angle), -.0168 + .0092 * sin(angle),
-                                 top - .039 - j * .008 + .005 * k / 9))
-                c.tube(rail, ring, .0018, "yarn_pink", 5)
+            top = arch(x) + .205
+            end_post = abs(x) > .5
+            c.tube(rail, [(x, -rail_depth, bottom), (x, -rail_depth, top)],
+                   .012 if end_post else .0105, "yarn_violet", 7)
+            z = arch(x) + .150
+            if end_post:
+                # Three full turns of yarn bind both strands to each end post.
+                wrap = [(x + .029 * cos(tau * k / 12), -rail_depth + .029 * sin(tau * k / 12),
+                         z - .042 + .084 * k / 36) for k in range(37)]
+                c.tube(rail, wrap, .008, "yarn_hot_pink", 5, smooth=True)
+            else:
+                tie = [(x + .028 * cos(tau * k / 9), -rail_depth + .028 * sin(tau * k / 9),
+                        z + .004 * k / 9) for k in range(10)]
+                c.tube(rail, tie, .006, "yarn_pink", 4, smooth=True)
         for strand, color in enumerate(("yarn_hot_pink", "yarn_orange")):
             phase = strand * pi
-            braid = [(x, -.0176 + .0058 * cos(i * 1.4 + phase),
-                      arch(x) + .153 + .0058 * sin(i * 1.4 + phase))
-                     for i, x in enumerate(-.67 + k * (1.34 / 54) for k in range(55))]
-            c.tube(rail, braid, .0061, color, 4)
+            braid = [(x, -(rail_depth + .016 * cos(30 * x + phase)),
+                      arch(x) + .150 + .016 * sin(30 * x + phase))
+                     for x in (-.66 + k * (1.32 / 56) for k in range(57))]
+            c.tube(rail, braid, .017, color, 5, smooth=True)
 
 
 def page(c, alternate):

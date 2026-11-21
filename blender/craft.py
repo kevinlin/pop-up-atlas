@@ -314,6 +314,7 @@ class Craft:
         self.base = empty("base", self.root)
         self.hinges = []
         self.batches = defaultdict(lambda: ([], [], []))
+        self.smooth = defaultdict(list)
         self.materials = materials
 
     def hinge(self, x, ground, heading=0):
@@ -333,8 +334,9 @@ class Craft:
             if parent == hinge:
                 vertices[:] = [(x * width, y, z * height) for x, y, z in vertices]
 
-    def add(self, parent, material, coordinates, uv, faces):
+    def add(self, parent, material, coordinates, uv, faces, smooth=False):
         verts, uvs, polygons = self.batches[parent, material]
+        self.smooth[parent, material].extend([smooth] * len(faces))
         polygons.extend(tuple(i + len(verts) for i in face) for face in faces)
         verts.extend(coordinates)
         uvs.extend(uv)
@@ -360,7 +362,7 @@ class Craft:
             self.add(parent, wall, coords, wall_uv,
                      [(i, (i + 1) % n, (i + 1) % n + n, i + n) for i in range(n)])
 
-    def tube(self, parent, coords, radius, material, sides=5):
+    def tube(self, parent, coords, radius, material, sides=5, *, caps=True, smooth=False):
         centers = [Vector(pos) for pos in coords]
         vertices, uv = [], []
         length = 0
@@ -376,15 +378,18 @@ class Craft:
                 local_radius = radius * (.74 if i in (0, len(centers) - 1) else 1.)
                 vertices.append(center + local_radius * (a * cos(angle) + b * sin(angle)))
                 uv.append((k / sides, length * 35))
-        faces = [tuple(range(sides))[::-1]]
+        faces = [tuple(range(sides))[::-1]] if caps else []
         for j in range(len(centers) - 1):
             a, b = j * sides, (j + 1) * sides
             faces.extend((a+k, a+(k+1)%sides, b+(k+1)%sides, b+k) for k in range(sides))
-        faces.append(tuple(range(len(vertices) - sides, len(vertices))))
-        self.add(parent, material, vertices, uv, faces)
+        if caps:
+            faces.append(tuple(range(len(vertices) - sides, len(vertices))))
+        self.add(parent, material, vertices, uv, faces, smooth)
 
     def sew(self, parent, points, depth, material="yarn_butter", *, cycle=False, place=front,
-            spacing=.053, radius=.0021):
+            spacing=.053, radius=.0021, rise=None, sink=0., caps=True):
+        # A positive sink pulls both ends of every stitch into the felt beneath the raised arc.
+        rise = radius * .58 if rise is None else rise
         points = [Vector(p) for p in points]
         total = sum((a - b).length for a, b in zip(points, points[1:] + (points[:1] if cycle else [])))
         count = max(1, round(total / spacing))
@@ -393,8 +398,38 @@ class Craft:
             center = (i + .5) * step + .0025 * sin(i * 1.89)
             span = min(step * .32, .015) * (1 + .10 * cos(i * 3.21))
             a, b = [sample_path(points, cycle, center + offset) for offset in (-span, span)]
-            self.tube(parent, [place(a, depth), place(a.lerp(b, .50), depth + radius * .58),
-                               place(b, depth)], radius, material, sides=3)
+            self.tube(parent, [place(a, depth - sink), place(a.lerp(b, .50), depth + rise),
+                               place(b, depth - sink)], radius, material, sides=3, caps=caps)
+
+    def shell(self, parent, outline, middle, start, end, material, lift, *,
+              rings=(.5, .78, .86, .93), place=front, fuzz=True):
+        """Felt that bends out of the card: lift(p) and lift(p, False) offset its two faces."""
+        outline = ccw(outline)
+        middle = Vector(middle)
+        n = len(outline)
+        scale = .64
+
+        def surface(fractions, depth, top):
+            loops = [[middle.lerp(p, f) for p in outline] for f in fractions] + [outline]
+            points = [middle] + [p for loop in loops for p in loop]
+            faces = [(0, 1 + i, 1 + (i + 1) % n) for i in range(n)]
+            for k in range(len(loops) - 1):
+                a, b = 1 + k * n, 1 + (k + 1) * n
+                faces.extend((a + i, b + i, b + (i + 1) % n, a + (i + 1) % n) for i in range(n))
+            self.add(parent, material, [place(p, depth + lift(p, top)) for p in points],
+                     [(p.x * scale, p.y * scale) for p in points],
+                     faces if top else [face[::-1] for face in faces], smooth=True)
+
+        surface(rings, end, True)
+        surface((.6,), start, False)
+        edge = [place(p, start + lift(p, False)) for p in outline]
+        edge += [place(p, end + lift(p, True)) for p in outline]
+        self.add(parent, material, edge,
+                 [(p.x * scale + p.y * .12, p.y * scale + d * 5) for d in (start, end) for p in outline],
+                 [(i, (i + 1) % n, (i + 1) % n + n, i + n) for i in range(n)])
+        if fuzz:
+            self.fringe(parent, outline, end - .001, "felt_fringe_" + material[5:],
+                        lambda p, d: place(p, d + lift(p, True)))
 
     def felt(self, parent, points, material, *, start=.005, end=.0175, stitch=None,
              place=front, rim=None, fuzz=True):
@@ -434,8 +469,16 @@ class Craft:
             layer = mesh.uv_layers.new()
             for loop in mesh.loops:
                 layer.data[loop.index].uv = uvs[loop.vertex_index]
+            flags = self.smooth[parent, material]
+            if any(flags):
+                sharp = mesh.attributes.get("sharp_face")
+                if sharp is None:
+                    sharp = mesh.attributes.new("sharp_face", 'BOOLEAN', 'FACE')
+                sharp.data.foreach_set("value", [not flag for flag in flags])
+                mesh.update()
             obj = bpy.data.objects.new(material, mesh)
             bpy.context.collection.objects.link(obj)
             obj.parent = parent
             obj.data.materials.append(self.materials.get(material))
         self.batches.clear()
+        self.smooth.clear()

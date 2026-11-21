@@ -1,5 +1,6 @@
 import {
-  blocksPoint, cellAt, cellKey, DIRECTIONS, LAST_PAGE_ROW, PAGE_MAX_Z, PAGE_MIN_Z, TILE_SIZE, VARIANTS,
+  blocksPoint, cellAt, cellKey, DIRECTIONS, FIRST_PAGE_ROW, HERO_SCALE, HERO_SHIFT,
+  LAST_PAGE_ROW, PAGE_MAX_Z, PAGE_MIN_Z, TILES, TILE_SIZE, VARIANTS,
 } from './tiles.js'
 
 import { hash } from './hash.js'
@@ -19,6 +20,7 @@ const sockets = DIRECTIONS.map((_, edge) => ({
   r: maskFor((tile) => tile.sockets[edge] === 'r'),
 }))
 const meadow = tileBit('meadow')
+const grass = maskFor((tile) => tile.sockets === 'gggg')
 const bridge = tileBit('yarn_bridge')
 const dry = maskFor((tile) => !tile.sockets.includes('r'))
 const tileMasks = new Map(VARIANTS.map(({ sockets }) => [
@@ -26,9 +28,13 @@ const tileMasks = new Map(VARIANTS.map(({ sockets }) => [
 ]))
 
 const ZONE_SIZE = 8
+const riverCornerWeight = TILES.find(({ id }) => id === 'river_corner').weight
+const riverStraightWeight = TILES.find(({ id }) => id === 'river_straight').weight
+const meanderChance = riverCornerWeight / (riverCornerWeight + riverStraightWeight)
+const maxPropReach = Math.max(...TILES.map(({ blockedRadius }) => blockedRadius ?? 0)) * HERO_SCALE[1] + HERO_SHIFT
 const meadowWeight = VARIANTS[bitIndex(meadow)].weight
 const grassWeight = VARIANTS.filter((tile) => tile.sockets === 'gggg').reduce((sum, tile) => sum + tile.weight, 0)
-const zoneWeights = [0.12, 0.76].map((propShare) => VARIANTS.map((tile) => {
+const [clearingWeights, groveWeights, trailWeights] = [0.12, 0.76, 0.97].map((propShare) => VARIANTS.map((tile) => {
   // Keep total grass weight constant so the path and river mix stays within its existing bounds.
   if (tile.id === 'meadow') return grassWeight * (1 - propShare)
   if (tile.blockedRadius) return grassWeight * propShare * tile.weight / (grassWeight - meadowWeight)
@@ -70,7 +76,12 @@ function riverPlan(seed, cx, cz) {
   const shape = hash(seed, cx, cz, 3)
   const rows = [1 + (shape & 1), 5 + ((shape >>> 1) & 1)]
   if (north !== south) rows.splice(1, 1, 4, 6)
-  return { north, south, rows, excursion: shape % 5 < 2, depth: 1 + ((shape >>> 2) & 1) }
+  const meander = hash(seed, cx, cz, 19) / 0x100000000 < meanderChance
+  // Turn between the crossings so each bridge still lands on a straight reach.
+  const bends = north === south
+    ? (meander ? [rows[0] + 1, rows[1] - 1] : [])
+    : (meander ? [3, 5, 7] : [3])
+  return { north, south, rows, bends, excursion: shape % 5 < 2, depth: 1 + ((shape >>> 2) & 1) }
 }
 
 function featureSockets(seed, cx, cz) {
@@ -94,9 +105,15 @@ function featureSockets(seed, cx, cz) {
 
   const bank = (seam) => seam === 3 ? 1 : 6
   if (hasRiver(seed, cx)) {
-    const { north, south, rows, excursion } = riverPlan(seed, cx, cz)
-    const bend = 3
-    trace('r', [[north, -1], [north, bend], [south, bend], [south, CHUNK_SIZE]])
+    const { north, south, rows, bends, excursion } = riverPlan(seed, cx, cz)
+    const river = [[north, -1]]
+    let channel = north
+    for (const row of bends) {
+      river.push([channel, row], [CHUNK_SIZE - 1 - channel, row])
+      channel = CHUNK_SIZE - 1 - channel
+    }
+    river.push([south, CHUNK_SIZE])
+    trace('r', river)
 
     // The bank trail crosses twice on straight runs and three times when it changes banks.
     let from = bank(north)
@@ -192,7 +209,7 @@ function collapse(initial, random, zones) {
 
     let options = domains[best]
     while (options && remainingBacktracks > 0) {
-      const bit = weightedBit(options, random, zoneWeights[zones[best]])
+      const bit = weightedBit(options, random, zones[best] ? groveWeights : clearingWeights)
       const branch = domains.slice()
       branch[best] = bit
       const solved = propagate(branch, [best]) && search(branch)
@@ -209,11 +226,12 @@ function collapse(initial, random, zones) {
 export function createLayout(initialSeed = 0) {
   const generated = new Map()
   const chunks = new Map()
+  const solutions = new Map()
   let seed = initialSeed >>> 0
 
-  function generateChunk(cx, cz) {
+  function solveChunk(cx, cz) {
     const chunkKey = cellKey(cx, cz)
-    if (chunks.has(chunkKey)) return chunks.get(chunkKey)
+    if (solutions.has(chunkKey)) return solutions.get(chunkKey)
     const startI = cx * CHUNK_SIZE
     const startJ = cz * CHUNK_SIZE
     const zones = cells.map(({ x, z }) => zoneAt(seed, startI + x, startJ + z))
@@ -236,11 +254,9 @@ export function createLayout(initialSeed = 0) {
       }
       if (signature === 'rgrg' && extraCrossings) domain |= bridge
       if (cx === 0 && x === 0) domain &= meadow
-      for (const [edge, [di, dj]] of DIRECTIONS.entries()) {
+      for (let edge = 0; edge < neighbors.length; edge += 1) {
         if (neighbors[edge] >= 0) continue
-        const neighbor = generated.get(cellKey(startI + x + di, startJ + z + dj))
         domain &= sockets[edge][edges[edge]]
-        if (neighbor) domain &= sockets[edge][neighbor.sockets[opposite(edge)]]
       }
       domains[index] = domain
     }
@@ -253,17 +269,50 @@ export function createLayout(initialSeed = 0) {
     }
 
     // This layout satisfies the same seams if the search budget runs out.
-    const chunk = Array.from(solved ?? fallback, (bit, index) => {
+    const result = { bits: solved ?? fallback, zones }
+    solutions.set(chunkKey, result)
+    return result
+  }
+
+  function trailSide(i, j) {
+    return DIRECTIONS.find(([di, dj]) => {
+      const x = i + di
+      const z = j + dj
+      if (z < FIRST_PAGE_ROW || z > LAST_PAGE_ROW) return false
+      const cx = Math.floor(x / CHUNK_SIZE)
+      const cz = Math.floor(z / CHUNK_SIZE)
+      const { bits } = solveChunk(cx, cz)
+      const index = x - cx * CHUNK_SIZE + (z - cz * CHUNK_SIZE) * CHUNK_SIZE
+      return VARIANTS[bitIndex(bits[index])].sockets.includes('p')
+    })
+  }
+
+  function generateChunk(cx, cz) {
+    const chunkKey = cellKey(cx, cz)
+    if (chunks.has(chunkKey)) return chunks.get(chunkKey)
+    const { bits, zones } = solveChunk(cx, cz)
+    const chunk = Array.from(bits, (bit, index) => {
       const { x, z } = cells[index]
-      const i = startI + x
-      const j = startJ + z
-      const variant = VARIANTS[bitIndex(bit)]
+      const i = cx * CHUNK_SIZE + x
+      const j = cz * CHUNK_SIZE + z
       const grove = zones[index] === 1
+      // Bias the interchangeable grass tiles after solving so paths across chunk seams count too.
+      const trail = grove && (bit & grass) && i !== 0 && j >= FIRST_PAGE_ROW && j <= LAST_PAGE_ROW && trailSide(i, j)
+      if (trail) bit = weightedBit(grass, () => hash(seed, i, j, 20) / 0x100000000, trailWeights)
+      const variant = VARIANTS[bitIndex(bit)]
       const unit = hash(seed, i, j, 16) / 0xffffffff
-      const scale = variant.blockedRadius ? 0.36 + (grove ? 0.72 : 0.22) * unit : 1
-      const tile = { ...variant, zone: grove ? 'grove' : 'clearing', scale }
-      if (variant.blockedRadius) tile.blockedRadius *= scale
-      if (grove && tile.blockedRadius) {
+      const hero = Boolean(trail && variant.blockedRadius)
+      const tile = { ...variant, zone: grove ? 'grove' : 'clearing', scale: 1, hero }
+      if (tile.id === 'river_straight') tile.wideRiver = hash(seed, i, j, 21) % 4 === 0
+      if (tile.blockedRadius) {
+        tile.scale = hero ? HERO_SCALE[0] + (HERO_SCALE[1] - HERO_SCALE[0]) * unit
+          : 0.36 + (grove ? 0.72 : 0.22) * unit
+        tile.blockedRadius *= tile.scale
+      }
+      if (hero) {
+        tile.offsetX = -trail[0] * HERO_SHIFT
+        tile.offsetZ = -trail[1] * HERO_SHIFT
+      } else if (grove && tile.blockedRadius) {
         // The whole collision disc stays inside its own cell so the edge corridors stay clear.
         const inset = Math.min(0.28, TILE_SIZE / 2 - tile.blockedRadius - 0.025)
         tile.offsetX = inset * (2 * hash(seed, i, j, 17) / 0xffffffff - 1)
@@ -289,12 +338,26 @@ export function createLayout(initialSeed = 0) {
       if (z < PAGE_MIN_Z || z > PAGE_MAX_Z) return true
       const i = cellAt(x)
       const j = Math.min(LAST_PAGE_ROW, cellAt(z))
-      return blocksPoint(getCell(i, j), x - TILE_SIZE * i, z - TILE_SIZE * j)
+      if (blocksPoint(getCell(i, j), x - TILE_SIZE * i, z - TILE_SIZE * j)) return true
+
+      // Hero cutouts can extend into another cell. Ordinary props stay inside their own cell.
+      for (let row = Math.max(FIRST_PAGE_ROW, j - 1); row <= Math.min(LAST_PAGE_ROW, j + 1); row += 1) {
+        const dz = z - TILE_SIZE * row
+        if (Math.abs(dz) > maxPropReach) continue
+        for (let column = i - 1; column <= i + 1; column += 1) {
+          const dx = x - TILE_SIZE * column
+          if ((column === i && row === j) || Math.abs(dx) > maxPropReach) continue
+          const tile = getCell(column, row)
+          if (tile.hero && blocksPoint(tile, dx, dz)) return true
+        }
+      }
+      return false
     },
     setSeed(value) {
       seed = value >>> 0
       generated.clear()
       chunks.clear()
+      solutions.clear()
     },
   }
 }

@@ -25,7 +25,7 @@ function snapshot(layout, min, max, checkSeams = false) {
   for (let j = min; j <= max; j += 1) {
     for (let i = min; i <= max; i += 1) {
       const tile = layout.getCell(i, j)
-      result.push(`${tile.id}:${tile.rotation}:${tile.zone}:${tile.scale}:${tile.offsetX}:${tile.offsetZ}`)
+      result.push(`${tile.id}:${tile.rotation}:${tile.zone}:${tile.scale}:${tile.offsetX}:${tile.offsetZ}:${tile.wideRiver}`)
       if (!checkSeams) continue
       if (i < max) expect(tile.sockets[1]).toBe(layout.getCell(i + 1, j).sockets[3])
       if (j < max) expect(tile.sockets[2]).toBe(layout.getCell(i, j + 1).sockets[0])
@@ -136,6 +136,16 @@ describe('atlas layout', () => {
     expect([...rows]).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4])
     const table = scene.getObjectByName('atlas/table')
     const sheets = scene.getObjectByName('atlas/page-stack')
+    const edge = sheets.geometry.attributes.position
+    const lowerEdge = (x) => {
+      let y = Infinity
+      for (let i = 0; i < edge.count; i += 1) {
+        if (edge.getX(i) === x && edge.getZ(i) > 8) y = Math.min(y, edge.getY(i))
+      }
+      return y
+    }
+    expect(lowerEdge(0)).toBeLessThan(lowerEdge(2) - 0.08)
+    expect(scene.getObjectByName('atlas/cover-stitches')).toBeDefined()
     stream.update(0.016, 0.016, { x: 1024, z: 8.9 }, 16 / 9)
     expect(Math.abs(table.position.x - 1024)).toBeLessThanOrEqual(16)
     expect(sheets.parent.position.x).toBe(1008)
@@ -190,31 +200,54 @@ describe('atlas layout', () => {
   it('clusters tall props in groves, with smaller cutouts and scaled collision', () => {
     const layout = createLayout(42)
     const zones = { grove: { props: 0, grass: 0 }, clearing: { props: 0, grass: 0 } }
-    const scales = []
+    const trail = { grass: 0, props: 0, large: 0 }
+    const away = { grass: 0, props: 0 }
     for (let j = -5; j <= 4; j += 1) {
       for (let i = -40; i < 40; i += 1) {
         const tile = layout.getCell(i, j)
         if (tile.sockets !== 'gggg') continue
         const zone = zones[tile.zone]
         zone.grass += 1
+        const nearTrail = DIRECTIONS.some(([di, dj]) => j + dj >= -5 && j + dj <= 4 && layout.getCell(i + di, j + dj).sockets.includes('p'))
+        const grove = tile.zone === 'grove' ? (nearTrail ? trail : away) : null
+        if (grove) grove.grass += 1
         if (!tile.blockedRadius) continue
         zone.props += 1
-        if (tile.zone === 'grove') {
-          scales.push(tile.scale)
-          expect(Math.abs(tile.offsetX) + tile.blockedRadius).toBeLessThan(1)
-          expect(Math.abs(tile.offsetZ) + tile.blockedRadius).toBeLessThan(1)
+        if (grove) grove.props += 1
+        if (grove === trail) {
+          expect(tile.scale).toBeGreaterThanOrEqual(1.3)
+          expect(tile.scale).toBeLessThanOrEqual(1.6)
+          trail.large += 1
         }
         const authored = VARIANTS.find(({ id }) => id === tile.id)
         expect(tile.blockedRadius).toBeCloseTo(authored.blockedRadius * tile.scale, 12)
         const x = i * 2 + (tile.offsetX ?? 0)
         const z = j * 2 + (tile.offsetZ ?? 0)
         expect(layout.isBlocked(x + tile.blockedRadius - 0.001, z)).toBe(true)
-        expect(layout.isBlocked(x + tile.blockedRadius + 0.001, z)).toBe(false)
+        expect(blocksPoint(tile, x - i * 2 + tile.blockedRadius + 0.001, z - j * 2)).toBe(false)
       }
     }
     expect(zones.grove.props / zones.grove.grass).toBeGreaterThan(0.65)
     expect(zones.clearing.props / zones.clearing.grass).toBeLessThan(0.2)
-    expect(Math.max(...scales) / Math.min(...scales)).toBeGreaterThan(2.8)
+    expect(trail.large).toBeGreaterThan(15)
+    expect(trail.props / trail.grass).toBeGreaterThan(away.props / away.grass + 0.1)
+  })
+
+  it('leaves the path centerlines and bridge decks free of enlarged props', () => {
+    for (const seed of seeds) {
+      const layout = createLayout(seed)
+      for (let j = -5; j <= 4; j += 1) {
+        for (let i = -40; i < 40; i += 1) {
+          const { sockets } = layout.getCell(i, j)
+          for (const [edge, [di, dj]] of DIRECTIONS.entries()) {
+            if (sockets[edge] !== 'p') continue
+            for (let step = 0; step <= 1; step += 0.25) {
+              expect(layout.isBlocked(2 * i + step * di, 2 * j + step * dj)).toBe(false)
+            }
+          }
+        }
+      }
+    }
   })
 
   it.each(seeds)('keeps features sparse in a 64×64 area for seed %i', (seed) => {
@@ -258,5 +291,17 @@ describe('atlas layout', () => {
     expect(blocksPoint(tile('yarn_bridge'), 0.2, 0.8)).toBe(true)
     expect(blocksPoint(tile('yarn_bridge', 1), 0.2, -0.2)).toBe(false)
     expect(blocksPoint(tile('yarn_bridge', 1), 0.8, -0.2)).toBe(true)
+  })
+
+  it('adds river bends and widens some stretches without widening their sockets', () => {
+    const layout = createLayout(0)
+    const cells = Array.from({ length: 64 * 32 }, (_, n) => layout.getCell(n % 64 - 32, Math.floor(n / 64) - 16))
+    const river = cells.filter(({ sockets }) => sockets.includes('r'))
+    expect(river.filter(({ id }) => id === 'river_corner').length / river.length).toBeGreaterThan(0.30)
+    const wide = river.find(({ wideRiver }) => wideRiver)
+    expect(wide?.id).toBe('river_straight')
+    const [di, dj] = DIRECTIONS[(wide.rotation + 1) % 4]
+    expect(blocksPoint(wide, di * 0.48, dj * 0.48)).toBe(true)
+    expect(blocksPoint(wide, di * 0.48 + dj, dj * 0.48 + di)).toBe(false)
   })
 })

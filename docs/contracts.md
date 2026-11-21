@@ -43,7 +43,7 @@ Layout density (target, measured over a 64x64-cell area on 20 seeds): grass-sock
 ## Scrapbook page (`public/models/tiles/page_a.glb`, `page_b.glb`, `gutter.glb`)
 - `page_a` / `page_b`: flat 2x2 page tile variants (felt or paper, stitched border pieces, slight layered edges), drawn under every cell.
 - `gutter.glb`: 2-unit strip along Z marking the book spine, placed on every cell whose i is a multiple of 8, with a shallow valley (≤ 0.08 deep) the troll walks over.
-- Folded-flat tiles must read as printed/appliqué shapes on the page, not z-fighting: flat parts sit 0.005-0.02 above y = 0, stacked by hinge index.
+- Folded-flat tiles must read as printed/appliqué shapes on the page, not z-fighting: flat parts sit 0.005-0.02 above y = 0, stacked by hinge index. Exception (round 3): cupped flower petals and twisted bridge rails have real thickness, so their flat pose may reach 0.08 above the page.
 
 ## Fold behaviour
 - Fold up when cell centre is within 2 units of the troll; fold down when beyond 3 units (hysteresis), so both happen right beside the troll. (Was 7/9 → 5/6.5 → 3/4.5; round-2 critic: fold-down easy to miss.)

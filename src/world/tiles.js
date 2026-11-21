@@ -5,6 +5,8 @@ export const PAGE_MIN_Z = (FIRST_PAGE_ROW - 0.5) * TILE_SIZE
 export const PAGE_MAX_Z = (LAST_PAGE_ROW + 0.5) * TILE_SIZE
 export const GUTTER_INTERVAL = 8
 export const RIVER_HALF_WIDTH = 0.36
+export const HERO_SCALE = [1.3, 1.6]
+export const HERO_SHIFT = 0.2
 export const BRIDGE_HALF_WIDTH = 0.32
 const RIVER_BEND_RADIUS = 0.43
 
@@ -16,7 +18,7 @@ export const TILES = [
   { id: 'path_straight', sockets: 'pgpg', walkable: true, rotations: 2, weight: 0.5 },
   { id: 'path_corner', sockets: 'ppgg', walkable: true, rotations: 4, weight: 0.25 },
   { id: 'river_straight', sockets: 'rgrg', walkable: false, rotations: 2, weight: 0.4 },
-  { id: 'river_corner', sockets: 'rrgg', walkable: false, rotations: 4, weight: 0.25 },
+  { id: 'river_corner', sockets: 'rrgg', walkable: false, rotations: 4, weight: 1.6 },
   { id: 'yarn_bridge', sockets: 'rprp', walkable: true, rotations: 2, weight: 0.3 },
 ]
 
@@ -34,6 +36,7 @@ export const VARIANTS = TILES.flatMap((tile) => {
 
 export const cellAt = (position) => Math.floor(position / TILE_SIZE + 0.5)
 export const cellKey = (i, j) => `${i},${j}`
+export const riverHalfWidth = (along) => RIVER_HALF_WIDTH + 0.19 * Math.max(0, 1 - along ** 2) ** 2
 
 export function blocksPoint(tile, x, z) {
   if (tile.blockedRadius) {
@@ -44,7 +47,7 @@ export function blocksPoint(tile, x, z) {
   const localZ = tile.rotation === 1 ? x : z
   switch (tile.id) {
     case 'river_straight':
-      return Math.abs(localX) <= RIVER_HALF_WIDTH
+      return Math.abs(localX) <= (tile.wideRiver ? riverHalfWidth(localZ) : RIVER_HALF_WIDTH)
     case 'yarn_bridge':
       return Math.abs(localX) <= RIVER_HALF_WIDTH && Math.abs(localZ) > BRIDGE_HALF_WIDTH
     case 'river_corner': {
