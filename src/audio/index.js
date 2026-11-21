@@ -6,6 +6,7 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 const UNLOCK_INPUTS = ['pointerdown', 'pointerup', 'keydown']
 let listening = false
 let live
+let pending = []
 
 export function initAudio() {
   if (listening || typeof window === 'undefined' || !window.AudioContext) return
@@ -40,18 +41,23 @@ function playVoice(sound, voice, offset) {
 export function playFold(event) {
   if (live?.context.state !== 'running') return
   live.origin ??= live.context.currentTime + LEAD_TIME - event.t
-  for (const voice of live.schedule(event)) playVoice(live.sound, voice, live.origin)
+  if (!pending.length) {
+    // All folds from the world's frame callback arrive before this microtask.
+    queueMicrotask(() => {
+      const frame = pending
+      pending = []
+      for (const voice of frame.flatMap(live.schedule)) playVoice(live.sound, voice, live.origin)
+    })
+  }
+  pending.push(event)
 }
 
 export async function renderOffline(events, durationSec, sampleRate = 48_000) {
   const context = new OfflineAudioContext(2, Math.round(durationSec * sampleRate), sampleRate)
-  const schedule = createScheduler()
   const sound = createSoundBank(context)
-  for (const event of events.toSorted((a, b) => a.t - b.t)) {
-    if (event.t >= durationSec) break
-    for (const voice of schedule(event)) {
-      if (voice.t < durationSec) playVoice(sound, voice, 0)
-    }
+  const ordered = events.filter(({ t }) => t < durationSec).sort((a, b) => a.t - b.t)
+  for (const voice of ordered.flatMap(createScheduler())) {
+    if (voice.t < durationSec) playVoice(sound, voice, 0)
   }
   return context.startRendering()
 }

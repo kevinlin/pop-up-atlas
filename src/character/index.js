@@ -1,11 +1,14 @@
-import { Group, MathUtils, Quaternion, Vector3 } from 'three'
+import { Group, Quaternion, Vector3 } from 'three'
 import { applyCraftMaterials } from '../materials/index.js'
 import { createAnimation } from './animation.js'
+import { createFootShadows } from './foot-shadows.js'
+import { createHairMotion } from './hair-motion.js'
 import { stepSpring } from '../lib/spring.js'
 import { createCharacterState } from './state.js'
 
 const localX = new Vector3(1, 0, 0)
 const localZ = new Vector3(0, 0, 1)
+const hairWeights = [0, 0.2, 0.7, 1]
 
 export function createCharacter(scene, capsule, player, canvas, debug) {
   const root = new Group()
@@ -23,17 +26,14 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
   canvas.addEventListener('pointerdown', () => { receivedInput = true })
 
   const updateState = createCharacterState()
+  const updateHairMotion = createHairMotion()
   const heading = { value: player.heading, velocity: 0 }
-  const hairPitch = { value: 0, velocity: 0 }
-  const hairRoll = { value: 0, velocity: 0 }
-  const previousVelocity = player.velocity.clone()
   const pitch = new Quaternion()
   const roll = new Quaternion()
-  let ax = 0
-  let az = 0
   let state = 'idle'
   let animation
   let hair
+  let updateFootShadows
 
   async function loadModel() {
     const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
@@ -51,6 +51,7 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
     model.traverse((object) => { if (object.isMesh) object.castShadow = true })
     root.remove(capsule)
     root.add(model)
+    updateFootShadows = createFootShadows(scene, model)
     debug.hairBones.push(...joints.map(({ position }) => position))
   }
   const ready = loadModel().catch((error) => console.warn('Using the placeholder troll', error))
@@ -69,37 +70,22 @@ export function createCharacter(scene, capsule, player, canvas, debug) {
       stepSpring(heading, target, dt, 32, 1)
       root.position.copy(player.position)
       root.rotation.y = heading.value
-      if (!animation) return
-
       const { velocity } = player
-      // Controls step the velocity instantly. Spread that impulse over a few frames.
-      if (dt > 0) {
-        const decay = Math.exp(-dt / 0.06)
-        const gain = (1 - decay) / dt
-        ax = ax * decay + (velocity.x - previousVelocity.x) * gain
-        az = az * decay + (velocity.z - previousVelocity.z) * gain
-      }
-      previousVelocity.copy(velocity)
-      const sin = Math.sin(heading.value)
-      const cos = Math.cos(heading.value)
-      const forward = ax * sin + az * cos
-      const sideways = ax * cos - az * sin
-      const pitchTarget = MathUtils.clamp(-forward * 0.045, -0.14, 0.14)
-      const rollTarget = MathUtils.clamp(sideways * 0.045 + heading.velocity * 0.018, -0.14, 0.14)
-      stepSpring(hairPitch, pitchTarget, dt, 14, 0.58)
-      stepSpring(hairRoll, rollTarget, dt, 14, 0.58)
+      const bend = updateHairMotion(dt, velocity, heading.value, state === 'dance')
+      if (!animation) return
 
       // The mixer can skip writing an unchanged pose, so restore it before mixing.
       for (const { bone, baked } of hair) bone.quaternion.copy(baked)
       animation.update(state, velocity.length(), dt)
       for (const [index, { bone, baked }] of hair.entries()) {
         baked.copy(bone.quaternion)
-        const weight = 0.45 + index * 0.18
-        pitch.setFromAxisAngle(localX, hairPitch.value * weight)
-        roll.setFromAxisAngle(localZ, hairRoll.value * weight)
+        if (!hairWeights[index] || (!bend.pitch && !bend.roll)) continue
+        pitch.setFromAxisAngle(localX, bend.pitch * hairWeights[index])
+        roll.setFromAxisAngle(localZ, bend.roll * hairWeights[index])
         bone.quaternion.multiply(pitch).multiply(roll)
       }
       for (const { bone, position } of hair) bone.getWorldPosition(position)
+      updateFootShadows()
     },
   }
 }

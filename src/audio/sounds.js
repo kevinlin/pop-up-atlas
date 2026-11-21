@@ -1,10 +1,10 @@
 import { createRandom } from './music.js'
 
 const PARTIALS = [
-  { ratio: 1, gain: 0.18, decay: 1 },
-  { ratio: 2.01, gain: 0.045, decay: 0.84 },
-  { ratio: 2.76, gain: 0.022, decay: 0.72 },
-  { ratio: 4.05, gain: 0.009, decay: 0.62 },
+  { ratio: 1, gain: 0.18, attack: 0.009, maxLength: 1.02 },
+  { ratio: 2.01, gain: 0.045, attack: 0.006, maxLength: 0.85 },
+  { ratio: 2.76, gain: 0.022, attack: 0.004, maxLength: 0.25, treble: true },
+  { ratio: 4.05, gain: 0.009, attack: 0.003, maxLength: 0.15, treble: true },
 ]
 
 function noiseBuffer(context) {
@@ -45,6 +45,12 @@ function envelope(context, output, start, end, attack, peak) {
 
 export function createSoundBank(context) {
   const bus = context.createGain()
+  const popBus = context.createGain()
+  const chimeBus = context.createGain()
+  popBus.gain.value = 0.9
+  chimeBus.gain.value = 1
+  popBus.connect(bus)
+  chimeBus.connect(bus)
   const master = context.createGain()
   master.gain.value = 0.5
 
@@ -71,11 +77,14 @@ export function createSoundBank(context) {
 
     if (voice.kind === 'chime') {
       const fundamental = 440 * 2 ** ((voice.midi - 69) / 12)
-      for (const { ratio, gain, decay } of PARTIALS) {
-        const partialEnd = start + (end - start) * decay
+      const highRegister = Math.max(0, Math.min(1, (voice.midi - 81) / (86 - 81))) // A5 to D6
+      const trebleGain = 10 ** (-4 * highRegister / 20)
+      for (const { ratio, gain, attack, maxLength, treble } of PARTIALS) {
+        const partialEnd = Math.min(end, start + maxLength)
+        const peak = gain * voice.gain * (treble ? trebleGain : 1)
         const oscillator = context.createOscillator()
         oscillator.frequency.value = fundamental * ratio
-        oscillator.connect(envelope(context, bus, start, partialEnd, 0.006, gain))
+        oscillator.connect(envelope(context, chimeBus, start, partialEnd, attack, peak))
         oscillator.start(start)
         oscillator.stop(partialEnd)
       }
@@ -88,23 +97,30 @@ export function createSoundBank(context) {
       seed = Math.imul(seed ^ id.charCodeAt(i), 16777619)
     }
     const random = createRandom(seed)
-    const level = (voice.dir === 'down' ? 0.48 : 1) * (0.9 + 0.2 * random())
-    const puffEnd = start + 0.034
+    const down = voice.dir === 'down'
+    const level = voice.gain * (down ? 0.48 : 1) * (0.9 + 0.2 * random())
+    const color = random()
     const puff = context.createBufferSource()
     puff.buffer = noise
     const felt = context.createBiquadFilter()
     felt.type = 'lowpass'
-    felt.frequency.value = 900 + 650 * random()
+    felt.frequency.value = down ? 650 + 250 * color : 900 + 650 * color
     felt.Q.value = 0.25
-    puff.connect(felt).connect(envelope(context, bus, start, puffEnd, 0.005, 0.32 * level))
+    const puffShape = context.createGain()
+    const puffPeak = 0.32 * level
+    puffShape.gain.setValueAtTime(0, start)
+    puffShape.gain.linearRampToValueAtTime(puffPeak, start + 0.007)
+    puffShape.gain.linearRampToValueAtTime(0.9 * puffPeak, start + 0.015)
+    puffShape.gain.linearRampToValueAtTime(0, end)
+    puff.connect(felt).connect(puffShape).connect(popBus)
     puff.start(start, 0.07 * random())
-    puff.stop(puffEnd)
+    puff.stop(end)
 
     const thump = context.createOscillator()
     const pitch = 112 + 26 * random()
     thump.frequency.setValueAtTime(pitch, start)
-    thump.frequency.exponentialRampToValueAtTime(0.58 * pitch, end)
-    thump.connect(envelope(context, bus, start, end, 0.006, 0.18 * level))
+    thump.frequency.exponentialRampToValueAtTime(0.8 * pitch, end)
+    thump.connect(envelope(context, popBus, start, end, 0.007, 0.12 * level))
     thump.start(start)
     thump.stop(end)
   }

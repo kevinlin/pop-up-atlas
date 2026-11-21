@@ -15,7 +15,8 @@ for (let i = 0, t = 0.18; t < 18.7; i++, t += 0.33 + 0.14 * random()) {
 }
 
 const evidence = new URL('../.handoff/evidence/T6/', import.meta.url)
-const wavPath = fileURLToPath(new URL('demo.wav', evidence))
+const filename = 'demo-r2.wav'
+const wavPath = fileURLToPath(new URL(filename, evidence))
 const origin = 'http://atlas-audio.test'
 await mkdir(evidence, { recursive: true })
 
@@ -35,16 +36,16 @@ try {
   await page.goto(origin)
   const [download, audioLog] = await Promise.all([
     page.waitForEvent('download'),
-    page.evaluate(async ({ events, duration }) => {
+    page.evaluate(async ({ events, duration, filename }) => {
       const { renderOffline, encodeWav } = await import('/src/audio/index.js')
       window.__atlas = { audioLog: [] }
       const wav = encodeWav(await renderOffline(events, duration))
       const link = document.createElement('a')
       link.href = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
-      link.download = 'demo.wav'
+      link.download = filename
       link.click()
       return window.__atlas.audioLog
-    }, { events, duration }),
+    }, { events, duration, filename }),
   ])
   await download.saveAs(wavPath)
   notes = audioLog
@@ -94,7 +95,7 @@ for (const onset of onsets) {
 }
 
 const report = [
-  `demo.wav contains ${duration} s of ${sampleRate} Hz, ${channels}-channel, 16-bit PCM audio.`,
+  `${filename} contains ${duration} s of ${sampleRate} Hz, ${channels}-channel, 16-bit PCM audio.`,
   `Scheduled ${scheduled.length} sounds (${scheduled.length - notes.length} pops and ${notes.length} chimes).`,
   `Detected ${onsets.length} energy onsets.`,
   `${matches} onsets matched a scheduled sound within 20 ms. ${scheduled.length - matches} scheduled sounds and ${onsets.length - matches} detections had no match.`,
@@ -102,5 +103,5 @@ const report = [
   'Detection uses 5 ms RMS windows across both channels, a rise greater than 0.0015 and 1.45 times the prior window, and a minimum onset spacing of 25 ms.',
   'Nearby pops and chimes can register as one onset. The compressor adds a short delay.',
 ].join('\n') + '\n'
-await writeFile(new URL('onsets.txt', evidence), report)
+await writeFile(new URL('onsets-r2.txt', evidence), report)
 process.stdout.write(report)
