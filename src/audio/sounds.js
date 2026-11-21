@@ -78,7 +78,8 @@ export function createSoundBank(context) {
   master.connect(compressor).connect(context.destination)
 
   const noise = noiseBuffer(context)
-  return (voice, offset) => {
+  // `output` lets sample playback share the master bus and compressor.
+  return Object.assign((voice, offset) => {
     const start = voice.t + offset
     const end = voice.end + offset
 
@@ -131,5 +132,5 @@ export function createSoundBank(context) {
     thump.connect(envelope(context, popBus, start, end, 0.007, (down ? 0.07 : 0.12) * level))
     thump.start(start)
     thump.stop(end)
-  }
+  }, { output: master })
 }
