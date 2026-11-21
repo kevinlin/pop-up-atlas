@@ -1,7 +1,20 @@
+# Dependencies from `npm install`, rebuilt from package-lock.json
 node_modules/
-dist/
-.DS_Store
 
-# Agent Handoff config
-.handoff/
+# Machine-specific Vite env overrides (.env.local, .env.<mode>.local), may hold secrets
+.env*.local
+
+# Personal Claude Code settings; shared ones in .claude/settings.json stay tracked
+.claude/settings.local.json
+
+# Python bytecode from the Blender asset scripts
 __pycache__/
+
+# Production build from `npm run build`, served by `npm run preview`
+dist/
+
+# Agent Handoff goal, job records and per-round evidence (capture temp files, e2e/perf JSON)
+.handoff/
+
+# macOS Finder metadata
+.DS_Store
