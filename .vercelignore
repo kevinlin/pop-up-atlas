@@ -1,0 +1,8 @@
+# Upload only what `vite build` needs; .handoff/ and deliverables/ are GBs.
+/*
+!index.html
+!package.json
+!package-lock.json
+!vite.config.js
+!src
+!public
