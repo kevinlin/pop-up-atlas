@@ -139,10 +139,11 @@ export function createDuoDance() {
   let followerAt = Infinity
 
   return ({ dt, t, moving, input, displacement, leaderFinished, followerFinished, swapped }) => {
-    const interrupted = swapped || input || displacement > 0.02
+    const displaced = displacement > 0.02
+    const interrupted = swapped || input || (leaderWasDancing && displaced)
     const leader = leaderState(dt, moving, interrupted, leaderFinished)
     const starting = leader === 'dance' && !leaderWasDancing
-    if (interrupted || moving) followerAt = Infinity
+    if (interrupted || moving || (t >= followerAt && displaced)) followerAt = Infinity
     else if (starting) followerAt = t + canonDelay
     else if (followerFinished && t >= followerAt) followerAt = Infinity
     leaderWasDancing = leader === 'dance'

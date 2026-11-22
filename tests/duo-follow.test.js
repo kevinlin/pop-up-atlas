@@ -266,6 +266,38 @@ describe('dance canon', () => {
     }
   }
 
+  test('starts four seconds after stopping and interrupts both dancers on fresh displacement', () => {
+    const sim = route()
+    const frame = danceFrames()
+    const advance = (z, moving = false) => {
+      sim.step(0, z)
+      return frame({ moving, displacement: sim.follow.displacement })
+    }
+    for (let i = 1; i <= 60; i += 1) advance(i * 0.02, true)
+    let state = advance(1.2)
+    const stoppedAt = state.t
+    expect(state.leader).toBe('idle')
+    expect(sim.follow.displacement).toBeGreaterThan(0.02)
+
+    let danceAt
+    for (let i = 0; i < 270; i += 1) {
+      state = advance(1.2)
+      if (state.leader === 'dance') danceAt ??= state.t
+    }
+    expect(Math.abs(danceAt - stoppedAt - 4)).toBeLessThanOrEqual(dt + 1e-9)
+    expect(state).toMatchObject({ leader: 'dance', followerDancing: true })
+    expect(advance(1.23)).toMatchObject({ leader: 'idle', followerDancing: false })
+  })
+
+  test('displacement during the follower’s last beat preserves the leader’s idle timer', () => {
+    const frame = danceFrames()
+    frame({}, 4)
+    frame({}, 2.875)
+    expect(frame({ leaderFinished: true })).toMatchObject({ leader: 'idle', followerDancing: true })
+    expect(frame({ displacement: 0.03 }, 0.1)).toMatchObject({ leader: 'idle', followerDancing: false })
+    expect(frame({}, 3.9).leader).toBe('dance')
+  })
+
   test('starts on the eighth-note delay and lets the follower finish its own clip', () => {
     const frame = danceFrames()
     let lead
