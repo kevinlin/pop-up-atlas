@@ -20,7 +20,7 @@ export const walkSpeed = 1.2
 export const writeJson = (path, data) => writeFile(path, JSON.stringify(data, null, 2) + '\n')
 export const headless = process.env.ATLAS_HEADLESS === '1'
 export const launchChromium = () => chromium.launch(headless
-  ? { headless: true, args: ['--single-process'] }
+  ? { headless: true }
   : { headless: false })
 
 export function roundOptions(script) {
