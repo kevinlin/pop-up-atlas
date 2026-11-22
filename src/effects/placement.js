@@ -29,13 +29,13 @@ export function airPlacements(kind, seed) {
 
 export function placeLantern(layout, i, j) {
   if (j === LAST_PAGE_ROW) {
-    // Strings run along the raised near lip, leaving the bridge entrances open.
+    // Short spans along the near lip keep the stalks away from the bridge entrances.
     if (i % 2 === 0 || ![-1, 0, 1].some((di) => layout.getCell(i + di, j).zone === 'grove')) return
     const salt = Math.floor(layout.getCell(i, j).scale * 0x100000)
     const x = i * TILE_SIZE
     const z = j * TILE_SIZE + 0.55
     return {
-      endI: i + 1, endJ: j, x: x - 1.55, z, endX: x + 1.55, endZ: z,
+      endI: i + 1, endJ: j, x: x - 0.90, z, endX: x + 0.90, endZ: z,
       height: 1.10 + 0.20 * unit(salt, i, j, 31), color: hash(salt, i, j, 32) % 4,
       yaw: (unit(salt, i, j, 33) - 0.5) * 1.4, double: true,
     }

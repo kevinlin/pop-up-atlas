@@ -1,5 +1,19 @@
 import { expect, test } from 'vitest'
-import { frameStats, propFidelity, trollFidelity } from '../scripts/look-stats.mjs'
+import { frameStats, lanternClearance, propFidelity, trollFidelity } from '../scripts/look-stats.mjs'
+
+test('lantern clearance counts projected overlap and the bottom quarter independently', () => {
+  const width = 5, height = 8
+  const mask = new Uint8Array(width * height)
+  const bounds = [1.4, 4.4, 3.5, 6.5]
+  for (const [x, y] of [[3, 4], [2, 6], [0, 7], [0, 5], [4, 4]]) mask[y * width + x] = 1
+  expect(lanternClearance(mask, width, height, bounds)).toEqual({
+    visible: 5, insideTroll: 2, bottomQuarter: 2, passed: false,
+  })
+  mask[4 * width + 3] = mask[6 * width + 2] = mask[7 * width] = 0
+  expect(lanternClearance(mask, width, height, bounds)).toEqual({
+    visible: 2, insideTroll: 0, bottomQuarter: 0, passed: true,
+  })
+})
 
 test('frame statistics use Rec.709, HSV and measured pixel masks', () => {
   const rgba = Uint8Array.from([

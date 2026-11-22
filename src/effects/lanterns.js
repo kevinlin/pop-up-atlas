@@ -1,9 +1,10 @@
 import {
-  AdditiveBlending, CatmullRomCurve3, Color, CylinderGeometry, DoubleSide, InstancedMesh, LatheGeometry,
-  Object3D, PlaneGeometry, ShaderMaterial, SphereGeometry, TubeGeometry, Vector2, Vector3,
+  AdditiveBlending, Box2, CatmullRomCurve3, Color, CylinderGeometry, DoubleSide, InstancedMesh, LatheGeometry,
+  Matrix4, Object3D, PlaneGeometry, ShaderMaterial, SphereGeometry, TubeGeometry, Vector2, Vector3,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { look } from '../materials/stage-look.js'
+import { camera, player, registerUpdate } from '../scene/runtime.js'
 import { cellAt, GUTTER_INTERVAL } from '../world/tiles.js'
 import { craft, craftMap, emitterColors, palette } from './craft.js'
 import { placeLantern } from './placement.js'
@@ -83,6 +84,11 @@ function shellGeometry() {
   return mergeParts(parts)
 }
 
+function boxCorners(min, max) {
+  return [min.x, max.x].flatMap((x) => [min.y, max.y].flatMap((y) =>
+    [min.z, max.z].map((z) => new Vector3(x, y, z))))
+}
+
 export function createLanterns(scene) {
   const leaf = craft('felt_lantern_stem', {
     color: palette.lime, map: craftMap('felt-base_albedo-7ec1a3f63acb.png'),
@@ -125,14 +131,30 @@ export function createLanterns(scene) {
   const templates = [
     ['stem', stemGeometry(), leaf, 2],
     ['yarn', spanGeometry(), yarn, 1],
-    ['seed-card', shellGeometry(), shell, 1],
-    ['seed-core', new SphereGeometry(1, 10, 6).scale(0.072, 0.136, 0.072), core, 1],
+    ['seed-card', shellGeometry(), shell, 2],
+    ['seed-core', new SphereGeometry(1, 10, 6).scale(0.072, 0.136, 0.072), core, 2],
     ['ground-glow', glowPlane(), groundGlow(), 1],
     ['tie', new CylinderGeometry(0.009, 0.009, 0.18, 5).translate(0, 0.09, 0), yarn, 2],
   ]
+  const partCorners = templates.map(([, geometry]) => {
+    geometry.computeBoundingBox()
+    return boxCorners(geometry.boundingBox.min, geometry.boundingBox.max)
+  })
   const parts = []
+  const spans = []
+  const groundPart = templates.findIndex(([name]) => name === 'ground-glow')
   const transform = new Object3D()
+  const trollCorners = boxCorners(new Vector3(-0.45, -0.05, -0.45), new Vector3(0.45, 1.10, 0.45))
+  const troll = new Box2()
+  const projected = new Box2()
+  const point = new Vector3()
+  const ndc = new Vector2()
+  const lastView = new Matrix4()
+  const lastProjection = new Matrix4()
+  const lastPosition = new Vector3()
+  const blurMargin = new Vector2(0.04, 0.12)
   let capacity = 0
+  let dirty = true
 
   function begin(maxCells) {
     if (maxCells > capacity) {
@@ -151,23 +173,24 @@ export function createLanterns(scene) {
         parts[i] = mesh
       })
     }
-    for (const mesh of parts) mesh.count = 0
+    spans.length = 0
+    dirty = true
   }
 
   function stamp(part, x, y, z, sx, sy, sz, angle, color) {
-    const mesh = parts[part]
     transform.position.set(x, y, z)
     transform.scale.set(sx, sy, sz)
     transform.rotation.y = angle
     transform.updateMatrix()
-    mesh.setMatrixAt(mesh.count, transform.matrix)
-    if (color) mesh.setColorAt(mesh.count, color)
-    mesh.count += 1
+    const matrix = transform.matrix.clone()
+    const corners = partCorners[part].map((corner) => corner.clone().applyMatrix4(matrix))
+    spans.at(-1).push({ part, matrix, corners, color })
   }
 
   function place({ i, j }, layout) {
     const span = placeLantern(layout, i, j)
     if (!span) return
+    spans.push([])
     const { x, z, endX, endZ, height, yaw } = span
     const mx = (x + endX) / 2
     const mz = (z + endZ) / 2
@@ -188,16 +211,61 @@ export function createLanterns(scene) {
     const groundI = cellAt(mx)
     const ground = layout.getCell(groundI, cellAt(mz))
     if (groundI % GUTTER_INTERVAL !== 0 && ground.zone === 'grove' && ground.sockets === 'gggg') {
-      stamp(4, mx, 0.013, mz, 0.51, 1, 0.47, 0, color)
+      stamp(groundPart, mx, 0.013, mz, 0.51, 1, 0.47, 0, color)
     }
   }
 
-  function end() {
+  function project(corners, bounds, offset) {
+    bounds.makeEmpty()
+    for (const corner of corners) {
+      point.copy(corner)
+      if (offset) point.add(offset)
+      point.applyMatrix4(camera.matrixWorldInverse)
+      if (point.z >= -camera.near) return false
+      point.applyMatrix4(camera.projectionMatrix)
+      bounds.expandByPoint(ndc.set(point.x, point.y))
+    }
+    return true
+  }
+
+  function clearOfTroll({ corners }) {
+    if (!project(corners, projected)) return false
+    if (projected.max.x < -1 || projected.min.x > 1 || projected.min.y > 1) return true
+    return projected.min.y >= -0.5 + blurMargin.y && !troll.intersectsBox(projected)
+  }
+
+  function update() {
+    camera.updateMatrixWorld()
+    if (!dirty && lastView.equals(camera.matrixWorldInverse) && lastProjection.equals(camera.projectionMatrix)
+      && lastPosition.equals(player.position)) return
+    dirty = false
+    lastView.copy(camera.matrixWorldInverse)
+    lastProjection.copy(camera.projectionMatrix)
+    lastPosition.copy(player.position)
+
+    const trollInView = project(trollCorners, troll, player.position)
+    troll.expandByVector(blurMargin)
+    for (const mesh of parts) mesh.count = 0
+    if (trollInView) {
+      for (const span of spans) {
+        // Keep the physical rig connected. The ground decal can disappear on its own.
+        if (!span.every((stamp) => stamp.part === groundPart || clearOfTroll(stamp))) continue
+        for (const stamp of span) {
+          const { part, matrix, color } = stamp
+          if (part === groundPart && !clearOfTroll(stamp)) continue
+          const mesh = parts[part]
+          mesh.setMatrixAt(mesh.count, matrix)
+          if (color) mesh.setColorAt(mesh.count, color)
+          mesh.count++
+        }
+      }
+    }
     for (const mesh of parts) {
       mesh.instanceMatrix.needsUpdate = true
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
     }
   }
 
-  return { begin, place, end }
+  registerUpdate(update)
+  return { begin, place, end: update }
 }
