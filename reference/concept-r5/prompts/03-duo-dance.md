@@ -1,0 +1,1 @@
+Shot: the two travellers dancing side by side in a small clearing ringed by giant felt flowers, in canon: the mint one already has one arm above its head and its yarn plume whipping in an arc, the butter one a beat behind, starting the same move a little stiffly with a reluctant smile. A few cut-paper music-note confetti pieces and glitter flecks on the page.

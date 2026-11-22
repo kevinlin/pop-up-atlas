@@ -1,0 +1,1 @@
+Shot: a pop-up cupcake tree and its paper braces springing upright from the flat page right beside the two travellers, mid-overshoot with a slight wobble, a burst of glitter flecks at the hinge. The mint one throws its arms up in delight; the butter one leans back half a step, hair column stiff, one hand raised, startled but curious.
