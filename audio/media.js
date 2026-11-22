@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { detectPitch, selectSungWindow } from './pitch.js'
+import { detectPitch, selectSungWindow, voicedPitchFrames } from './pitch.js'
 
 export const SAMPLE_RATE = 44100
 const db = amplitude => 20 * Math.log10(amplitude)
@@ -64,7 +64,7 @@ export function probe(file) {
   return JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', file]))
 }
 
-export function inspect(file, { kind, sung }, metadata = probe(file)) {
+export function inspect(file, { kind, sung, measureSpokenPitch }, metadata = probe(file)) {
   const stream = metadata.streams.find(stream => stream.codec_type === 'audio')
   const samples = decode(file)
   const { first, ...levels } = sampleMeasurements(samples)
@@ -72,7 +72,8 @@ export function inspect(file, { kind, sung }, metadata = probe(file)) {
   const kbps = Number(stream?.bit_rate ?? metadata.format.bit_rate) / 1000
   const pass = levelsPass(levels) && stream?.codec_name === 'mp3' && stream.channels === 1
     && Number(stream.sample_rate) === SAMPLE_RATE && kbps <= (kind === 'step' ? 64 : 96)
-  return { ...levels, bytes, kbps, pass, ...(sung ? detectPitch(samples, SAMPLE_RATE) : {}) }
+  return { ...levels, bytes, kbps, pass, ...(sung ? detectPitch(samples, SAMPLE_RATE) : {}),
+    ...(measureSpokenPitch ? { voicedF0Hz: voicedPitchFrames(samples, SAMPLE_RATE) } : {}) }
 }
 
 export function processTake(raw, cue) {

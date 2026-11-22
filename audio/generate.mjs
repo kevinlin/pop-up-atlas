@@ -5,12 +5,13 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { decode, inspect, probe, processTake, retunedPitch, verifyMediaTools } from './media.js'
-import { detectPitch } from './pitch.js'
-import { buildManifest, cacheKey, coverageResult, coverageTargets, CREATE_VOICE, designRequests,
-  planTakes, rawName, SFX, summarizeCalls, sungValid, takeRequest, TTS } from './plan.js'
-import { elevenLabs, readSpend, spendGuard } from './spend.js'
+import { detectPitch, medianPitch } from './pitch.js'
+import { buildManifest, coverageResult, coverageTargets, designRequests, planTakes, rawName, saveVoiceRequest,
+  SFX, summarizeCalls, sungValid, takeRequest, TTS } from './plan.js'
+import { elevenLabs, freeJson, readSpend, reconcileSpend, spendDecision, spendGuard } from './spend.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const BOARD = 'deliverables/round-5'
 const safeId = value => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value)
 const emptyManifest = { version: 1, cues: {} }
 const quote = value => String(value).replace(/[&<>"']/g, char => ({
@@ -51,11 +52,11 @@ function list(directory) {
 function paths(root) {
   return {
     sheet: join(root, 'audio/cues.json'),
-    voice: join(root, 'audio/voice.json'),
-    candidates: join(root, 'audio/voice-candidates.json'),
+    voices: { a: join(root, 'audio/voice.json'), b: join(root, 'audio/voice-b.json') },
+    candidates: { a: join(root, 'audio/voice-candidates.json'), b: join(root, 'audio/voice-b-candidates.json') },
     raw: join(root, '.handoff/audio-raw'),
     public: join(root, 'public/audio'),
-    board: join(root, 'deliverables/round-4'),
+    board: join(root, BOARD),
     smoke: join(root, '.handoff/evidence/G1/smoke'),
   }
 }
@@ -76,18 +77,23 @@ function soundboard(sheet, files, manifest) {
       const take = takeNumber(cue.cue, src)
       if (!take) continue
       const text = cue.prompt ?? cue.texts[(take - 1) % cue.texts.length]
-      const players = groups.get(cue.kind) ?? []
+      const heading = cue.voice ? `Voice ${cue.voice.toUpperCase()}` : cue.kind
+      const players = groups.get(heading) ?? []
       players.push(player(`${cue.cue} · take ${take}`, `../../public/audio/${src}`, text))
-      groups.set(cue.kind, players)
+      groups.set(heading, players)
     }
   }
-  const candidates = readJson(files.candidates, []).filter(candidate => safeId(candidate.id))
-  groups.set('Voice candidates', candidates.map(({ id, brief, medianF0Hz, voicedRatio }) =>
-    player(id, `voice-candidates/${id}.mp3`,
-      `${brief} · F0 ${medianF0Hz?.toFixed(1) ?? 'unvoiced'} Hz · ${(voicedRatio * 100).toFixed(0)}% voiced`)))
-  const procedural = list(join(files.board, 'procedural')).filter(file => /\.mp3$/i.test(file))
+  for (const [who, file] of Object.entries(files.candidates)) {
+    const candidates = readJson(file, []).filter(candidate => safeId(candidate.id))
+    const directory = who === 'a' ? '../round-4/voice-candidates' : 'voice-candidates'
+    groups.set(`Voice ${who.toUpperCase()} candidates`, candidates.map(({ id, brief, medianF0Hz, voicedRatio }) =>
+      player(id, `${directory}/${id}.mp3`,
+        `${brief} · F0 ${medianF0Hz?.toFixed(1) ?? 'unvoiced'} Hz · ${(voicedRatio * 100).toFixed(0)}% voiced`)))
+  }
+  const proceduralDirectory = '../round-4/procedural'
+  const procedural = list(join(files.board, proceduralDirectory)).filter(file => /\.mp3$/i.test(file))
   groups.set('Procedural', procedural.map(file =>
-    player(basename(file, '.mp3'), 'procedural/' + encodeURIComponent(file), '')))
+    player(basename(file, '.mp3'), `${proceduralDirectory}/${encodeURIComponent(file)}`, '')))
   const sections = [...groups].filter(([, players]) => players.length)
     .map(([kind, players]) => `<section><h2>${quote(kind)}</h2><div>${players.join('\n')}</div></section>`)
   write(join(files.board, 'soundboard.html'), `<!doctype html>
@@ -104,21 +110,12 @@ ${sections.join('\n')}
 </main></html>\n`)
 }
 
-async function freeJson(send, endpoint) {
-  let response
-  try {
-    response = await send(endpoint)
-  } catch {
-    throw new Error(`ElevenLabs ${endpoint} returned no response`)
-  }
-  if (!response.ok) throw new Error(`ElevenLabs ${endpoint} failed with HTTP ${response.status}`)
-  return response.json()
-}
-
-async function verifyModel(send, model) {
+async function verifyModels(send, required) {
   const models = await freeJson(send, '/v1/models')
-  if (!models.some(entry => entry.model_id === model && entry.can_do_text_to_speech !== false)) {
-    throw new Error(`TTS model ${model} absent from GET /v1/models`)
+  for (const model of required) {
+    if (!models.some(entry => entry.model_id === model && entry.can_do_text_to_speech !== false)) {
+      throw new Error(`TTS model ${model} absent from GET /v1/models`)
+    }
   }
 }
 
@@ -147,7 +144,7 @@ async function designVoices(designs, files, paid) {
     for (const id of readJson(index)) {
       if (!safeId(id)) throw new Error('Invalid cached voice preview id')
       const raw = join(directory, id + '.mp3')
-      const file = `deliverables/round-4/voice-candidates/${id}.mp3`
+      const file = `${BOARD}/voice-candidates/${id}.mp3`
       const destination = join(files.board, 'voice-candidates', id + '.mp3')
       const { medianF0Hz, voicedRatio } = detectPitch(decode(raw))
       mkdirSync(dirname(destination), { recursive: true })
@@ -155,18 +152,18 @@ async function designVoices(designs, files, paid) {
       candidates.push({ id, brief: request.body.voice_description, medianF0Hz, voicedRatio, file })
     }
   }
-  writeJson(files.candidates, candidates)
+  writeJson(files.candidates.b, candidates)
   console.table(candidates.map(({ brief, ...candidate }) => candidate))
   return candidates
 }
 
-function selectVoice(sheet, candidates, id) {
+function selectVoice(voice, candidates, id) {
   if (id) {
     const candidate = candidates.find(entry => entry.id === id)
     if (!candidate) throw new Error(`Unknown voice candidate ${id}`)
     return { candidate, reason: 'Selected explicitly with --pick.' }
   }
-  const [min, max] = sheet.voice.targetPitchHz
+  const [min, max] = voice.targetPitchHz
   const [candidate] = candidates.filter(entry =>
     Number.isFinite(entry.medianF0Hz) && entry.medianF0Hz >= min && entry.medianF0Hz <= max)
     .sort((a, b) => b.voicedRatio - a.voicedRatio)
@@ -176,21 +173,21 @@ function selectVoice(sheet, candidates, id) {
   return { candidate, reason }
 }
 
-async function saveVoice(sheet, files, candidate, reason, paid) {
-  if (!sheet.voice.briefs.includes(candidate.brief)) throw new Error('Selected voice brief is absent from audio/cues.json.')
-  const current = readJson(files.voice, null)
-  if (current?.generated_voice_id === candidate.id && safeId(current.voice_id)) {
-    writeJson(files.voice, { ...current, reason })
-    console.log(reason)
-    return
-  }
-  const body = { voice_name: sheet.voice.name, voice_description: candidate.brief, generated_voice_id: candidate.id }
-  await paid({ endpoint: CREATE_VOICE, body, cue: 'voice_design', take: null, key: cacheKey(body),
-    purpose: 'save selected voice' }, async response => {
+function savedVoice(file) {
+  const record = readJson(file, null)
+  return safeId(record?.voice_id) ? record : null
+}
+
+async function saveVoice(voice, file, candidate, reason, paid, explicit) {
+  if (!voice.briefs.includes(candidate.brief)) throw new Error('Selected voice brief is absent from audio/cues.json.')
+  await paid(saveVoiceRequest(voice, candidate), async response => {
     const { voice_id } = await response.json()
     if (!safeId(voice_id)) throw new Error('ElevenLabs did not return a saved voice id')
-    writeJson(files.voice, { voice_id, generated_voice_id: candidate.id, brief: candidate.brief, reason })
-  }, () => readJson(files.voice, null)?.generated_voice_id === candidate.id)
+    writeJson(file, { voice_id, generated_voice_id: candidate.id, brief: candidate.brief, reason })
+  }, () => {
+    const current = savedVoice(file)
+    return current && (!explicit || current.generated_voice_id === candidate.id)
+  })
   console.log(reason)
 }
 
@@ -203,9 +200,16 @@ async function acquireTake(paid, request, file) {
 }
 
 async function ship(sheet, files, plan, paid) {
+  const manifestFile = join(files.public, 'manifest.json')
+  const previous = readJson(manifestFile, emptyManifest)
+  const reused = {}
   const results = []
   const sungWindows = []
-  for (const { cue, hits, pending } of plan) {
+  for (const { cue, hits, pending, selected } of plan) {
+    if (!selected && previous.cues[cue.cue]?.files?.length) {
+      reused[cue.cue] = { ...previous.cues[cue.cue], ...(cue.voice ? { who: cue.voice } : {}) }
+      continue
+    }
     const directory = join(files.raw, cue.cue)
     for (const request of pending) {
       await acquireTake(paid, request, join(directory, rawName(request)))
@@ -232,10 +236,9 @@ async function ship(sheet, files, plan, paid) {
     if (!takes.some(take => !cue.sung || sungValid(take))) console.error(`No valid takes for ${cue.cue}`)
     results.push({ cue, takes })
   }
-  const manifestFile = join(files.public, 'manifest.json')
-  const previous = readJson(manifestFile, emptyManifest)
   const manifest = buildManifest(results)
-  const shipped = new Set()
+  Object.assign(manifest.cues, reused)
+  const shipped = new Set(Object.values(reused).flatMap(group => group.files.map(file => file.src)))
   for (const { cue, takes } of results) {
     for (const { src } of manifest.cues[cue.cue]?.files ?? []) {
       const target = join(files.public, src)
@@ -268,13 +271,14 @@ function check(sheet, files) {
   const assets = []
   const coverage = []
   const accounted = new Set()
+  const spokenB = []
   let pass = manifest.version === 1
   for (const cue of sheet.cues) {
     const group = manifest.cues[cue.cue]
     const takes = group?.files ?? []
     const candidates = []
-    if (!takes.length || group.kind !== cue.kind || group.gain !== cue.gain) {
-      assets.push({ cue: cue.cue, result: takes.length ? 'kind or gain mismatch' : 'missing shipped cue' })
+    if (!takes.length || group.kind !== cue.kind || group.gain !== cue.gain || group.who !== cue.voice) {
+      assets.push({ cue: cue.cue, result: takes.length ? 'kind, gain or voice mismatch' : 'missing shipped cue' })
       pass = false
     }
     for (const take of takes) {
@@ -287,7 +291,9 @@ function check(sheet, files) {
       accounted.add(name)
       const file = join(files.public, name)
       try {
-        const measured = inspect(file, cue)
+        const measureSpokenPitch = cue.voice === 'b' && !cue.sung
+        const measured = inspect(file, { ...cue, measureSpokenPitch })
+        if (measureSpokenPitch) spokenB.push(...measured.voicedF0Hz)
         const valid = measured.pass && (!cue.sung || (sungValid(measured) && Number.isFinite(take.baseMidi)))
         pass &&= valid
         assets.push({ cue: cue.cue, file: name, onsetMs: rounded(measured.startMs), peakDbfs: rounded(measured.peakDbfs),
@@ -311,6 +317,13 @@ function check(sheet, files) {
       pass &&= covered
     }
   }
+  if (sheet.cues.some(cue => cue.voice === 'b' && !cue.sung)) {
+    const [min, max] = sheet.voices.b.targetPitchHz
+    const median = medianPitch(spokenB)
+    const valid = median !== null && median >= min && median <= max
+    assets.push({ cue: 'Voice B', medianF0Hz: rounded(median), targetHz: `${min}-${max}`, result: valid ? 'pass' : 'fail' })
+    pass &&= valid
+  }
   let bytes = 0
   for (const file of list(files.public).filter(name => /\.mp3$/i.test(name))) {
     bytes += statSync(join(files.public, file)).size
@@ -333,7 +346,7 @@ function check(sheet, files) {
 
 function smokePlan(sheet, voiceId) {
   const sfx = sheet.cues.find(cue => cue.source === 'sfx' && cue.duration === 0.5)
-  const sung = sheet.cues.find(cue => cue.source === 'tts' && cue.sung
+  const sung = sheet.cues.find(cue => cue.voice === 'a' && cue.sung
     && cue.texts.some(text => /^\[sings\]/i.test(text) && text.length <= 20))
   if (!sfx || !sung) throw new Error('The cue sheet must provide a 0.5 s effect and a short [sings] line')
   const line = sung.texts.findIndex(text => /^\[sings\]/i.test(text) && text.length <= 20) + 1
@@ -353,7 +366,7 @@ async function smokeTest(sheet, files, ledger, send, paid) {
       if (cue.source === 'tts') {
         let voiceId = existing?.endpoint.startsWith(TTS) ? existing.endpoint.slice(TTS.length) : null
         if (!existing) {
-          await verifyModel(send, sheet.voice.ttsModel)
+          await verifyModels(send, [sheet.voices.a.ttsModel])
           const { voices } = await freeJson(send, '/v1/voices?show_legacy=true')
           const premade = voices.filter(voice => voice.category === 'premade' && safeId(voice.voice_id))
           voiceId = (premade.find(voice => voice.name === 'Bella') ?? premade[0])?.voice_id
@@ -368,7 +381,7 @@ async function smokeTest(sheet, files, ledger, send, paid) {
       }
       if (!existsSync(raw)) await acquireTake(paid, { ...request, purpose: 'G1 smoke test' }, raw)
       const record = readSpend(ledger).findLast(successful)
-      if (record?.credits_source === 'character-cost') {
+      if (['header', 'character-cost'].includes(record?.credits_source)) {
         const sfx = request.endpoint === SFX
         const rate = record.credits / (sfx ? request.body.duration_seconds : request.body.text.length)
         // Replace only the null rates or the measured values, preserving the cue sheet byte-for-byte otherwise.
@@ -403,38 +416,72 @@ async function smokeTest(sheet, files, ledger, send, paid) {
   if (problems.length) throw new Error(problems.join('\n'))
 }
 
-function printPlan(requests, sheet) {
+function printPlan(requests, sheet, guard, blocked) {
   const { calls, totals, total } = summarizeCalls(requests, sheet.rates)
+  let spent = []
+  try {
+    spent = readSpend(guard.ledger)
+  } catch (error) {
+    blocked ??= error.message
+  }
+  for (const call of calls) {
+    blocked ??= spendDecision(spent, call.estimate, guard)
+    call.guard = blocked ? `refuse: ${blocked}` : guard.budget === Infinity ? 'requires --budget' : 'allow'
+    if (!blocked) spent.push({ row: guard.row, round: guard.round, run_id: guard.runId, credits: call.estimate })
+  }
   console.table(calls)
   console.table(totals)
   console.log(`Conservative total: ${total} credits (${calls.length} paid calls)`)
 }
 
-const usage = 'Usage: node audio/generate.mjs [--dry-run | --check | --soundboard | --design | --pick ID | --smoke] '
-  + '[--only A,B] [--retake A] [--row G2] [--budget CREDITS] [--cap 15000] [--ledger PATH]'
+const usage = 'Usage: node audio/generate.mjs [--dry-run] [--check | --soundboard | --design | --pick ID | --smoke | --reconcile] '
+  + '[--only A,B] [--retake A] [--row V5] [--budget CREDITS] [--round-cap 3000] [--cap 15000] [--ledger PATH]'
 
 export async function main(args = process.argv.slice(2), root = ROOT) {
   const { values: options } = parseArgs({ args, options: {
     'dry-run': { type: 'boolean' }, check: { type: 'boolean' }, soundboard: { type: 'boolean' },
     design: { type: 'boolean' }, pick: { type: 'string' }, smoke: { type: 'boolean' }, help: { type: 'boolean' },
+    reconcile: { type: 'boolean' },
     only: { type: 'string' }, retake: { type: 'string' }, row: { type: 'string' },
     budget: { type: 'string' }, cap: { type: 'string', default: '15000' },
+    'round-cap': { type: 'string', default: '3000' },
     ledger: { type: 'string', default: '.handoff/evidence/audio-spend.jsonl' },
   } })
   if (options.help) return console.log(usage)
   if (options.pick !== undefined && !safeId(options.pick)) throw new Error('Invalid --pick id')
   const voiceMode = options.design || options.pick
   const cueMode = options.only !== undefined || options.retake !== undefined
-  if ([options.check, options.soundboard, voiceMode, options.smoke].filter(Boolean).length > 1
-      || (cueMode && (options.check || options.soundboard || voiceMode || options.smoke))
-      || (options['dry-run'] && (options.check || options.soundboard))) throw new Error(usage)
+  const modes = [options.check, options.soundboard, voiceMode, options.smoke, options.reconcile].filter(Boolean)
+  if (modes.length > 1 || (cueMode && modes.length)
+      || (options['dry-run'] && (options.check || options.soundboard || options.reconcile))) throw new Error(usage)
+
+  const ledger = resolve(root, options.ledger)
+  const connect = () => elevenLabs(process.env.ELEVENLABS_API_KEY)
+  if (options.reconcile) {
+    const record = await reconcileSpend(ledger, connect)
+    return console.log(record ? `Reconciled ${record.call_id} at ${record.credits} credits (${record.credits_source})`
+      : 'No unresolved paid call')
+  }
 
   const files = paths(root)
   const sheet = readJson(files.sheet)
+  for (const who of ['a', 'b']) {
+    const voice = sheet.voices?.[who]
+    const range = voice?.targetPitchHz
+    if (!voice?.ttsModel || !Array.isArray(range) || range.length !== 2
+        || !range.every(Number.isFinite) || range[0] <= 0 || range[0] > range[1]) {
+      throw new Error(`Invalid voice ${who} in audio/cues.json`)
+    }
+  }
   const names = new Set()
-  for (const { cue, takes, keep } of sheet.cues) {
+  for (const { cue, kind, source, voice, takes, keep } of sheet.cues) {
     if (!safeId(cue) || names.has(cue) || !Number.isSafeInteger(takes) || !Number.isSafeInteger(keep)
         || keep < 1 || takes < keep) throw new Error(`Invalid cue or take count for ${cue}`)
+    if (kind === 'voice' || source === 'tts') {
+      if (kind !== 'voice' || source !== 'tts' || !['a', 'b'].includes(voice) || cue.startsWith('b_') !== (voice === 'b')) {
+        throw new Error(`Invalid voice assignment for ${cue}`)
+      }
+    } else if (voice !== undefined) throw new Error(`Unexpected voice assignment for ${cue}`)
     names.add(cue)
   }
   const manifestFile = join(files.public, 'manifest.json')
@@ -444,44 +491,65 @@ export async function main(args = process.argv.slice(2), root = ROOT) {
   }
   if (options.soundboard) return soundboard(sheet, files, readJson(manifestFile, emptyManifest))
 
-  const voiceId = readJson(files.voice, null)?.voice_id
-  const designs = options.design ? designPlan(sheet, files) : []
-  const plan = (voiceMode || options.smoke) ? [] : planTakes(sheet, {
+  const voiceIds = Object.fromEntries(Object.entries(files.voices).map(([who, file]) => [who, savedVoice(file)?.voice_id]))
+  const makePlan = () => planTakes(sheet, {
     only: options.only?.split(',').map(name => name.trim()), retake: options.retake,
-    voiceId: safeId(voiceId) ? voiceId : undefined,
+    voiceIds,
     cached: Object.fromEntries(sheet.cues.map(cue => [cue.cue, list(join(files.raw, cue.cue))])),
   })
+  let plan = (voiceMode || options.smoke) ? [] : makePlan()
   const pending = plan.flatMap(group => group.pending)
-  if (options['dry-run']) {
-    const requests = options.smoke ? smokePlan(sheet, '<premade_voice_id>').map(item => item.request)
-      : voiceMode ? designs.filter(item => !existsSync(item.index)).map(item => item.request) : pending
-    return printPlan(requests, sheet)
+  const needsVoices = new Set(plan.filter(group => group.cue.voice && group.pending.length).map(group => group.cue.voice))
+  const missingA = needsVoices.has('a') && !voiceIds.a ? 'Voice A requires its saved ID in audio/voice.json.' : null
+  const needsDesign = !voiceIds.b && (options.design || needsVoices.has('b'))
+  const designs = needsDesign ? designPlan(sheet, files) : []
+  const voiceB = sheet.voices.b
+  const explicit = options.pick ? selectVoice(voiceB, readJson(files.candidates.b, []), options.pick) : null
+  const number = value => value?.trim() ? Number(value) : NaN
+  const guard = {
+    ledger, row: options.row ?? (options.smoke ? 'G1' : 'V5'), round: 5,
+    cap: number(options.cap), budget: number(options.budget), roundCap: number(options['round-cap']),
+    maxCalls: options.smoke ? 3 : Infinity,
   }
-
-  const ledger = resolve(root, options.ledger)
-  readSpend(ledger)
-  const needsTts = plan.some(group => group.cue.source === 'tts' && group.pending.length)
-  if (needsTts && !safeId(voiceId)) throw new Error('TTS needs audio/voice.json from --design or --pick.')
-  if (options.design || !voiceMode) verifyMediaTools()
-  if (!voiceMode && !options.smoke && !pending.length) return ship(sheet, files, plan)
-
-  const row = options.row ?? (options.smoke ? 'G1' : 'G2')
-  const budget = options.budget?.trim() ? Number(options.budget) : NaN
-  if (row === 'G1' && (!options.smoke || budget > 300)) {
+  for (const flag of ['cap', 'round-cap', ...(options.budget === undefined ? [] : ['budget'])]) {
+    const amount = number(options[flag])
+    if (!Number.isSafeInteger(amount) || amount < 0) throw new Error(`--${flag} requires a non-negative integer`)
+  }
+  if (guard.row === 'G1' && (!options.smoke || guard.budget > 300)) {
     throw new Error('G1 is reserved for --smoke, with a budget up to 300 credits.')
   }
-  if (options.smoke && row !== 'G1') throw new Error('--smoke requires row G1')
-  const send = elevenLabs(process.env.ELEVENLABS_API_KEY)
-  const paid = spendGuard({ ledger, row, cap: options.cap.trim() ? Number(options.cap) : NaN,
-    budget, rates: sheet.rates, maxCalls: options.smoke ? 3 : Infinity, send })
-  if (options.smoke) return smokeTest(sheet, files, ledger, send, paid)
-  if (voiceMode) {
-    const candidates = options.design ? await designVoices(designs, files, paid) : readJson(files.candidates, [])
-    soundboard(sheet, files, readJson(manifestFile, emptyManifest))
-    const { candidate, reason } = selectVoice(sheet, candidates, options.pick)
-    return saveVoice(sheet, files, candidate, reason, paid)
+  if (options.smoke && guard.row !== 'G1') throw new Error('--smoke requires row G1')
+
+  if (options['dry-run']) {
+    const create = explicit ? savedVoice(files.voices.b)?.generated_voice_id !== explicit.candidate.id : needsDesign
+    const requests = options.smoke ? smokePlan(sheet, '<premade_voice_id>').map(item => item.request)
+      : [
+          ...designs.filter(item => !existsSync(item.index)).map(item => item.request),
+          ...(create ? [saveVoiceRequest(voiceB, explicit?.candidate ?? { id: '<candidate_id>' })] : []),
+          ...pending,
+        ]
+    return printPlan(requests, sheet, { ...guard, runId: 'dry-run',
+      budget: options.budget === undefined ? Infinity : guard.budget }, missingA)
   }
-  if (needsTts) await verifyModel(send, sheet.voice.ttsModel)
+
+  if (missingA) throw new Error(missingA)
+  if (options.design && !needsDesign && !explicit) return console.log('Voice B is already saved.')
+  if (!voiceMode || needsDesign) verifyMediaTools()
+  if (!voiceMode && !options.smoke && !pending.length) return ship(sheet, files, plan)
+  readSpend(ledger)
+  const send = connect()
+  const paid = spendGuard({ ...guard, rates: sheet.rates, send })
+  if (options.smoke) return smokeTest(sheet, files, ledger, send, paid)
+  if (needsVoices.size) await verifyModels(send, new Set([...needsVoices].map(who => sheet.voices[who].ttsModel)))
+  if (needsDesign || explicit) {
+    const candidates = needsDesign ? await designVoices(designs, files, paid) : []
+    soundboard(sheet, files, readJson(manifestFile, emptyManifest))
+    const { candidate, reason } = explicit ?? selectVoice(voiceB, candidates)
+    await saveVoice(voiceB, files.voices.b, candidate, reason, paid, Boolean(explicit))
+    if (voiceMode) return
+    voiceIds.b = savedVoice(files.voices.b).voice_id
+    plan = makePlan()
+  }
   await ship(sheet, files, plan, paid)
 }
 

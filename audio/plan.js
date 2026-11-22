@@ -20,7 +20,8 @@ export function estimateCredits(endpoint, body, rates = {}) {
     estimate = body.duration_seconds * rate(rates.sfxCreditsPerSecond, 100)
   }
   if (endpoint.startsWith(TTS)) estimate = count(body.text) * Math.max(2, rate(rates.ttsCreditsPerChar, 2))
-  if (endpoint === DESIGN) estimate = rate(rates.designCreditsPerCall, 6 * count(body.text))
+  // Voice Design bills the preview text once, even when it returns three candidates.
+  if (endpoint === DESIGN) estimate = rate(rates.designCreditsPerCall, 2 * count(body.text))
   // ElevenLabs bills preview generation. Saving a generated preview uses a voice slot.
   if (endpoint === CREATE_VOICE) estimate = 0
   if (!Number.isSafeInteger(Math.ceil(estimate)) || estimate < 0) throw new Error(`Unknown rate for ${endpoint}`)
@@ -28,12 +29,13 @@ export function estimateCredits(endpoint, body, rates = {}) {
 }
 
 export function takeInputs(sheet, cue, take, voiceId) {
-  const { defaults, voice } = sheet
+  const { defaults } = sheet
   const outputFormat = cue.outputFormat ?? defaults.outputFormat
   if (!/^mp3_\d+_\d+$/.test(outputFormat)) throw new Error(`Invalid MP3 output format for ${cue.cue}`)
   if (cue.source === 'tts') {
     const text = cue.texts?.[(take - 1) % cue.texts.length]
-    if (!text || !voice.ttsModel) throw new Error(`Missing TTS text or model for ${cue.cue}`)
+    const voice = sheet.voices?.[cue.voice]
+    if (!text || !voice?.ttsModel) throw new Error(`Missing TTS text or model for ${cue.cue}`)
     return { source: cue.source, voiceId, model: voice.ttsModel, outputFormat, text }
   }
   if (cue.source !== 'sfx') throw new Error(`Unknown audio source for ${cue.cue}`)
@@ -65,13 +67,14 @@ export function takeRequest(sheet, cue, take, voiceId) {
 
 export const rawName = ({ key, take }) => `${key}-${take}.mp3`
 
-export function planTakes(sheet, { only, retake, voiceId = '<voice_id>', cached = {} } = {}) {
+export function planTakes(sheet, { only, retake, voiceIds = {}, cached = {} } = {}) {
   const selected = only ? new Set(only) : new Set(sheet.cues.map(cue => cue.cue))
   for (const name of [...selected, ...(retake ? [retake] : [])]) {
     if (!sheet.cues.some(cue => cue.cue === name)) throw new Error(`Unknown cue ${name}`)
   }
   if (retake && !selected.has(retake)) throw new Error('--retake cue must be included in --only')
   return sheet.cues.map(cue => {
+    const voiceId = voiceIds[cue.voice] ?? `<voice_${cue.voice}_id>`
     const existing = new Set(cached[cue.cue] ?? [])
     const numbers = new Set(Array.from({ length: cue.takes }, (_, i) => i + 1))
     let highest = cue.takes
@@ -92,17 +95,28 @@ export function planTakes(sheet, { only, retake, voiceId = '<voice_id>', cached 
       ? requests.filter(request => !existing.has(rawName(request))
         && (request.take <= cue.takes || request.take >= firstRetake))
       : []
-    return { cue, hits, pending }
+    return { cue, hits, pending, selected: selected.has(cue.cue) }
   })
 }
 
 export function designRequests(sheet) {
-  return sheet.voice.briefs.map((brief, index) => {
+  const voice = sheet.voices.b
+  // The design API requires at least 100 characters. Keep the cue sheet preview verbatim.
+  const text = voice.previewText.length < 100
+    ? voice.previewText + ' Hm.'.repeat(Math.ceil((100 - voice.previewText.length) / 4))
+    : voice.previewText
+  return voice.briefs.map((brief, index) => {
     const outputFormat = sheet.defaults.outputFormat
-    const body = { voice_description: brief, text: sheet.voice.previewText }
-    return { endpoint: DESIGN, outputFormat, body, cue: 'voice_design', take: index + 1,
+    const body = { voice_description: brief, text }
+    return { endpoint: DESIGN, outputFormat, body, cue: 'b_voice_design', take: index + 1,
       key: cacheKey({ ...body, outputFormat }), purpose: 'voice previews' }
   })
+}
+
+export function saveVoiceRequest(voice, candidate) {
+  const body = { voice_name: voice.name, voice_description: candidate.brief, generated_voice_id: candidate.id }
+  return { endpoint: CREATE_VOICE, body, cue: 'b_voice_design', take: null, key: cacheKey(body),
+    purpose: 'save selected voice' }
 }
 
 export function summarizeCalls(requests, rates) {
@@ -112,7 +126,7 @@ export function summarizeCalls(requests, rates) {
     const estimate = estimateCredits(endpoint, body, rates)
     const group = endpoint.startsWith(TTS) ? TTS + ':voice_id' : endpoint
     totals[group] = (totals[group] ?? 0) + estimate
-    return { endpoint, cue, take, estimate }
+    return { endpoint: group, cue, take, estimate }
   })
   return { calls, totals, total: Object.values(totals).reduce((sum, cost) => sum + cost, 0) }
 }
@@ -122,6 +136,7 @@ export function sungValid({ baseMidi, voicedRatio, stability }) {
 }
 
 export function coverageTargets(name) {
+  name = name.replace(/^b_/, '')
   if (name === 'sing_ta') return [69]
   if (name === 'sing_da') return [74]
   if (name === 'sing_hum') {
@@ -147,7 +162,7 @@ export function buildManifest(results) {
       .map(({ take, duration, baseMidi }) => ({
         src: `${cue.cue}-${take}.mp3`, duration, ...(cue.sung ? { baseMidi } : {}),
       }))
-    if (files.length) cues[cue.cue] = { kind: cue.kind, gain: cue.gain, files }
+    if (files.length) cues[cue.cue] = { kind: cue.kind, gain: cue.gain, ...(cue.voice ? { who: cue.voice } : {}), files }
   }
   return { version: 1, cues }
 }

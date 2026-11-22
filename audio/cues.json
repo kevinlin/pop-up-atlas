@@ -9,15 +9,27 @@
     "ttsCreditsPerChar": 0.46153846153846156,
     "designCreditsPerCall": null
   },
-  "voice": {
-    "name": "Pop-up Atlas traveller",
-    "ttsModel": "eleven_v4",
-    "targetPitchHz": [300, 520],
-    "previewText": "Hup! Ooh, look at that one pop up! Hee-hee! Wheee! Hmph. Eep! Ta-da! Mmm-hmm, this little paper meadow is my favourite place to wander.",
-    "briefs": [
-      "Original voice for a thumb-sized felt troll. Gender-neutral, young-sounding but not a baby. Bright, slightly breathy, soft fuzzy edges. High pitch, like a warm adult voice raised five to seven semitones with small-creature formants. Quick and bouncy, sing-song rises at phrase ends, giggles easily. No accent. Dry studio recording, no reverb.",
-      "Original voice for a tiny fuzzy craft-felt creature. Gender-neutral, childlike wonder without sounding like a baby. Very high, light and airy, a little squeaky, cheerful and curious, with playful sing-song inflection and easy giggles. No accent. Close, dry studio recording, no reverb."
-    ]
+  "voices": {
+    "a": {
+      "name": "Pop-up Atlas traveller",
+      "ttsModel": "eleven_v4",
+      "targetPitchHz": [300, 520],
+      "previewText": "Hup! Ooh, look at that one pop up! Hee-hee! Wheee! Hmph. Eep! Ta-da! Mmm-hmm, this little paper meadow is my favourite place to wander.",
+      "briefs": [
+        "Original voice for a thumb-sized felt troll. Gender-neutral, young-sounding but not a baby. Bright, slightly breathy, soft fuzzy edges. High pitch, like a warm adult voice raised five to seven semitones with small-creature formants. Quick and bouncy, sing-song rises at phrase ends, giggles easily. No accent. Dry studio recording, no reverb.",
+        "Original voice for a tiny fuzzy craft-felt creature. Gender-neutral, childlike wonder without sounding like a baby. Very high, light and airy, a little squeaky, cheerful and curious, with playful sing-song inflection and easy giggles. No accent. Close, dry studio recording, no reverb."
+      ]
+    },
+    "b": {
+      "name": "Pop-up Atlas companion",
+      "ttsModel": "eleven_v4",
+      "targetPitchHz": [220, 380],
+      "previewText": "Okay. Fine. Hm. Huh, nice. Hmph. Whoa! My turn. Heh. Mmm, careful on the bridge, it wobbles.",
+      "briefs": [
+        "Original voice for a small felt creature. Gender-neutral, sounds a little older than a child. Dry, deadpan and cautious, warm underneath. Mid-low pitch for a tiny creature, like a warm adult voice raised two to four semitones, soft slightly gravelly edges. Short clipped delivery, small sighs and mutters, reluctant chuckles. No accent. Dry studio recording, no reverb.",
+        "Original voice for a tiny careful craft-felt creature. Gender-neutral, calm and a bit grumpy but kind. Lower than a typical cartoon creature, soft and dry, unhurried, understated reactions. No accent. Close, dry studio recording, no reverb."
+      ]
+    }
   },
   "cues": [
     { "cue": "fold_flower", "kind": "sfx", "source": "sfx", "duration": 0.5, "takes": 3, "keep": 3, "gain": 0.55,
@@ -56,25 +68,49 @@
       "prompt": "a few tiny squeaky creature voices gasping ooh then giggling, overlapping, slightly muffled as if inside a small felt house, cute" },
     { "cue": "chorus_yay", "kind": "chorus", "source": "sfx", "duration": 1.2, "takes": 3, "keep": 3, "gain": 0.4,
       "prompt": "tiny crowd of squeaky creature voices cheering yay from inside small felt houses, muffled, happy, cute, short" },
-    { "cue": "voice_hup", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.8,
+    { "cue": "voice_hup", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.8,
       "texts": ["[excited] Hup!", "[cheerfully] Hup!", "[excited] Hup-hup!"] },
-    { "cue": "voice_hm", "kind": "voice", "source": "tts", "takes": 2, "keep": 2, "gain": 0.6,
+    { "cue": "voice_hm", "kind": "voice", "source": "tts", "voice": "a", "takes": 2, "keep": 2, "gain": 0.6,
       "texts": ["[contentedly] Hm.", "[softly] Mm-hm."] },
-    { "cue": "voice_hmph", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.75,
+    { "cue": "voice_hmph", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.75,
       "texts": ["[grumpy] Hmph.", "[grumpy, flat] Oof.", "[grumpy] Hmph!"] },
-    { "cue": "voice_eep", "kind": "voice", "source": "tts", "takes": 2, "keep": 2, "gain": 0.75,
+    { "cue": "voice_eep", "kind": "voice", "source": "tts", "voice": "a", "takes": 2, "keep": 2, "gain": 0.75,
       "texts": ["[startled] Eep!", "[startled] Eep!"] },
-    { "cue": "voice_ooh", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.8,
+    { "cue": "voice_ooh", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.8,
       "texts": ["[amazed] Ooooh!", "[delighted] Ooh!", "[amazed] Woah!"] },
-    { "cue": "voice_giggle", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.75,
+    { "cue": "voice_giggle", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.75,
       "texts": ["[giggles] Hee-hee!", "[giggles] Hehe!", "[giggles] Hee!"] },
-    { "cue": "voice_whee", "kind": "voice", "source": "tts", "takes": 3, "keep": 3, "gain": 0.8,
+    { "cue": "voice_whee", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.8,
       "texts": ["[excited] Wheeee!", "[joyfully] Wheee!", "[excited] Whee!"] },
-    { "cue": "sing_hum", "kind": "voice", "source": "tts", "sung": true, "sungWindow": 0.35, "takes": 8, "keep": 8, "gain": 0.7,
+    { "cue": "sing_hum", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "sungWindow": 0.35, "takes": 8, "keep": 8, "gain": 0.7,
       "texts": ["[sings] Mmmmm.", "[sings softly] Mmmmm.", "[sings, high and light] Mmmmm.", "[sings, very high] Mmmm."] },
-    { "cue": "sing_ta", "kind": "voice", "source": "tts", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
+    { "cue": "sing_ta", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
       "texts": ["[sings] Taaa!", "[sings] Taaaa!", "[sings brightly] Taaa!", "[sings] Taaa!"] },
-    { "cue": "sing_da", "kind": "voice", "source": "tts", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
-      "texts": ["[sings] Daaaa!", "[sings] Daaaaa!", "[sings brightly] Daaaa!", "[sings] Daaaa!"] }
+    { "cue": "sing_da", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
+      "texts": ["[sings] Daaaa!", "[sings] Daaaaa!", "[sings brightly] Daaaa!", "[sings] Daaaa!"] },
+    { "cue": "voice_lead", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.8,
+      "texts": ["[excited] Me! Me!", "[cheerfully] My turn!", "[bubbly] Follow me!"] },
+    { "cue": "b_voice_hup", "kind": "voice", "source": "tts", "voice": "b", "takes": 3, "keep": 3, "gain": 0.8,
+      "texts": ["[reluctantly] Okay.", "[sighs] Fine.", "[muttering] Alright."] },
+    { "cue": "b_voice_hm", "kind": "voice", "source": "tts", "voice": "b", "takes": 2, "keep": 2, "gain": 0.6,
+      "texts": ["[relieved] Phew.", "[dryly] Hm."] },
+    { "cue": "b_voice_hmph", "kind": "voice", "source": "tts", "voice": "b", "takes": 3, "keep": 3, "gain": 0.75,
+      "texts": ["[grumbling] Hmph.", "[annoyed] Ugh.", "[grumpy] Tsk."] },
+    { "cue": "b_voice_eep", "kind": "voice", "source": "tts", "voice": "b", "takes": 2, "keep": 2, "gain": 0.75,
+      "texts": ["[alarmed] Whoa!", "[nervous] Nope!"] },
+    { "cue": "b_voice_ooh", "kind": "voice", "source": "tts", "voice": "b", "takes": 3, "keep": 3, "gain": 0.8,
+      "texts": ["[grudgingly impressed] Huh.", "[surprised] Oh! Nice.", "[quietly impressed] Hm, neat."] },
+    { "cue": "b_voice_giggle", "kind": "voice", "source": "tts", "voice": "b", "takes": 3, "keep": 3, "gain": 0.75,
+      "texts": ["[reluctant chuckle] Heh.", "[snorts a laugh] Hah.", "[small laugh] Heh-heh."] },
+    { "cue": "b_voice_whee", "kind": "voice", "source": "tts", "voice": "b", "takes": 3, "keep": 3, "gain": 0.8,
+      "texts": ["[surprised, letting go] Woo!", "[tentative] Wheee?", "[breathless] Whoa-ho!"] },
+    { "cue": "b_voice_lead", "kind": "voice", "source": "tts", "voice": "b", "takes": 3, "keep": 3, "gain": 0.8,
+      "texts": ["[determined] My turn.", "[dryly] I'll lead.", "[sighs] Follow me."] },
+    { "cue": "b_sing_hum", "kind": "voice", "source": "tts", "voice": "b", "sung": true, "sungWindow": 0.35, "takes": 8, "keep": 8, "gain": 0.7,
+      "texts": ["[sings, low and warm] Mmmmm.", "[sings softly] Mmmmm.", "[sings, calm] Mmmmm.", "[sings, a little higher] Mmmm."] },
+    { "cue": "b_sing_ta", "kind": "voice", "source": "tts", "voice": "b", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
+      "texts": ["[sings] Taaa.", "[sings, warm] Taaaa.", "[sings] Taaa!", "[sings, steady] Taaa."] },
+    { "cue": "b_sing_da", "kind": "voice", "source": "tts", "voice": "b", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
+      "texts": ["[sings] Daaaa.", "[sings, warm] Daaaaa.", "[sings] Daaaa!", "[sings, steady] Daaaa."] }
   ]
 }

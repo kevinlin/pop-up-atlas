@@ -53,12 +53,17 @@ function pitchFrames(samples, sampleRate, middle = false) {
   return { frames, frameSamples: frame * stride, hopSamples: hop * stride }
 }
 
-function summarizePitch(frames) {
-  const pitches = frames.filter(hz => hz !== null)
-  if (!pitches.length) return { medianF0Hz: null, baseMidi: null, stability: null, voicedRatio: 0 }
+export function medianPitch(pitches) {
+  if (!pitches.length) return null
   pitches.sort((a, b) => a - b)
   const half = Math.floor(pitches.length / 2)
-  const medianF0Hz = pitches.length % 2 ? pitches[half] : (pitches[half - 1] + pitches[half]) / 2
+  return pitches.length % 2 ? pitches[half] : (pitches[half - 1] + pitches[half]) / 2
+}
+
+function summarizePitch(frames) {
+  const pitches = frames.filter(hz => hz !== null)
+  const medianF0Hz = medianPitch(pitches)
+  if (medianF0Hz === null) return { medianF0Hz: null, baseMidi: null, stability: null, voicedRatio: 0 }
   const notes = pitches.map(midi)
   const mean = notes.reduce((sum, note) => sum + note, 0) / notes.length
   const stability = 100 * Math.sqrt(notes.reduce((sum, note) => sum + (note - mean) ** 2, 0) / notes.length)
@@ -67,6 +72,10 @@ function summarizePitch(frames) {
 
 export function detectPitch(samples, sampleRate = 44100, { middle = false } = {}) {
   return summarizePitch(pitchFrames(samples, sampleRate, middle).frames)
+}
+
+export function voicedPitchFrames(samples, sampleRate) {
+  return pitchFrames(samples, sampleRate).frames.filter(hz => hz !== null)
 }
 
 export function selectSungWindow(samples, sampleRate, seconds) {
