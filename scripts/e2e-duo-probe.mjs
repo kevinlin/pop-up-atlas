@@ -120,6 +120,7 @@ async function probe({ threeURL, stride }) {
   }
 
   const direction = new THREE.Vector3()
+  const right = new THREE.Vector3()
   let scanned = 0
   let lastVoice = -1
   function sample(frame) {
@@ -148,6 +149,8 @@ async function probe({ threeURL, stride }) {
     }
     camera.getWorldDirection(direction)
     const reach = -camera.position.y / direction.y
+    // The camera's right vector on the page (XZ): the axis the idle side slots sit on.
+    right.set(1, 0, 0).applyQuaternion(camera.quaternion).setY(0).normalize()
     const follower = duo?.follower ?? {}
     const s = {
       f: frame,
@@ -159,6 +162,7 @@ async function probe({ threeURL, stride }) {
       a: rig('a'),
       b: rig('b'),
       cam: { x: camera.position.x + direction.x * reach, z: camera.position.z + direction.z * reach },
+      right: { x: right.x, z: right.z },
       cues: atlas.cueLog.length,
       voice: lastVoice < 0 ? null : (({ t, end, cue, who }) => ({ i: lastVoice, t, end, cue, who }))(atlas.cueLog[lastVoice]),
       folds: atlas.foldLog.length,

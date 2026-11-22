@@ -90,13 +90,117 @@ export function planLane({ from = 1, to = 6000 } = {}) {
   throw new Error('No seed has a clear 16 x 2.6 unit lane through the spawn point')
 }
 
-// Session "bridge": a rotation-0 yarn bridge (deck along X, river along Z) reachable from spawn.
-// Prefers the nearest bridge among the first `window` seeds that have one, to keep the walk short.
-export function planBridge({ from = 0, to = 6000, window = 200 } = {}) {
+function segmentGap(p, a, b) {
+  const dx = b.x - a.x
+  const dz = b.z - a.z
+  const length2 = dx * dx + dz * dz
+  const u = length2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / length2)) : 0
+  return Math.hypot(p.x - a.x - u * dx, p.z - a.z - u * dz)
+}
+
+// The page's camera right vector on XZ (read from the probe) must be axis aligned for the key-driven routes.
+export function axesOf(right) {
+  if (!right || !Number.isFinite(right.x) || !Number.isFinite(right.z)) throw new Error('camera right vector was not read from the page')
+  if (Math.abs(right.x) >= 0.99) return { across: 'x', along: 'z' }
+  if (Math.abs(right.z) >= 0.99) return { across: 'z', along: 'x' }
+  throw new Error(`camera right ${JSON.stringify(right)} is not axis aligned; the duo routes need an axis-aligned default camera`)
+}
+const onAxes = (axes, across, along) => ({ [axes.across]: across, [axes.along]: along })
+
+// A pose jump (test-only) that makes the contract's recovery hop legal: after the jump the follower is
+// ≥ minGap away (so it is still > 2.6 away once it has walked the trail for 0.5 s at 1.6 units/s), and from
+// every point it can reach by then the straight line to the landing (the trail point 1.1 behind the
+// leader, on the jump segment) is clear at 0.05-unit samples and passes ≥ 0.45 (+margin) from the leader.
+// Jumps run along the camera's right vector first (away from the follower) so both stay in frame, and
+// stay below 8 units, the runtime's relocation threshold; jumps ≤ 4.4 inside `inside` are preferred, as
+// they keep the leader in frame while the camera (τ 0.25) catches up. `back` also requires the line target -> follower
+// to be clear (after a swap the trail is reset to that segment). Returns null when no jump is legal.
+export function planTeleport(layout, { leader, follower, right, inside = () => true, minGap = 4.2, maxGap = 4.6, back = false }) {
+  const away = (follower.x - leader.x) * right.x + (follower.z - leader.z) * right.z > 0 ? -1 : 1
+  const angles = [0, 15, -15, 30, -30].map((deg) => deg * Math.PI / 180)
+  const reach = (d, k) => ({ x: d.x * k, z: d.z * k })
+  // Where the follower can be when the hop is decided: along its way to the leader, then along the jump.
+  const toLeader = distance(follower, leader)
+  const takeoffsFor = (direction) => {
+    const points = []
+    for (let k = 0; k <= 1.0 + 1e-9; k += 0.1) {
+      if (k <= toLeader) points.push({ x: follower.x + (leader.x - follower.x) * k / (toLeader || 1), z: follower.z + (leader.z - follower.z) * k / (toLeader || 1) })
+      else points.push({ x: leader.x + direction.x * (k - toLeader), z: leader.z + direction.z * (k - toLeader) })
+    }
+    return points
+  }
+  for (const pass of [true, false]) {
+    for (const sign of [away, -away]) {
+      for (const angle of angles) {
+        const base = { x: right.x * sign, z: right.z * sign }
+        const direction = {
+          x: base.x * Math.cos(angle) - base.z * Math.sin(angle),
+          z: base.x * Math.sin(angle) + base.z * Math.cos(angle),
+        }
+        const takeoffs = takeoffsFor(direction)
+        for (let jump = 2; jump <= (pass ? 4.4 : 7.5); jump += 0.05) {
+          const target = { x: leader.x + direction.x * jump, z: leader.z + direction.z * jump }
+          const gap = distance(target, follower)
+          if (gap < minGap) continue
+          if (gap > maxGap) break
+          if (pass && !inside(target)) continue
+          if (!pathClear(layout, leader, target)) continue
+          const ahead = reach(direction, 0.6)
+          if (!bandClear(layout, { x: target.x - direction.x * 0.3, z: target.z - direction.z * 0.3 }, { x: target.x + ahead.x, z: target.z + ahead.z }, 0.6)) continue
+          const landing = { x: target.x - direction.x * duoContract.followGap, z: target.z - direction.z * duoContract.followGap }
+          const legal = takeoffs.every((point) => distance(point, target) > duoContract.recoveryGap + 0.2
+            && pathClear(layout, point, landing) && segmentGap(target, point, landing) >= duoContract.separation + 0.05)
+          if (!legal || (back && !pathClear(layout, target, follower))) continue
+          return { ...target, heading: Math.atan2(direction.x, direction.z), landing, gap, jump, direction }
+        }
+      }
+    }
+  }
+  return null
+}
+
+// A standing spot where both idle slots (0.75 along the camera right vector) are blocked, reached by walking
+// along `across` at z = 0 (x = 0) and then along `along`; the follower trails on the second leg.
+// Spots with a clear strip toward the camera are preferred so tiles do not hide the pair while it waits.
+export function findNarrowSpot(layout, right, { reach = 8 } = {}) {
+  const axes = axesOf(right)
+  const towardCamera = { x: -right.z, z: right.x }
+  const candidates = []
+  for (let a = -reach; a <= reach + 1e-9; a += 0.25) {
+    const legStart = onAxes(axes, a, 0)
+    if (Math.abs(a) > 1e-9 && !bandClear(layout, { x: 0, z: 0 }, legStart, 0.6)) continue
+    for (const dir of [-1, 1]) {
+      for (let length = 1.5; length <= 4.5 + 1e-9; length += 0.05) {
+        const spot = onAxes(axes, a, dir * length)
+        if (!bandClear(layout, legStart, spot, 0.3)) break
+        const slots = [-1, 1].map((side) => ({ x: spot.x + right.x * side * duoContract.slotOffset, z: spot.z + right.z * side * duoContract.slotOffset }))
+        if (!slots.every((slot) => layout.isBlocked(slot.x, slot.z))) continue
+        const clearView = bandClear(layout, spot, { x: spot.x + towardCamera.x * 1.5, z: spot.z + towardCamera.z * 1.5 }, 0.3)
+        candidates.push({ spot, legStart, dir, axes, slots, clearView, walk: Math.abs(a) + length })
+        break
+      }
+    }
+  }
+  candidates.sort((p, q) => Number(q.clearView) - Number(p.clearView) || p.walk - q.walk)
+  return candidates[0] ?? null
+}
+
+// Session "bridge": a rotation-0 yarn bridge (deck along X, river along Z) reachable from spawn, plus a
+// narrow spot (both camera-right idle slots blocked) on the same seed for the "neither slot free" case.
+// Prefers the shortest total walk among the first `window` seeds that have both.
+const bridgePlans = new Map()
+export function planBridge({ right, from = 0, to = 6000, window = 200 } = {}) {
+  const key = `${right?.x?.toFixed(3)},${right?.z?.toFixed(3)}`
+  if (!bridgePlans.has(key)) bridgePlans.set(key, searchBridge({ right, from, to, window }))
+  return bridgePlans.get(key)
+}
+function searchBridge({ right, from, to, window }) {
+  axesOf(right)
   let best
   for (let seed = from; seed <= to && !(best && seed >= best.seed + window); seed++) {
     const layout = createLayout(seed)
     if (!startClear(layout)) continue
+    let narrow
     for (let i = 2; i <= 12; i++) {
       for (let j = FIRST_PAGE_ROW + 1; j <= LAST_PAGE_ROW - 1; j++) {
         const cell = layout.getCell(i, j)
@@ -110,16 +214,17 @@ export function planBridge({ from = 0, to = 6000, window = 200 } = {}) {
         if (bz !== 0 && !bandClear(layout, { x: 0, z: 0 }, corner, 0.6)) continue
         if (!bandClear(layout, corner, entry, 0.6) || !pathClear(layout, entry, exit)) continue
         if (!bandClear(layout, { x: bx + 0.6, z: bz }, exit, 0.6)) continue
-        // The contract's "neither side free" cases: both idle slots and both sidesteps on the deck are river.
-        const slots = [-1, 1].map((side) => layout.isBlocked(bx, bz + side * duoContract.slotOffset))
+        // The contract's "neither side free" sidestep case: both sides of the deck are river.
         const sidesteps = [-1, 1].map((side) => layout.isBlocked(bx - 0.1, bz + side * duoContract.separation))
-        if (!slots.every(Boolean) || !sidesteps.every(Boolean)) continue
-        const walk = Math.abs(bz) + bx
-        if (!best || walk < best.walk) best = { seed, layout, bridge: { i, j, x: bx, z: bz }, corner, entry, exit, walk }
+        if (!sidesteps.every(Boolean)) continue
+        narrow ??= findNarrowSpot(layout, right) ?? false
+        if (!narrow) continue
+        const walk = Math.abs(bz) + bx + 2 * narrow.walk
+        if (!best || walk < best.walk) best = { seed, layout, bridge: { i, j, x: bx, z: bz }, corner, entry, exit, narrow, walk }
       }
     }
   }
-  if (!best) throw new Error('No seed has a reachable rotation-0 yarn bridge with blocked deck sides')
+  if (!best) throw new Error('No seed has a reachable rotation-0 yarn bridge with blocked deck sides and a spot with both idle slots blocked')
   return best
 }
 

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { createSteppedPage, headless, previewURL } from './capture.mjs'
 import { installProbe, serveThree } from './e2e-duo-probe.mjs'
-import { duoContract as C, pathClear, planBlockedHop, planBridge, planLane } from './e2e-duo-plan.mjs'
+import { pathClear, planBlockedHop, planBridge, planLane, planTeleport } from './e2e-duo-plan.mjs'
 
 export const fps = 60
 export const duoViewports = headless
@@ -25,6 +25,29 @@ export class Driver {
     this.trace = []
     this.marks = []
     this.held = new Set()
+    this.failures = []
+  }
+
+  // Runs one route step. A failure is recorded against the scenarios `ids` that depend on the step (the
+  // notes it set are dropped so no check reads a half-done step); held keys are released, the pair gets
+  // 0.5 s to settle and the route carries on.
+  async phase(name, ids, notes, fn) {
+    const before = new Set(Object.keys(notes))
+    try {
+      await fn()
+      return true
+    } catch (error) {
+      for (const key of Object.keys(notes)) if (!before.has(key)) delete notes[key]
+      this.failures.push({ phase: name, ids, error: String(error?.message ?? error).split('\n')[0] })
+      this.mark('phase-failed', { phase: name })
+      try {
+        for (const code of [...this.held]) await this.up(code)
+        await this.seconds(0.5)
+      } catch {
+        // The page is gone; later steps fail on their own.
+      }
+      return false
+    }
   }
 
   async run(count, until = null, arg = null) {
@@ -112,7 +135,7 @@ export class Driver {
   async result(extra = {}) {
     return {
       label: this.label, surface: this.surface, initial: this.initial, trace: this.trace, marks: this.marks,
-      ...(await this.logs()), errors: [...this.errors], ...extra,
+      ...(await this.logs()), errors: [...this.errors], failures: [...this.failures], ...extra,
     }
   }
 }
@@ -176,140 +199,235 @@ async function walkAxis(driver, axis, target, limitSeconds = 20) {
   await driver.up(code)
 }
 
+// The movement key whose direction is closest to (dx, dz).
+const keyToward = (dx, dz) => (Math.abs(dx) >= Math.abs(dz) ? keyForAxis.x[dx >= 0 ? 1 : -1] : keyForAxis.z[dz >= 0 ? 1 : -1])
+const opposite = { KeyD: 'KeyA', KeyA: 'KeyD', KeyW: 'KeyS', KeyS: 'KeyW' }
+
+// Scenarios each route step serves. A failed step fails these (and only these) with its error.
+export const sessionScenarios = {
+  lane: ['DUO-01', 'DUO-03', 'DUO-04', 'DUO-05', 'DUO-06', 'DUO-07', 'DUO-08', 'DUO-09', 'DUO-10', 'DUO-11', 'DUO-13', 'DUO-14',
+    'DUO-15', 'DUO-17', 'DUO-18', 'DUO-19', 'DUO-20', 'DUO-21', 'DUO-22', 'DUO-23', 'DUO-24', 'DUO-25', 'DUO-26', 'DUO-27',
+    'DUO-28', 'DUO-29', 'DUO-30', 'DUO-34', 'DUO-35', 'DUO-36', 'DUO-37', 'DUO-41'],
+  bridge: ['DUO-09', 'DUO-10', 'DUO-12', 'DUO-34', 'DUO-35', 'DUO-36', 'DUO-41'],
+  corner: ['DUO-16', 'DUO-34', 'DUO-35', 'DUO-36', 'DUO-41'],
+  'missing-sample': ['DUO-31', 'DUO-41'],
+}
+
+// Reads the page's camera right vector (XZ) when no earlier session has.
+export async function readCameraRight(browser, viewport, options) {
+  const { seed } = planLane()
+  const { driver, page } = await openDuo(browser, viewport, { ...options, seed, label: 'camera' })
+  await page.close()
+  return driver.initial.right
+}
+
 // Lane: the long open corridor. Covers following, idle slots, dances, every swap path and hops.
 export async function laneSession(browser, viewport, options) {
   const plan = planLane()
   const { driver } = await openDuo(browser, viewport, { ...options, seed: plan.seed, label: 'lane' })
   const notes = { seed: plan.seed }
   const s = () => driver.last
-  const sideOf = (point) => {
-    // Pick the X direction that stays inside the planned lane.
-    const east = point.x + 4.4 <= plan.lane.maxX
-    return east ? 1 : -1
+  const step = (name, ids, fn) => driver.phase(name, ids, notes, fn)
+  const { lane } = plan
+  const inside = (point) => point.x >= lane.minX + 0.6 && point.x <= lane.maxX - 0.6 && Math.abs(point.z - lane.z) <= lane.halfWidth - 0.6
+  const room = (from, sign, length) => {
+    const to = { x: from.x + sign * length, z: from.z }
+    return inside(to) && pathClear(plan.layout, from, to)
+  }
+  // The sign along the camera's right vector that leads away from the follower, if `length` of it is clear.
+  const awayAlongRight = (length) => {
+    const { L, F, right } = s()
+    const away = (F.x - L.x) * right.x + (F.z - L.z) * right.z > 0 ? -1 : 1
+    for (const sign of [away, -away]) {
+      const to = { x: L.x + right.x * sign * length, z: L.z + right.z * sign * length }
+      if (inside(to) && pathClear(plan.layout, L, to)) return { sign, to }
+    }
+    throw new Error(`no clear ${length}-unit step along the camera right vector from ${JSON.stringify(L)}`)
+  }
+  // Walk to the lane centre so the follower trails behind, let it settle in a slot, then make a legal hop jump.
+  const hopJump = async (back) => {
+    const centre = (lane.minX + lane.maxX) / 2
+    await walkAxis(driver, 'x', s().L.x > centre ? centre - 1 : centre + 1)
+    await driver.seconds(1.2)
+    const { L, F, right } = s()
+    const jump = planTeleport(plan.layout, { leader: L, follower: F, right, inside, back })
+    assert.ok(jump, `no legal recovery-hop jump from leader ${JSON.stringify(L)} with follower ${JSON.stringify(F)}`)
+    return { jump, mark: await driver.teleport(jump.x, jump.z, jump.heading) }
   }
 
   // P1 start and stand.
-  await driver.seconds(1)
+  await step('P1 start', ['DUO-03'], () => driver.seconds(1))
   // P2 straight walk east, with a 1-unit leader jump at 3 s to force a sustained catch-up.
-  await driver.down('KeyD')
-  await driver.seconds(3)
-  notes.catchUp = await driver.teleport(s().L.x + 1, s().L.z, headingOf(1, 0))
-  await driver.seconds(5)
-  await driver.up('KeyD')
-  notes.stopEast = driver.mark('stop')
+  await step('P2 straight walk and catch-up', ['DUO-05', 'DUO-06', 'DUO-07', 'DUO-37'], async () => {
+    await driver.down('KeyD')
+    await driver.seconds(3)
+    notes.catchUp = await driver.teleport(s().L.x + 1, s().L.z, headingOf(1, 0))
+    await driver.seconds(5)
+    await driver.up('KeyD')
+    notes.stopEast = driver.mark('stop')
+  })
   // P3 idle slot.
-  await driver.seconds(2)
-  // P4 walk into the follower standing in its slot, then back to the lane centre.
-  const side = Math.sign(s().F.z - s().L.z) || 1
-  const toward = side > 0 ? 'KeyS' : 'KeyW'
-  const back = side > 0 ? 'KeyW' : 'KeyS'
-  notes.approach = await driver.down(toward)
-  await driver.seconds(0.7)
-  await driver.up(toward)
-  await driver.down(back)
-  await driver.seconds(0.7)
-  await driver.up(back)
+  await step('P3 idle slot', ['DUO-11'], () => driver.seconds(2))
+  // P4 walk into the follower standing in its slot, then back.
+  await step('P4 walk into the follower', ['DUO-08'], async () => {
+    const toward = keyToward(s().F.x - s().L.x, s().F.z - s().L.z)
+    notes.approach = await driver.down(toward)
+    await driver.seconds(0.7)
+    await driver.up(toward)
+    await driver.down(opposite[toward])
+    await driver.seconds(0.7)
+    await driver.up(opposite[toward])
+  })
   // P5 dance 1, ended by a movement key tap.
-  await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 1')
-  await driver.waitFor(1, predicates.followerDance, null, 'follower dance 1')
-  await driver.seconds(0.8)
-  notes.danceKey = await driver.tap('KeyW')
-  await driver.seconds(0.5)
+  await step('P5 dance 1, key ending', ['DUO-13', 'DUO-14'], async () => {
+    await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 1')
+    await driver.waitFor(1, predicates.followerDance, null, 'follower dance 1')
+    await driver.seconds(0.8)
+    notes.danceKey = await driver.tap('KeyW')
+    await driver.seconds(0.5)
+  })
   // P6 dance 2: swap two frames after the leader's dance voice starts (guard suppresses the swap line).
-  await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 2')
-  const cueCount = s().cues
-  await driver.waitFor(2, predicates.leaderVoice, cueCount, 'leader dance voice')
-  await driver.run(2)
-  notes.swapDancing = await driver.tap('Space')
-  await driver.seconds(0.3)
-  // P7 the new leader walks off: the reset trail (follower to leader) is shorter than 1.1.
-  await driver.down('KeyA')
-  notes.shortTrail = driver.mark('short-trail')
-  await driver.seconds(1.5)
+  await step('P6 swap while dancing', ['DUO-20', 'DUO-29', 'DUO-30'], async () => {
+    await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 2')
+    const cueCount = s().cues
+    await driver.waitFor(2, predicates.leaderVoice, cueCount, 'leader dance voice')
+    await driver.run(2)
+    notes.swapDancing = await driver.tap('Space')
+    await driver.seconds(0.3)
+  })
+  // P7 the new leader walks away from the follower: the reset trail (follower to leader) is shorter than 1.1.
+  let walkKey = 'KeyA'
+  await step('P7 short trail', ['DUO-04'], async () => {
+    const sign = Math.sign(s().L.x - s().F.x) || -1
+    const chosen = room(s().L, sign, 4.2) ? sign : -sign
+    walkKey = keyForAxis.x[chosen]
+    await driver.down(walkKey)
+    notes.shortTrail = driver.mark('short-trail')
+    await driver.seconds(1.5)
+  })
   // P8 swap while walking; two presses in the cooldown cancel each other.
-  notes.swapWalking = await driver.tap('Space')
-  await driver.seconds(0.1)
-  notes.evenFirst = await driver.tap('Space')
-  await driver.seconds(0.1)
-  notes.evenSecond = await driver.tap('Space')
-  await driver.seconds(1.5)
-  await driver.up('KeyA')
-  notes.stopWest = driver.mark('stop')
-  // P9 A->B with a line, then three presses in the cooldown: the odd one swaps back at +0.5 s.
-  await driver.seconds(1.2)
-  notes.swapStanding = await driver.tap('Space')
-  notes.oddPresses = []
-  for (let i = 0; i < 3; i++) {
+  await step('P8 swap while walking, even presses', ['DUO-19', 'DUO-23'], async () => {
+    if (!driver.held.has(walkKey)) await driver.down(walkKey)
+    notes.swapWalking = await driver.tap('Space')
     await driver.seconds(0.1)
-    notes.oddPresses.push(await driver.tap('Space'))
-  }
-  await driver.seconds(1.8)
+    notes.evenFirst = await driver.tap('Space')
+    await driver.seconds(0.1)
+    notes.evenSecond = await driver.tap('Space')
+    await driver.seconds(1.5)
+    await driver.up(walkKey)
+    notes.stopWest = driver.mark('stop')
+  })
+  // P9 A->B with a line, then three presses in the cooldown: the odd one swaps back at +0.5 s.
+  await step('P9 standing swap, odd presses', ['DUO-17', 'DUO-22', 'DUO-25', 'DUO-28'], async () => {
+    await driver.seconds(1.2)
+    notes.swapStanding = await driver.tap('Space')
+    const presses = []
+    for (let i = 0; i < 3; i++) {
+      await driver.seconds(0.1)
+      presses.push(await driver.tap('Space'))
+    }
+    notes.oddPresses = presses
+    await driver.seconds(1.8)
+  })
   // P10 click on the follower.
-  notes.followerClick = await driver.click(driver.followerPoint(), 'follower-click')
-  await driver.seconds(1.5)
-  // P11 dance 3 (troll B leads), ended by a click-walk; a click on the follower during the walk swaps and cancels it.
-  await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 3')
-  await driver.waitFor(1, predicates.followerDance, null, 'follower dance 3')
-  await driver.seconds(0.6)
-  const dir = sideOf(s().L) > 0 && pathClear(plan.layout, s().L, { x: s().L.x + 1.5, z: s().L.z }) ? 1 : -1
-  notes.walkTarget = { x: s().L.x + dir * 1.5, z: s().L.z }
-  const ground = await driver.project(notes.walkTarget.x, notes.walkTarget.z)
-  notes.groundClick = await driver.click(ground, 'ground-click')
-  await driver.seconds(0.4)
-  notes.clickDuringWalk = await driver.click(driver.followerPoint(), 'follower-click')
-  await driver.seconds(1.5)
+  await step('P10 click on the follower', ['DUO-18'], async () => {
+    notes.followerClick = await driver.click(driver.followerPoint(), 'follower-click')
+    await driver.seconds(1.5)
+  })
+  // P11 dance 3, ended by a click-walk away from the follower; a click on the follower during the walk swaps and cancels it.
+  await step('P11 dance 3, click-walk ending, swap cancels click-walk', ['DUO-13', 'DUO-14', 'DUO-19'], async () => {
+    await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 3')
+    await driver.waitFor(1, predicates.followerDance, null, 'follower dance 3')
+    await driver.seconds(0.6)
+    const { to } = awayAlongRight(1.5)
+    const ground = await driver.project(to.x, to.z)
+    notes.walkTarget = to
+    notes.groundClick = await driver.click(ground, 'ground-click')
+    await driver.seconds(0.4)
+    notes.clickDuringWalk = await driver.click(driver.followerPoint(), 'follower-click')
+    await driver.seconds(1.5)
+  })
   // P12a swap requested during a recovery hop waits for the landing.
-  const jump = (point) => {
-    const sx = sideOf(point)
-    return { x: point.x + sx * 4, z: point.z, sx }
-  }
-  let to = jump(s().L)
-  notes.hopTeleport = await driver.teleport(to.x, to.z, headingOf(to.sx, 0))
-  await driver.waitFor(1.5, predicates.hop, null, 'recovery hop')
-  await driver.run(2)
-  notes.swapHopping = await driver.tap('Space')
-  await driver.waitFor(2, predicates.landed, null, 'hop landing')
-  await driver.seconds(2)
-  // P12b a swap, then a second request whose cooldown ends inside a hop that started in between.
-  to = jump(s().L)
-  notes.overlapTeleport = await driver.teleport(to.x, to.z, headingOf(to.sx, 0))
-  await driver.seconds(0.3)
-  notes.overlapSwap = await driver.tap('Space')
-  await driver.seconds(0.1)
-  notes.overlapPending = await driver.tap('Space')
-  await driver.seconds(2.5)
-  // P13 dance 4, ended by leader displacement alone (no input).
-  await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 4')
-  await driver.waitFor(1, predicates.followerDance, null, 'follower dance 4')
-  await driver.seconds(0.5)
-  const nudge = sideOf(s().L)
-  notes.danceNudge = await driver.teleport(s().L.x + nudge * 0.3, s().L.z, headingOf(nudge, 0))
-  await driver.seconds(1)
+  await step('P12a recovery hop, swap mid-hop', ['DUO-15', 'DUO-21'], async () => {
+    const { jump, mark } = await hopJump(false)
+    notes.hopTeleport = { ...mark, landing: jump.landing, gap: jump.gap }
+    await driver.waitFor(1.5, predicates.hop, null, `recovery hop after a legal jump (gap ${jump.gap.toFixed(2)}, landing ${JSON.stringify(jump.landing)})`)
+    await driver.run(2)
+    notes.swapHopping = await driver.tap('Space')
+    await driver.waitFor(2, predicates.landed, null, 'hop landing')
+    await driver.seconds(2)
+  })
+  // P12b a swap 0.3 s after a jump, then a second request: per the contract the follower stays > 2.6 away
+  // across the swap, so its hop starts at +0.5 s, inside the cooldown, and the second swap waits for its landing.
+  await step('P12b swap cooldown overlapping a hop', ['DUO-24'], async () => {
+    const { jump, mark } = await hopJump(true)
+    notes.overlapTeleport = { ...mark, landing: jump.landing, gap: jump.gap }
+    await driver.seconds(0.3)
+    notes.overlapSwap = await driver.tap('Space')
+    await driver.seconds(0.1)
+    notes.overlapPending = await driver.tap('Space')
+    await driver.seconds(2.5)
+  })
+  // P13 dance 4, ended by leader displacement alone (no input), away from the follower.
+  await step('P13 dance 4, displacement ending', ['DUO-13', 'DUO-14'], async () => {
+    await driver.waitFor(6, predicates.leaderDance, null, 'leader dance 4')
+    await driver.waitFor(1, predicates.followerDance, null, 'follower dance 4')
+    await driver.seconds(0.5)
+    const { to, sign } = awayAlongRight(0.3)
+    notes.danceNudge = await driver.teleport(to.x, to.z, headingOf(s().right.x * sign, s().right.z * sign))
+    await driver.seconds(1)
+  })
   return driver.result({ session: 'lane', plan: { seed: plan.seed, lane: plan.lane }, notes })
 }
 
-// Bridge: troll B leads over a yarn bridge whose deck has river on both sides.
+// Bridge: a stop at a narrow spot where both camera-right idle slots are blocked, then troll A leads over a
+// yarn bridge whose deck has river on both sides.
 export async function bridgeSession(browser, viewport, options) {
-  const plan = planBridge()
+  const right = options.right ?? await readCameraRight(browser, viewport, options)
+  const plan = planBridge({ right })
   const { driver } = await openDuo(browser, viewport, { ...options, seed: plan.seed, label: 'bridge' })
-  const notes = { seed: plan.seed, bridge: plan.bridge }
-  await driver.seconds(0.5)
-  notes.swapStart = await driver.tap('Space')
-  await driver.seconds(1)
-  await walkAxis(driver, 'x', 0)
-  await walkAxis(driver, 'z', plan.corner.z)
-  notes.turn = driver.mark('turn')
-  await walkAxis(driver, 'x', plan.bridge.x)
-  notes.deckStop = driver.mark('deck-stop')
-  await driver.seconds(2)
-  await driver.down('KeyD')
-  await driver.waitFor(4, predicates.followerInDeck, plan.bridge, 'follower on the deck')
-  await driver.up('KeyD')
-  notes.reverse = await driver.down('KeyA')
-  await driver.waitFor(6, predicates.leaderPast, plan.entry.x, 'leader passing back over the deck')
-  await driver.up('KeyA')
-  await driver.seconds(2)
-  return driver.result({ session: 'bridge', plan: { seed: plan.seed, bridge: plan.bridge, corner: plan.corner, entry: plan.entry, exit: plan.exit }, notes })
+  const notes = { seed: plan.seed, bridge: plan.bridge, narrow: plan.narrow.spot }
+  const pageRight = driver.initial.right
+  assert.ok(pageRight && pageRight.x * right.x + pageRight.z * right.z > 0.999,
+    `camera right on the bridge page ${JSON.stringify(pageRight)} differs from the planned ${JSON.stringify(right)}`)
+  const step = (name, ids, fn) => driver.phase(name, ids, notes, fn)
+  const { across, along } = plan.narrow.axes
+  await step('B1 swap at start', ['DUO-17'], async () => {
+    await driver.seconds(0.5)
+    notes.swapStart = await driver.tap('Space')
+    await driver.seconds(1)
+  })
+  // The follower trails on the last leg; neither slot is free, so it settles on the trail target.
+  // A swap then lets the new leader walk back without passing through the follower.
+  await step('B2 narrow spot, neither slot free', ['DUO-12'], async () => {
+    await walkAxis(driver, across, plan.narrow.legStart[across])
+    await walkAxis(driver, along, plan.narrow.spot[along])
+    notes.narrowStop = driver.mark('narrow-stop')
+    await driver.seconds(2.5)
+    notes.narrowSwap = await driver.tap('Space')
+    await driver.seconds(0.6)
+    await walkAxis(driver, along, 0)
+    await walkAxis(driver, across, 0)
+  })
+  await step('B3 yarn bridge deck, pass-through', ['DUO-09', 'DUO-10'], async () => {
+    await walkAxis(driver, 'x', 0)
+    await walkAxis(driver, 'z', plan.corner.z)
+    notes.turn = driver.mark('turn')
+    await walkAxis(driver, 'x', plan.bridge.x)
+    notes.deckStop = driver.mark('deck-stop')
+    await driver.seconds(2)
+    await driver.down('KeyD')
+    await driver.waitFor(4, predicates.followerInDeck, plan.bridge, 'follower on the deck')
+    await driver.up('KeyD')
+    notes.reverse = await driver.down('KeyA')
+    await driver.waitFor(6, predicates.leaderPast, plan.entry.x, 'leader passing back over the deck')
+    await driver.up('KeyA')
+    await driver.seconds(2)
+  })
+  return driver.result({
+    session: 'bridge', notes,
+    plan: { seed: plan.seed, bridge: plan.bridge, corner: plan.corner, entry: plan.entry, exit: plan.exit, narrow: plan.narrow.spot, right },
+  })
 }
 
 // Corner: the leader jumps away from a corner so the follower's straight hop line crosses a prop.
@@ -317,12 +435,14 @@ export async function cornerSession(browser, viewport, options) {
   const plan = planBlockedHop()
   const { driver } = await openDuo(browser, viewport, { ...options, seed: plan.seed, label: 'corner' })
   const notes = { seed: plan.seed }
-  await driver.seconds(0.5)
-  await walkAxis(driver, 'x', plan.corner.x)
-  await walkAxis(driver, 'z', plan.corner.z)
-  await driver.seconds(0.1)
-  notes.teleport = await driver.teleport(plan.leader.x, plan.leader.z, headingOf(plan.sx, 0))
-  await driver.seconds(4)
+  await driver.phase('C1 blocked hop line', ['DUO-16'], notes, async () => {
+    await driver.seconds(0.5)
+    await walkAxis(driver, 'x', plan.corner.x)
+    await walkAxis(driver, 'z', plan.corner.z)
+    await driver.seconds(0.1)
+    notes.teleport = await driver.teleport(plan.leader.x, plan.leader.z, headingOf(plan.sx, 0))
+    await driver.seconds(4)
+  })
   return driver.result({
     session: 'corner', plan: { seed: plan.seed, corner: plan.corner, leader: plan.leader, landing: plan.landing, dirZ: plan.dirZ, sx: plan.sx }, notes,
   })
@@ -339,12 +459,15 @@ export async function missingSampleSession(browser, viewport, options) {
       return json
     },
   })
-  await driver.seconds(0.5)
-  const swap = await driver.tap('Space')
-  await driver.seconds(1)
-  await driver.waitFor(6, predicates.leaderDance, null, 'troll B dance')
-  await driver.waitFor(5, predicates.bothIdle, null, 'dance end')
-  return driver.result({ session: 'missing-sample', plan: { seed: plan.seed }, notes: { swap } })
+  const notes = {}
+  await driver.phase('M1 troll B leads and dances', ['DUO-31'], notes, async () => {
+    await driver.seconds(0.5)
+    notes.swap = await driver.tap('Space')
+    await driver.seconds(1)
+    await driver.waitFor(6, predicates.leaderDance, null, 'troll B dance')
+    await driver.waitFor(5, predicates.bothIdle, null, 'dance end')
+  })
+  return driver.result({ session: 'missing-sample', plan: { seed: plan.seed }, notes })
 }
 
 export { distance }

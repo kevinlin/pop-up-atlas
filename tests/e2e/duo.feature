@@ -7,6 +7,7 @@ Feature: Two trolls on screen, one leads, the lead swaps
   and both trolls, the debug surface, the camera and the logs are sampled after every frame. A scenario must
   observe the event it judges; a route that never produces it fails the scenario.
   "Pose jump" below means the route moves the leader with the look-shots pose hook, which is not player input.
+  A route step that cannot set up its event fails only the scenarios that depend on it, naming the step.
 
   Background:
     Given the production build is served by the preview server
@@ -83,12 +84,13 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-11
   Scenario: Idle side slot
     When the leader has been stationary for 0.5 seconds with a free slot beside it
-    Then the follower walks a straight path to the nearer free slot 0.75 units left or right of the leader
+    Then the follower walks a straight path to the nearer free slot 0.75 units to the screen left or right of the leader
+    And the slots lie along the camera's right vector on the page, read from the page's camera, whatever the leader's heading
     And once there it faces within 30 degrees of the leader's heading
 
   @DUO-12
   Scenario: Idle with neither slot free keeps the trail target
-    When the leader stops where neither side slot is free or reachable on a clear path
+    When the leader stops where neither side slot (0.75 units along the camera's right vector) is free or reachable on a clear path
     Then the follower stays on the trail and settles at the trail target
 
   @DUO-13
@@ -111,7 +113,8 @@ Feature: Two trolls on screen, one leads, the lead swaps
 
   @DUO-15
   Scenario: Recovery hop
-    When a pose jump leaves the follower more than 2.6 units from the leader for 0.5 seconds with a clear hop line
+    When a pose jump leaves the follower more than 2.6 units from the leader for 0.5 seconds
+    And the jump is chosen so the straight hop line from the follower to its landing is clear and keeps 0.45 from the leader
     Then the follower hops to the trail point 1.1 units behind the leader
     And the hop height follows a parabola with apex 0.25
     And the hop lasts 0.35 seconds plus 0.1 seconds per unit beyond 1.5, within 2 frames
@@ -173,7 +176,8 @@ Feature: Two trolls on screen, one leads, the lead swaps
 
   @DUO-24
   Scenario: Swap cooldown overlapping a hop
-    Given a swap has just applied and the follower is about to hop
+    Given a pose jump has left the pair more than 2.6 units apart with a clear hop line
+    And a swap applies 0.3 seconds later, so the follower's hop is due inside the swap cooldown
     When the player requests a second swap and the cooldown ends during the hop
     Then the second swap waits and applies on the landing frame, within 1 frame
 

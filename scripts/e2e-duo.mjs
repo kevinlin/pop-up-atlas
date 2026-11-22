@@ -11,7 +11,7 @@ import {
 import { createTrail, duoContract as C, keyVectors, layoutFor, pathClear } from './e2e-duo-plan.mjs'
 import { framingStats } from './e2e-duo-probe.mjs'
 import {
-  bridgeSession, cornerSession, droppedCues, duoViewports, fps, laneSession, missingSampleSession,
+  bridgeSession, cornerSession, droppedCues, duoViewports, fps, laneSession, missingSampleSession, sessionScenarios,
 } from './e2e-duo-sessions.mjs'
 
 export const duoScenarios = [
@@ -426,6 +426,13 @@ function analyzeBlocked(x, out) {
   out.measure(id, where, { frames: trace.length, blockedFrames: blocked.length })
 }
 
+// Idle side slots the contract allows from this sample: 0.75 along the camera right vector, unblocked, and
+// reachable on a straight clear path (0.05 samples) that keeps 0.45 from the leader.
+function usableSlots(layout, s) {
+  return [-1, 1].map((sign) => ({ x: s.L.x + s.right.x * sign * C.slotOffset, z: s.L.z + s.right.z * sign * C.slotOffset }))
+    .filter((slot) => !layout.isBlocked(slot.x, slot.z) && pathClear(layout, s.F, slot) && segmentDistance(s.L, s.F, slot) >= C.separation - 1e-6)
+}
+
 function analyzeIdle(x, out, pool) {
   const { trace, layout, stationary, swapAt, teleportAt, hopAt, target, where } = x
   for (let start = 1; start < trace.length; start++) {
@@ -433,11 +440,13 @@ function analyzeIdle(x, out, pool) {
     let end = start
     while (end + 1 < trace.length && stationary[end + 1] && !swapAt.has(end + 1) && !teleportAt.has(end + 1) && !hopAt.has(end + 1)) end++
     const s = trace[start]
-    const heading = s[s.leader].ry
-    const ahead = forward(heading)
-    const side = { x: ahead.z, z: -ahead.x }
-    const slots = [-1, 1].map((sign) => ({ x: s.L.x + side.x * sign * C.slotOffset, z: s.L.z + side.z * sign * C.slotOffset }))
-    const usable = slots.filter((slot) => !layout.isBlocked(slot.x, slot.z) && pathClear(layout, s.F, slot))
+    if (!s.right) {
+      out.problem('DUO-11', where, 'probe sample has no camera right vector')
+      return
+    }
+    // Slots sit 0.75 to the screen left and right of the leader: along the camera's right vector on the page.
+    const side = s.right
+    const usable = usableSlots(layout, s)
     if (!usable.length) {
       const id = 'DUO-12'
       pool.neitherFree.push(where)
@@ -601,6 +610,8 @@ function analyzeBlockedHop(x, out) {
   let fast = 0
   for (let k = t; k < Math.min(trace.length, due + 60); k++) {
     if (trace[k].hop) break
+    // Once the leader has stood still for 0.5 s a reachable idle slot outranks the trail.
+    if (k > due && x.stationary[k] && trace[k].right && usableSlots(layout, trace[k]).length) break
     if (trailDistance[k] > 0.1) offTrail++
     if (followerStep[k] > capStep + 0.001) fast++
   }
@@ -752,7 +763,14 @@ function analyzeSwaps(x, out) {
     else {
       const due = first.k + C.swapCooldown * fps
       const hop = landingAfter(due)
-      if (!hop || hop.land === null) out.problem('DUO-24', where, 'route did not exercise a hop across the end of the cooldown')
+      if (!hop || hop.land === null) {
+        const teleport = markIndex(notes.overlapTeleport)
+        const far = trace.slice(teleport ?? first.k, due + 1).every((s) => gapOf(s) > C.recoveryGap)
+        const next = hops.find(({ start }) => start >= first.k)
+        out.problem('DUO-24', where, `no hop was active when the cooldown ended at frame ${trace[due]?.f}: the pair was ${far ? '' : 'not '}more than ${C.recoveryGap} apart from the jump through the cooldown, `
+          + `${next ? `the next hop started at frame ${trace[next.start].f} (${next.start - first.k} frames after the first swap)` : 'no hop followed'}; `
+          + 'the contract keeps the 0.5 s recovery timer running across a swap (the gap does not change), so a hop is due inside the cooldown')
+      }
       else {
         const second = swaps.find(({ k: at }) => at > first.k)
         if (!second || Math.abs(second.k - hop.land) > 1) out.problem('DUO-24', where, `pending swap applied at ${second ? trace[second.k].f : 'never'}, landing at ${trace[hop.land].f}`)
@@ -1019,53 +1037,105 @@ async function staticChecks(out) {
   return banks
 }
 
+// Scenarios each analysis reports on: an analysis that throws fails only these.
+const analyses = [
+  [analyzeSurface, ['DUO-01']], [analyzeStart, ['DUO-03']], [analyzeTrail, ['DUO-04']], [analyzeFollow, ['DUO-05', 'DUO-06']],
+  [collectClipWindows, ['DUO-07']], [analyzeSeparation, ['DUO-08']], [analyzeLeaderFree, ['DUO-09']], [analyzeBlocked, ['DUO-10']],
+  [analyzeIdle, ['DUO-11', 'DUO-12']], [analyzeDance, ['DUO-13', 'DUO-14']], [analyzeHops, ['DUO-15']], [analyzeBlockedHop, ['DUO-16']],
+  [analyzeSwaps, ['DUO-17', 'DUO-18', 'DUO-19', 'DUO-20', 'DUO-21', 'DUO-22', 'DUO-23', 'DUO-24', 'DUO-25']],
+  [analyzeFolds, ['DUO-26']], [analyzeCues, ['DUO-27']], [analyzeSwapAudio, ['DUO-28', 'DUO-29', 'DUO-30']], [analyzeTrailPath, ['DUO-37']],
+]
+const firstLine = (error) => String(error?.message ?? error).split('\n')[0]
+
+function analyze(list, x, out, pool) {
+  for (const [fn, ids] of list) {
+    try {
+      fn(x, out, pool)
+    } catch (error) {
+      for (const id of ids) out.problem(id, x.where, `analysis ${fn.name} failed: ${firstLine(error)}`)
+    }
+  }
+}
+
+// A failed route step blocks only the scenarios that depend on it; the report names the step.
+function reportBlocked(out, where, session, failures, blocked) {
+  for (const { phase, ids, error } of failures) {
+    const line = `blocked by ${session}/${phase}: ${error}`
+    blocked.push({ where, session, phase, ids, error })
+    for (const id of ids) out.problem(id, where, line)
+  }
+}
+
+async function runSession(browser, session, name, viewport, options, out, blocked) {
+  const where = `${name} ${viewport.width}x${viewport.height}`
+  try {
+    return await session(browser, viewport, options)
+  } catch (error) {
+    reportBlocked(out, where, name, [{ phase: 'open', ids: sessionScenarios[name], error: firstLine(error) }], blocked)
+    return null
+  } finally {
+    await closeSession(browser).catch(() => {})
+  }
+}
+
 async function browserChecks(out, { baseURL, traceOut }) {
   const browser = await launchChromium()
   const kept = []
+  const blocked = []
   try {
     const errors = []
     for (const viewport of duoViewports) {
       const key = `${viewport.width}x${viewport.height}`
       const pool = newPool()
-      for (const session of [laneSession, bridgeSession, cornerSession]) {
-        const result = await session(browser, viewport, { baseURL })
-        const { trace } = result
-        await closeSession(browser)
-        const x = prepare(result)
+      let right
+      for (const [name, session] of [['lane', laneSession], ['bridge', bridgeSession], ['corner', cornerSession]]) {
+        // The idle-slot axis is the page's camera right vector, read on the lane page and handed on.
+        const result = await runSession(browser, session, name, viewport, { baseURL, right }, out, blocked)
+        if (!result) continue
+        right ??= result.initial?.right
+        let x
+        try {
+          x = prepare(result)
+        } catch (error) {
+          reportBlocked(out, `${result.label}`, name, [{ phase: 'prepare', ids: sessionScenarios[name], error: firstLine(error) }], blocked)
+          continue
+        }
+        reportBlocked(out, x.where, name, result.failures ?? [], blocked)
         errors.push(...result.errors.map((error) => `${x.where}: ${error}`))
-        analyzeSurface(x, out)
-        analyzeStart(x, out)
-        analyzeTrail(x, out)
-        analyzeFollow(x, out, pool)
-        collectClipWindows(x, pool)
-        analyzeSeparation(x, out, pool)
-        analyzeLeaderFree(x, out)
-        analyzeBlocked(x, out)
-        analyzeIdle(x, out, pool)
-        analyzeDance(x, out)
-        analyzeHops(x, out, pool)
-        analyzeBlockedHop(x, out)
-        analyzeSwaps(x, out)
-        analyzeFolds(x, out, pool)
-        analyzeCues(x, out, pool)
-        analyzeSwapAudio(x, out)
-        analyzeTrailPath(x, out)
-        pool.framing.push(...trace)
+        analyze(analyses, x, out, pool)
+        pool.framing.push(...result.trace)
         if (traceOut) kept.push(result)
       }
-      evaluatePools(key, pool, out)
+      try {
+        evaluatePools(key, pool, out)
+      } catch (error) {
+        for (const id of ['DUO-05', 'DUO-06', 'DUO-07', 'DUO-08', 'DUO-11', 'DUO-12', 'DUO-15', 'DUO-26', 'DUO-27', 'DUO-34', 'DUO-35', 'DUO-36']) {
+          out.problem(id, key, `pooled analysis failed: ${firstLine(error)}`)
+        }
+      }
     }
-    const missing = await missingSampleSession(browser, duoViewports[0], { baseURL })
-    await closeSession(browser)
-    const mx = prepare(missing)
-    analyzeMissing(mx, out)
-    analyzeSwapAudio(mx, out)
-    analyzeCues(mx, out, newPool())
+    const missing = await runSession(browser, missingSampleSession, 'missing-sample', duoViewports[0], { baseURL }, out, blocked)
+    let mx
+    try {
+      mx = missing && prepare(missing)
+    } catch (error) {
+      reportBlocked(out, missing.label, 'missing-sample', [{ phase: 'prepare', ids: sessionScenarios['missing-sample'], error: firstLine(error) }], blocked)
+    }
+    if (mx) {
+      reportBlocked(out, mx.where, 'missing-sample', missing.failures ?? [], blocked)
+      errors.push(...missing.errors.map((error) => `${mx.where}: ${error}`))
+      analyze([[analyzeMissing, ['DUO-31']], [analyzeSwapAudio, ['DUO-28', 'DUO-29', 'DUO-30']], [analyzeCues, ['DUO-27']]], mx, out, newPool())
+      if (traceOut) kept.push(missing)
+    }
     out.measure('DUO-41', 'all sessions', { errors })
     for (const error of errors) out.problem('DUO-41', 'browser', error)
+    if (blocked.length) {
+      console.log('DUO route steps that failed (each fails only the listed scenarios):')
+      for (const { where, phase, ids, error } of blocked) console.log(`  ${where} / ${phase} -> ${ids.join(', ')}: ${error}`)
+    }
     if (traceOut) {
       await mkdir(dirname(traceOut), { recursive: true })
-      await writeFile(traceOut, JSON.stringify(kept.concat(missing)))
+      await writeFile(traceOut, JSON.stringify(kept))
     }
   } finally {
     await browser.close()
@@ -1081,6 +1151,7 @@ export async function runDuo({ baseURL, check, traceOut }) {
   const out = createResults()
   let failure
   await staticChecks(out)
+  // Only a browser that cannot start (or a crash outside every session) leaves scenarios not reached.
   try {
     await browserChecks(out, { baseURL, traceOut })
   } catch (error) {

@@ -18,9 +18,10 @@ original and in character. It also covers the items tagged @manual and @external
 
 Automated gate: `node scripts/e2e.mjs [--out PATH] [--url URL]`. It runs headed on the host GPU;
 `ATLAS_HEADLESS=1` gives a quick headless smoke at small viewports and is not the acceptance run. Each line
-`PASS|FAIL DUO-NN ...` maps to the scenario with the same ID. A `not reached:` failure means the browser
-part of the gate stopped before that scenario could be judged. The first such message names the cause, for
-example a missing `__atlas.duo`.
+`PASS|FAIL DUO-NN ...` maps to the scenario with the same ID. A `blocked by <route>/<step>:` failure means
+that route step could not set up its event (for example no hop after a jump); it fails only the scenarios
+that step serves, and the gate lists every failed step with its scenarios at the end of the DUO run. A
+`not reached:` failure means the browser could not start, so no browser scenario was judged.
 
 ## Procedure
 
@@ -33,7 +34,7 @@ example a missing `__atlas.duo`.
 | DUO-05, DUO-06, DUO-07 | Walk straight east for several seconds, stop, then walk again. | The gap stays steady at roughly one body-length. On a start the follower catches up a little faster, and its legs speed up to match. It eases into place without overshooting. | The gap stretches past two body-lengths, the follower skates (legs too slow or too fast), or it jerks or overshoots on a stop. |
 | DUO-08, DUO-09 | Stand still until the follower takes its side slot, then walk straight into it. Repeat on a yarn bridge with the follower on the deck. | On open ground it steps aside. On the bridge it holds and you pass through. You are never slowed. | The follower pushes you, blocks you, or ends up on top of you on open ground. |
 | DUO-10 | Lead past props, river banks and the page edge, and make tight turns. | The follower never stands inside a prop, the river or the page margin. | Any frame with the follower clipping into a blocked cell. |
-| DUO-11, DUO-12 | Stop in the open and wait 1 s. Then stop with props on both sides (a narrow gap). | In the open: a straight walk to the nearer side, turning to face roughly your heading. In the gap: it waits on your path behind you. | A curved or blocked path to the slot, facing away, or squeezing into a blocked slot. |
+| DUO-11, DUO-12 | Stop in the open and wait 1 s, once after walking left/right and once after walking up/down the screen. Then walk up or down into a gap with props close on its left and right and stop. | In the open: a straight walk to the nearer screen-left or screen-right side, so the pair stands side by side in frame whatever your heading, then it turns to face roughly your heading. In the gap: it waits on your path behind you. | A curved or blocked path to the slot, facing away, or squeezing into a blocked slot. |
 | DUO-13, DUO-14 | Idle 4 s. Watch the dance, then press a key mid-dance. Repeat, ending with a click on the page. | The follower starts the same dance about a third of a second after the leader, a canon, not unison. Both stop together on input. | Unison, a late or missing follower dance, or one troll dancing on alone. |
 | DUO-15, DUO-16 | Walk the follower into a dead end behind a prop, then quickly walk away from it (or swap twice to get it stuck). | Once it is far behind it hops once in a low arc to just behind you. Where the straight line crosses a prop, it walks round instead. | Several hops, a hop through a prop, a hop that lands somewhere odd, or a follower left behind for long. |
 | DUO-17 to DUO-24 | Swap with Space while standing, walking (key held), dancing, and while the follower is mid-hop. Click the follower while walking and while standing. Press Space three times quickly, then twice quickly. | Each swap is instant: the camera glides to the new leader, the held key keeps walking it, and the dance stops. A swap requested mid-hop applies on landing. Three quick presses swap twice in total, half a second apart. Two quick presses after a swap do nothing more. A click on the follower never makes anyone walk to the click. | A swap that is lost, doubled, or happens mid-air. The old leader keeps walking. A click on the follower starts a walk. |
