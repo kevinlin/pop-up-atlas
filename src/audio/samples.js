@@ -1,6 +1,9 @@
 export const VOICE_FADE = 0.02
 
 const KIND_GAINS = { voice: 1, chorus: 0.6, sfx: 0.55, step: 0.4 }
+const FOLD_ATTACK = 0.03
+const FOLD_RECOVERY = 0.03
+const FOLD_SHELF_DB = -11
 const requested = async (url) => {
   const response = await fetch(url)
   if (!response.ok) throw new Error('Audio asset unavailable')
@@ -61,7 +64,7 @@ export function createSamplePlayback(context, sound, buffers) {
   return {
     cut,
     play(play, offset) {
-      const { t, end, file, kind, gain, pan, rate } = play
+      const { t, end, file, kind, cause, gain, pan, rate } = play
       if (file === null) {
         if (t + offset < 0 || end <= t) return
         sound({ kind: 'pluck', midi: play.midi, t, end, gain: gain * KIND_GAINS.step, pan }, offset)
@@ -78,7 +81,20 @@ export function createSamplePlayback(context, sound, buffers) {
       trim.gain.value = gain
       const panner = context.createStereoPanner()
       panner.pan.value = pan
-      source.connect(trim).connect(panner).connect(buses[kind])
+      const attackEnd = scheduled + FOLD_ATTACK
+      const recoveryEnd = attackEnd + FOLD_RECOVERY
+      if (kind === 'sfx' && cause === 'fold' && start < recoveryEnd) {
+        const shelf = context.createBiquadFilter()
+        shelf.type = 'highshelf'
+        shelf.frequency.value = 2350
+        shelf.gain.value = FOLD_SHELF_DB * Math.min(1, (recoveryEnd - start) / FOLD_RECOVERY)
+        shelf.gain.setValueAtTime(shelf.gain.value, Math.max(start, attackEnd))
+        shelf.gain.linearRampToValueAtTime(0, recoveryEnd)
+        source.connect(shelf).connect(trim)
+      } else {
+        source.connect(trim)
+      }
+      trim.connect(panner).connect(buses[kind])
       source.start(start, Math.max(0, -scheduled) * rate)
       source.stop(end + offset)
       source.onended = () => {

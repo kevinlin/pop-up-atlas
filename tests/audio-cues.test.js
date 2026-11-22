@@ -30,6 +30,43 @@ const pitch = ({ file, rate, cue }, cues) =>
   cues[cue].files.find(({ src }) => src === file).baseMidi + 12 * Math.log2(rate)
 
 describe('fold layers and footsteps', () => {
+  it('softens fold-up and fold-down attacks without filtering claps, spin or bumps', () => {
+    const { cues, director, plays } = setup()
+    fold(director, 1)
+    fold(director, 1.5, 'flower', { dir: 'down' })
+    director.bump(2, 'prop')
+    director.bump(5, 'river')
+    director.dance(6, 1)
+    const connect = vi.fn((node) => node)
+    const createBiquadFilter = vi.fn(() => ({
+      frequency: {}, gain: { setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn() }, connect,
+    }))
+    const buffers = new Map(Object.values(cues).flatMap(({ files }) =>
+      files.map(({ src, duration }) => [src, { buffer: {}, duration }])))
+    const playback = createSamplePlayback({
+      createGain: () => ({ gain: {}, connect }),
+      createStereoPanner: () => ({ pan: {}, connect }),
+      createBufferSource: () => ({ playbackRate: {}, connect, start() {}, stop() {} }),
+      createBiquadFilter,
+    }, {}, buffers)
+
+    const effects = plays.filter(({ kind }) => kind === 'sfx')
+    expect(effects.map(({ cue }) => cue)).toEqual([
+      'fold_flower', 'fold_down', 'sfx_bump', 'sfx_plip', 'sfx_clap', 'sfx_clap', 'sfx_spin',
+    ])
+    effects.forEach((play) => playback.play(play, 2))
+
+    expect(createBiquadFilter).toHaveBeenCalledTimes(2)
+    createBiquadFilter.mock.results.forEach(({ value: filter }, i) => {
+      const start = effects[i].t + 2
+      expect(connect).toHaveBeenCalledWith(filter)
+      expect(filter.type).toBe('highshelf')
+      expect(filter.gain.value).toBeLessThanOrEqual(-6)
+      expect(filter.gain.setValueAtTime).toHaveBeenCalledWith(filter.gain.value, start + 0.03)
+      expect(filter.gain.linearRampToValueAtTime).toHaveBeenCalledWith(0, expect.closeTo(start + 0.06, 10))
+    })
+  })
+
   it('maps every fold-up tile, and layers only over a played pop, once per frame and direction', () => {
     const { director, plays, cues } = setup()
     const mapping = ['flower', 'mushroom_house', 'cupcake_tree', 'yarn_bridge',
