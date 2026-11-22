@@ -15,6 +15,23 @@ test('lantern clearance counts projected overlap and the bottom quarter independ
   })
 })
 
+test('lantern clearance covers the leader and the follower, not the space between them', () => {
+  const width = 10, height = 8
+  const mask = new Uint8Array(width * height)
+  const trolls = [[1, 1, 3, 5], [6, 1, 8, 5]]
+  mask[2 * width + 7] = 1 // inside the follower only
+  mask[2 * width + 2] = 1 // inside the leader only
+  mask[2 * width + 4] = 1 // in the gap between them: allowed
+  expect(lanternClearance(mask, width, height, trolls)).toEqual({
+    visible: 3, insideTroll: 2, bottomQuarter: 0, passed: false,
+  })
+  expect(lanternClearance(mask, width, height, trolls[0]).insideTroll).toBe(1)
+  mask[2 * width + 7] = mask[2 * width + 2] = 0
+  expect(lanternClearance(mask, width, height, trolls)).toEqual({
+    visible: 1, insideTroll: 0, bottomQuarter: 0, passed: true,
+  })
+})
+
 test('frame statistics use Rec.709, HSV and measured pixel masks', () => {
   const rgba = Uint8Array.from([
     255, 255, 255, 255, 255, 0, 4, 255,

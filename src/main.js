@@ -3,7 +3,6 @@ import { flushAudioFolds, initAudio, playFold, setLeader } from './audio/live.js
 import { createDuoDance, createFollower, startFollower } from './character/follow.js'
 import { createCharacter } from './character/index.js'
 import { bindControls } from './controls/index.js'
-import { createPlayer } from './controls/movement.js'
 import { createLeadSwap } from './controls/swap.js'
 import { setupDebug, setupDuoDebug } from './debug/index.js'
 import { createAtmosphere } from './effects/air.js'
@@ -13,7 +12,7 @@ import { createCameraRig } from './scene/camera-rig.js'
 import { createLights } from './scene/lights.js'
 import { addPlaceholders } from './scene/placeholders.js'
 import { createRenderer } from './scene/renderer.js'
-import { blockedBy, camera, isBlocked, player, registerUpdate, scene, updates } from './scene/runtime.js'
+import { blockedBy, camera, follower, isBlocked, player, registerUpdate, scene, updates } from './scene/runtime.js'
 import { initWorld, onFold } from './world/index.js'
 
 export { camera, isBlocked, player, registerUpdate, scene, setIsBlocked } from './scene/runtime.js'
@@ -25,7 +24,6 @@ const followPlayer = createCameraRig(camera, player.position)
 const followLight = createLights(scene)
 const updateDebug = setupDebug(player)
 const world = initWorld(window.__atlas)
-const follower = createPlayer()
 function placeFollower() {
   const spawn = startFollower(player, isBlocked)
   follower.position.set(spawn.x, 0, spawn.z)

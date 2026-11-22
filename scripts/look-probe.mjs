@@ -257,23 +257,30 @@ export function readStageEffects(page, mask) {
     }
     const ratios = []
     const fronds = []
-    const player = window.__atlas.player
+    const { player, duo } = window.__atlas
     const corner = camera.position.clone()
-    const actorBounds = [width, height, 0, 0]
-    for (const sx of [-0.45, 0.45]) {
-      for (const sy of [-0.05, 1.10]) {
-        for (const sz of [-0.45, 0.45]) {
-          corner.set(player.x + sx, sy, player.z + sz).project(camera)
-          const x = (corner.x + 1) * width / 2
-          const y = (corner.y + 1) * height / 2
-          actorBounds[0] = Math.min(actorBounds[0], x)
-          actorBounds[1] = Math.min(actorBounds[1], y)
-          actorBounds[2] = Math.max(actorBounds[2], x)
-          actorBounds[3] = Math.max(actorBounds[3], y)
+    // Projected [left, bottom, right, top] of one troll's box (bottom-up pixel rows).
+    const actorBox = (actor) => {
+      const box = [width, height, 0, 0]
+      for (const sx of [-0.45, 0.45]) {
+        for (const sy of [-0.05, 1.10]) {
+          for (const sz of [-0.45, 0.45]) {
+            corner.set(actor.x + sx, sy, actor.z + sz).project(camera)
+            const x = (corner.x + 1) * width / 2
+            const y = (corner.y + 1) * height / 2
+            box[0] = Math.min(box[0], x)
+            box[1] = Math.min(box[1], y)
+            box[2] = Math.max(box[2], x)
+            box[3] = Math.max(box[3], y)
+          }
         }
       }
+      return box
     }
-    const [left, bottom, right, top] = actorBounds
+    const [left, bottom, right, top] = actorBox(player)
+    // Both trolls: the leader first, then the follower (absent only before the duo is set up).
+    const trollBounds = [actorBox(player), ...(duo ? [actorBox(duo.follower)] : [])]
+      .map(([l, b, r, t]) => [l, height - t, r, height - b])
     let overlap = 0
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
@@ -324,7 +331,7 @@ export function readStageEffects(page, mask) {
     draw()
     return { motes, moss: { samples: ratios.length, sunToShade: median(ratios) },
       fronds: { share: fronds.length * 100 / (width * height), medianLuma: median(fronds), overlap },
-      riggingMask, trollBounds: [left, height - top, right, height - bottom],
+      riggingMask, trollBounds,
       emitters: emitters.filter(Boolean) }
   }, mask.toString('base64'))
 }

@@ -94,8 +94,11 @@ export function trollFidelity(current, reference, currentMask, referenceMask, wi
   ]))
 }
 
-export function lanternClearance(mask, width, height, [left, top, right, bottom]) {
+// trollBounds is one [left, top, right, bottom] box or a list of them (leader and follower); a pixel is inside
+// the troll when it is inside any box.
+export function lanternClearance(mask, width, height, trollBounds) {
   assert.equal(mask.length, width * height)
+  const boxes = typeof trollBounds[0] === 'number' ? [trollBounds] : trollBounds
   let visible = 0
   let insideTroll = 0
   let bottomQuarter = 0
@@ -103,7 +106,8 @@ export function lanternClearance(mask, width, height, [left, top, right, bottom]
     for (let x = 0; x < width; x++) {
       if (!mask[y * width + x]) continue
       visible++
-      if (x + 0.5 >= left && x + 0.5 <= right && y + 0.5 >= top && y + 0.5 <= bottom) insideTroll++
+      if (boxes.some(([left, top, right, bottom]) =>
+        x + 0.5 >= left && x + 0.5 <= right && y + 0.5 >= top && y + 0.5 <= bottom)) insideTroll++
       if (y + 0.5 >= 0.75 * height) bottomQuarter++
     }
   }
@@ -515,7 +519,7 @@ async function measure({ url, out, before, preStage }) {
     darkForeground: 'Visible frond mask and projected conservative troll bounds',
     air: 'Projected centers that change by at least 3 RGB levels when the corresponding layer is hidden',
     emitters: 'Visible core-center luma and median emissive halo radius along eight rays',
-    clearance: 'Changed RGB pixels with the lantern rig hidden, tested against the projected troll bounds and bottom quarter',
+    clearance: 'Changed RGB pixels with the lantern rig hidden, tested against the union of the projected bounds of both trolls and the bottom quarter',
   }
   await writeJson(out, {
     viewport, url, before, methods, trollReference, preStage, lighting, backdrop, bloomWitness, foldResponse, frames, bullets,

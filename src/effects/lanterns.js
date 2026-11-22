@@ -4,10 +4,19 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { look } from '../materials/stage-look.js'
-import { camera, player, registerUpdate } from '../scene/runtime.js'
+import { camera, follower, player, registerUpdate } from '../scene/runtime.js'
 import { cellAt, GUTTER_INTERVAL } from '../world/tiles.js'
 import { craft, craftMap, emitterColors, palette } from './craft.js'
 import { placeLantern } from './placement.js'
+
+// Core brightness (outgoing light) and halo gain (emission buffer, near to far). Contract #11: luma 200-235, halo
+// 1.5-3 % of frame width. Tuned for core luma ~205-215 on the default camera. Neutral tone mapping flattens the top
+// end, so the values sit well under 1. Gains below ~0.25 starve the bloom threshold in tilt-shift.js (halo drops to 0);
+// above ~0.3 the halo radius barely moves, because the measured edge is set by the cream page, which takes no halo.
+const CORE_LIGHT = '0.50'
+const CORE_DISTANT = '0.15'
+const HALO_NEAR = '0.35'
+const HALO_FAR = '1.20'
 
 const glowColors = [palette.butter, palette.mint, palette.hotPink, palette.sky].map((color) => new Color(color))
 export const glowPlane = () => new PlaneGeometry(2, 2).rotateX(-Math.PI / 2)
@@ -118,13 +127,15 @@ export function createLanterns(scene) {
           #ifdef USE_COLOR
             totalEmissiveRadiance *= vColor.rgb;
           #endif
+          // Halo size follows the emission, so ease it for near cores and lift it for far ones.
+          totalEmissiveRadiance *= mix(${HALO_NEAR}, ${HALO_FAR}, smoothstep(10.6, 11.8, vViewPosition.z));
         `)
         .replace('#include <opaque_fragment>', `
           float distantGlow = smoothstep(10.6, 11.8, vViewPosition.z);
           float sky = smoothstep(0.095, 0.14, vColor.b - max(vColor.r, vColor.g));
           vec3 tint = vColor.rgb + vec3(0.0, 0.0, 0.08 * sky);
-          outgoingLight = tint * (${look.grade ? '1.15' : '1.08'} + 0.08 * max(0.0, dot(normal, normalize(vViewPosition)))
-            + 0.90 * distantGlow + 0.30 * sky);
+          outgoingLight = tint * (${look.grade ? '1.15' : CORE_LIGHT} + 0.08 * max(0.0, dot(normal, normalize(vViewPosition)))
+            + ${CORE_DISTANT} * distantGlow + 0.30 * sky);
           #include <opaque_fragment>
         `)
     })
@@ -145,13 +156,14 @@ export function createLanterns(scene) {
   const groundPart = templates.findIndex(([name]) => name === 'ground-glow')
   const transform = new Object3D()
   const trollCorners = boxCorners(new Vector3(-0.45, -0.05, -0.45), new Vector3(0.45, 1.10, 0.45))
-  const troll = new Box2()
+  const actors = [player, follower]
+  const trolls = actors.map(() => new Box2())
   const projected = new Box2()
   const point = new Vector3()
   const ndc = new Vector2()
   const lastView = new Matrix4()
   const lastProjection = new Matrix4()
-  const lastPosition = new Vector3()
+  const lastPositions = actors.map(() => new Vector3())
   const blurMargin = new Vector2(0.04, 0.12)
   let capacity = 0
   let dirty = true
@@ -231,20 +243,24 @@ export function createLanterns(scene) {
   function clearOfTroll({ corners }) {
     if (!project(corners, projected)) return false
     if (projected.max.x < -1 || projected.min.x > 1 || projected.min.y > 1) return true
-    return projected.min.y >= -0.5 + blurMargin.y && !troll.intersectsBox(projected)
+    return projected.min.y >= -0.5 + blurMargin.y && !trolls.some((box) => box.intersectsBox(projected))
   }
 
   function update() {
     camera.updateMatrixWorld()
     if (!dirty && lastView.equals(camera.matrixWorldInverse) && lastProjection.equals(camera.projectionMatrix)
-      && lastPosition.equals(player.position)) return
+      && actors.every((actor, i) => lastPositions[i].equals(actor.position))) return
     dirty = false
     lastView.copy(camera.matrixWorldInverse)
     lastProjection.copy(camera.projectionMatrix)
-    lastPosition.copy(player.position)
+    actors.forEach((actor, i) => lastPositions[i].copy(actor.position))
 
-    const trollInView = project(trollCorners, troll, player.position)
-    troll.expandByVector(blurMargin)
+    // Both trolls keep their buffered bounds clear; if either is behind the camera nothing is drawn.
+    const trollInView = actors.map((actor, i) => {
+      const inView = project(trollCorners, trolls[i], actor.position)
+      trolls[i].expandByVector(blurMargin)
+      return inView
+    }).every(Boolean)
     for (const mesh of parts) mesh.count = 0
     if (trollInView) {
       for (const span of spans) {
