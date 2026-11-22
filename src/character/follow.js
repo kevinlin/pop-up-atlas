@@ -150,12 +150,12 @@ export function createDuoDance() {
   }
 }
 
-function idleSlot(leader, from, isBlocked) {
-  const x = 0.75 * Math.cos(leader.heading)
-  const z = -0.75 * Math.sin(leader.heading)
-  return [offset(leader.position, -x, -z), offset(leader.position, x, z)]
+function idleSlot(position, from, isBlocked, cameraRight) {
+  const x = 0.75 * cameraRight.x
+  const z = 0.75 * cameraRight.z
+  return [offset(position, -x, -z), offset(position, x, z)]
     .sort((a, b) => distance(from, a) - distance(from, b))
-    .find((point) => leavesClearance(from, point, leader.position) && clearPath(from, point, isBlocked))
+    .find((point) => leavesClearance(from, point, position) && clearPath(from, point, isBlocked))
 }
 
 function closestFraction(point, from, dx, dz) {
@@ -213,7 +213,7 @@ export function createFollower(leader, initial) {
     history.record(position, t)
   }
 
-  function update(leader, follower, dt, t, isBlocked, dancing) {
+  function update(leader, follower, dt, t, isBlocked, dancing, cameraRight) {
     const from = follower.position
     const gap = distance(from, leader.position)
     const target = trail.end() - followDistance
@@ -265,7 +265,7 @@ export function createFollower(leader, initial) {
 
     const idleDisplacement = history.displacement(0.5)
     if (idleDisplacement !== null && idleDisplacement < 0.02) {
-      const slot = idleSlot(leader, from, isBlocked)
+      const slot = idleSlot(leader.position, from, isBlocked, cameraRight)
       if (slot) {
         const left = distance(from, slot)
         const step = Math.min(left, maxSpeed * dt)
