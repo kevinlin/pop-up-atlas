@@ -19,6 +19,5 @@ dist/
 # macOS Finder metadata
 .DS_Store
 
-# Round-4 sound stems and blind sound pairs (~150 MB); regenerate with: node scripts/capture.mjs --round 4 --stems
-deliverables/round-4/audio/*.wav
-deliverables/round-4/critic-inputs/audio/*.wav
+# Round sound stems and blind sound pairs (~150 MB); regenerate with: node scripts/capture.mjs --round 4 --stems
+deliverables/
