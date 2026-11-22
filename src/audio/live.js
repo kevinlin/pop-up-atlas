@@ -19,6 +19,7 @@ export function initAudio(manifestURL, world, player, debug) {
   let ready
   let playback
   let origin
+  let leader = 'a'
   const cues = {}
 
   function enableSamples() {
@@ -42,8 +43,11 @@ export function initAudio(manifestURL, world, player, debug) {
       pending.push(event)
     },
     flushFolds: playFolds,
+    setLeader(id) { leader = id },
     update(t, state, danceFinished) {
       director.setSeed(world.seed)
+      // The character update follows the swap callback in the same frame.
+      director.setLeader(leader, t)
       if (state !== 'dance') director.dance(t, undefined, !danceFinished)
       director.walk(t, state === 'walk')
       director.idle(t)
@@ -101,3 +105,4 @@ export const flushAudioFolds = () => live?.flushFolds()
 export const updateCharacterAudio = (t, state, danceFinished) => live?.update(t, state, danceFinished)
 export const playFootstep = (t) => live?.step(t)
 export const playDance = (t, clipTime) => live?.dance(t, clipTime)
+export const setLeader = (id) => live?.setLeader(id)

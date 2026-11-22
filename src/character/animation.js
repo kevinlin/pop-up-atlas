@@ -1,5 +1,5 @@
 import { AnimationMixer, LoopOnce, MathUtils } from 'three'
-import { playFootstep } from '../audio/live.js'
+import { walkTimeScale } from './follow.js'
 
 const names = ['idle', 'walk', 'dance']
 
@@ -26,7 +26,7 @@ export function createAnimation(model, clips) {
   return {
     get danceFinished() { return dance.time >= danceDuration },
     get danceTime() { return dance.time },
-    update(next, speed, dt, t) {
+    update(next, speed, dt, t, onStep, follower = false) {
       let walkStart = false
       if (next !== state) {
         duration = state === 'dance' && dance.time < danceDuration ? 0.1 : 0.18
@@ -52,14 +52,14 @@ export function createAnimation(model, clips) {
         }
       }
 
-      const walkRate = speed / 1.2
+      const walkRate = follower ? walkTimeScale(speed) : speed / 1.2
       walk.setEffectiveTimeScale(walkRate)
       const previousWalkTime = walk.time
       mixer.update(dt)
-      if (state !== 'walk') return
-      if (walkStart) playFootstep(t)
-      else if (walk.time < previousWalkTime) playFootstep(t - walk.time / walkRate)
-      else if (previousWalkTime < 0.5 && walk.time >= 0.5) playFootstep(t - (walk.time - 0.5) / walkRate)
+      if (state !== 'walk' || !onStep) return
+      if (walkStart) onStep(t)
+      else if (walk.time < previousWalkTime) onStep(t - walk.time / walkRate)
+      else if (previousWalkTime < 0.5 && walk.time >= 0.5) onStep(t - (walk.time - 0.5) / walkRate)
     },
   }
 }

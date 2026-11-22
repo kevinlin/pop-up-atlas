@@ -33,3 +33,17 @@ export function setupDebug(player) {
     }
   }
 }
+
+export function setupDuoDebug(follower, swap) {
+  window.__atlas.duo = {
+    get leader() { return swap.leader },
+    follower: {
+      get x() { return follower.position.x },
+      get z() { return follower.position.z },
+      get state() { return follower.state },
+    },
+    get swaps() { return swap.swaps },
+    get pendingSwap() { return swap.pendingSwap },
+    swap: swap.request,
+  }
+}

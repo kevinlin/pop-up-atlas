@@ -18,7 +18,7 @@ export async function loadSamples(context, manifestURL, files) {
     const manifest = await (await requested(url)).json()
     if (manifest.version !== 1 || !manifest.cues || typeof manifest.cues !== 'object') return { cues: {}, buffers }
     const loads = new Map()
-    for (const entry of Object.values(manifest.cues)) {
+    for (const [cue, entry] of Object.entries(manifest.cues)) {
       if (!Object.hasOwn(KIND_GAINS, entry.kind) || !Number.isFinite(entry.gain) || !Array.isArray(entry.files)) {
         return { cues: {}, buffers }
       }
@@ -26,16 +26,23 @@ export async function loadSamples(context, manifestURL, files) {
         if (typeof file.src !== 'string' || !Number.isFinite(file.duration) || file.duration <= 0) {
           return { cues: {}, buffers }
         }
-        if (!files || files.has(file.src)) loads.set(file.src, file)
+        if (!files || files.has(file.src)) loads.set(file.src, { ...file, optional: cue.startsWith('b_') })
       }
     }
-    await Promise.all(Array.from(loads.values(), async (file) => {
-      // Generated /audio paths are relative to the game's deployment base.
-      const src = new URL(file.src.replace(/^\/audio\//, ''), url)
-      const bytes = await (await requested(src)).arrayBuffer()
-      const buffer = await context.decodeAudioData(bytes)
-      buffers.set(file.src, { buffer, duration: file.duration })
+    await Promise.all(Array.from(loads.values(), async ({ src, duration, optional }) => {
+      try {
+        // Generated /audio paths are relative to the game's deployment base.
+        const path = new URL(src.replace(/^\/audio\//, ''), url)
+        const bytes = await (await requested(path)).arrayBuffer()
+        const buffer = await context.decodeAudioData(bytes)
+        buffers.set(src, { buffer, duration })
+      } catch (error) {
+        if (!optional) throw error
+      }
     }))
+    for (const [cue, entry] of Object.entries(manifest.cues)) {
+      if (cue.startsWith('b_')) entry.files = entry.files.filter(({ src }) => buffers.has(src))
+    }
     return { cues: manifest.cues, buffers }
   } catch {
     return { cues: {}, buffers: new Map() }

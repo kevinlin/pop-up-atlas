@@ -59,6 +59,7 @@ export function createMovement(player, camera) {
 
   return {
     update,
+    get hasDestination() { return destination !== null },
     walkTo(point) { destination = clickPoint.copy(point) },
     cancelWalk() { destination = null },
   }
