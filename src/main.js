@@ -1,5 +1,5 @@
 import { Color, Raycaster, Vector3 } from 'three'
-import { flushAudioFolds, initAudio, playFold } from './audio/live.js'
+import { flushAudioFolds, initAudio, playFold, setLeader } from './audio/live.js'
 import { createDuoDance, createFollower, startFollower } from './character/follow.js'
 import { createCharacter } from './character/index.js'
 import { bindControls } from './controls/index.js'
@@ -53,6 +53,7 @@ function showLeaderHair() {
 }
 
 const swap = createLeadSwap(player, follower, () => {
+  setLeader(swap.leader)
   const previousLeader = leaderCharacter
   leaderCharacter = followerCharacter
   followerCharacter = previousLeader

@@ -28,6 +28,7 @@ const DANCE = [
   [2.50, 'sing_da', 74],
   [2.65, 'chorus_yay'],
 ]
+const B_DANCE_NOTES = { sing_ta: 62, sing_da: 57 }
 
 const elapsed = (t, since, gap) => t - since >= gap - EPSILON
 
@@ -39,6 +40,7 @@ export function createCueDirector(cues, emit, cut = () => {}) {
   const notes = []
   const pendingNotes = []
   const hum = []
+  let leader = 'a'
   let voice
   let chorus
   let lastReaction = -Infinity
@@ -68,6 +70,10 @@ export function createCueDirector(cues, emit, cut = () => {}) {
   }
 
   function sample(cue, t, cause, { pan = 0, level = 1, midi, replace = false } = {}) {
+    if (leader === 'b' && (cue.startsWith('voice_') || cue.startsWith('sing_'))) {
+      midi = cue === 'sing_hum' ? midi - 12 : B_DANCE_NOTES[cue] ?? midi
+      cue = `b_${cue}`
+    }
     const entry = cues[cue]
     if (!entry || (entry.kind === 'chorus' && !elapsed(t, chorus?.end ?? -Infinity, 0))
       || (entry.kind === 'voice' && !replace && !elapsed(t, voice?.end ?? -Infinity, 0))) return false
@@ -88,6 +94,7 @@ export function createCueDirector(cues, emit, cut = () => {}) {
     const rate = midi === undefined ? 1 : 2 ** ((midi - baseMidi) / 12)
     const play = { t, end: t + duration / rate, cue, kind: entry.kind, cause, file: src,
       gain: entry.gain * level, pan, rate }
+    if (cause !== 'fold' && entry.kind !== 'chorus') play.who = leader
     if (entry.kind === 'voice') {
       if (replace) fadeVoice(t)
       voice = play
@@ -116,6 +123,25 @@ export function createCueDirector(cues, emit, cut = () => {}) {
 
   return {
     setSeed(value) { seed = value },
+    setLeader(id, t) {
+      if (id === leader) return
+      const active = voice?.end > t
+      const end = active ? Math.min(voice.end, t + VOICE_FADE) : t
+      if (active) fadeVoice(end)
+
+      leader = id
+      hum.length = 0
+      humIndex = 0
+      humAt = Infinity
+      dancing = false
+      danceIndex = 0
+      reactionStarts.clear()
+      lastReaction = lastBump = -Infinity
+      bridge = moving = false
+      since = t
+
+      if (!active || elapsed(t, voice.t, 0.3)) sample('voice_lead', end, 'swap')
+    },
     fold({ t, dir, id, i, j }, popPlayed, x, z) {
       const dx = i * TILE_SIZE - x
       if (popPlayed && lastLayer[dir] !== t) {
@@ -145,7 +171,7 @@ export function createCueDirector(cues, emit, cut = () => {}) {
         const midi = BRIDGE_NOTES[Math.min(bridgeStep++, BRIDGE_NOTES.length - 1)]
         if (sample('step_felt', t, 'step', { pan, level: QUIET })) {
           emit({ t, end: t + 0.18, cue: 'step_pluck', kind: 'step', cause: 'step',
-            file: null, gain: cues.step_felt.gain, pan, rate: 1, midi })
+            file: null, gain: cues.step_felt.gain, pan, rate: 1, midi, who: leader })
         }
       } else {
         sample(tile?.startsWith('path_') ? 'step_paper' : 'step_felt', t, 'step', { pan })
