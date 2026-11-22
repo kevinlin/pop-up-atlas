@@ -3,6 +3,7 @@ import { flushAudioFolds, initAudio, playFold, setLeader } from './audio/live.js
 import { createDuoDance, createFollower, startFollower } from './character/follow.js'
 import { createCharacter } from './character/index.js'
 import { bindControls } from './controls/index.js'
+import { createGuide } from './controls/guide.js'
 import { createLeadSwap } from './controls/swap.js'
 import { setupDebug, setupDuoDebug } from './debug/index.js'
 import { createAtmosphere } from './effects/air.js'
@@ -71,6 +72,7 @@ const controls = bindControls(canvas, camera, player, {
   },
 })
 setupDuoDebug(follower, swap)
+createGuide(canvas)
 
 const duoProbe = new URLSearchParams(window.location.search).has('duo-probe')
   ? { scene, camera, raycaster: new Raycaster() } : null
