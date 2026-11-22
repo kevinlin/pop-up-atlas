@@ -12,6 +12,7 @@ import {
 import { compareStills, compareTrollStills, shots, takeShot } from './sbs.mjs'
 
 const viewport = { width: 1280, height: 720 }
+const clearanceCheck = '11 Lantern clearance'
 const luma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b
 const hex = (rgb) => '#' + rgb.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')
 const share = (count, total) => total ? 100 * count / total : null
@@ -91,6 +92,22 @@ export function trollFidelity(current, reference, currentMask, referenceMask, wi
   return Object.fromEntries(Object.entries(characterLayers).map(([part, layer]) => [
     part, surfaceFidelity(current, reference, currentMask, referenceMask, width, height, (value) => value === layer),
   ]))
+}
+
+export function lanternClearance(mask, width, height, [left, top, right, bottom]) {
+  assert.equal(mask.length, width * height)
+  let visible = 0
+  let insideTroll = 0
+  let bottomQuarter = 0
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!mask[y * width + x]) continue
+      visible++
+      if (x + 0.5 >= left && x + 0.5 <= right && y + 0.5 >= top && y + 0.5 <= bottom) insideTroll++
+      if (y + 0.5 >= 0.75 * height) bottomQuarter++
+    }
+  }
+  return { visible, insideTroll, bottomQuarter, passed: insideTroll === 0 && bottomQuarter === 0 }
 }
 
 function trollCrop(mask, { width, height }) {
@@ -344,7 +361,13 @@ async function measure({ url, out, before, preStage }) {
         if (before) return
         mask = await readMask()
         assert.ok(mask, 'Look diagnostic shader was not drawn by preview')
-        effects = await readStageEffects(page, mask)
+        const { riggingMask, trollBounds, ...stageEffects } = await readStageEffects(page, mask)
+        effects = stageEffects
+        if (stageFlags(captureURL.search).lanterns) {
+          assert.ok(riggingMask, 'Lantern rigging mask was unavailable')
+          effects.clearance = { trollBounds,
+            ...lanternClearance(Buffer.from(riggingMask, 'base64'), viewport.width, viewport.height, trollBounds) }
+        }
         if (!disabled.has('dapple')) dapple = dappleContrast(await readMask(2))
         if (!disabled.has('backlight')) rims = rimCoverage(mask, await readMask(3), viewport.width)
         if (index === 0) lighting = await readStageLighting(page)
@@ -401,6 +424,10 @@ async function measure({ url, out, before, preStage }) {
       if (dapple) passed['8 Dappled key contrast'] = dapple.passed
       if (rims) passed['2 Felt rim visibility'] = rims.share === null ? null : rims.share >= 50
       if (effects) Object.assign(passed, effectChecks(effects))
+      if (effects?.clearance) {
+        passed[clearanceCheck] = effects.clearance.passed
+        console.log(`${effects.clearance.passed ? 'PASS' : 'FAIL'} ${clearanceCheck}, shot ${index + 1} ${JSON.stringify(effects.clearance)}`)
+      }
       frames.push({ ...staged, groveInFrame: grove, stats, tints: {
         highlight: tintMetrics(stats.highlightTint), shadow: tintMetrics(stats.shadowTint),
       }, fidelity, troll, dapple, rims, effects, checks: passed })
@@ -450,11 +477,20 @@ async function measure({ url, out, before, preStage }) {
   const bullets = Object.fromEntries(Object.keys(frames[0].checks).map((name) => {
     const measured = frames.map((frame) => frame.checks[name]).filter((result) => result !== null)
     const passed = measured.filter(Boolean).length
-    const required = name.endsWith('fidelity') ? frames.length : 5
+    const required = name.endsWith('fidelity') || name === clearanceCheck ? frames.length : 5
     const status = measured.length === 0 ? 'N/A' : passed >= required ? 'PASS' : 'FAIL'
     console.log(status + '  ' + name + ' (' + passed + '/' + measured.length + ')')
     return [name, { status, passed, measured: measured.length, required }]
   }))
+  if (bullets[clearanceCheck]) {
+    const totals = { insideTroll: 0, bottomQuarter: 0 }
+    for (const { effects } of frames) {
+      totals.insideTroll += effects.clearance.insideTroll
+      totals.bottomQuarter += effects.clearance.bottomQuarter
+    }
+    Object.assign(bullets[clearanceCheck], totals)
+    console.log(`Lantern clearance totals ${JSON.stringify(totals)}`)
+  }
   if (backdrop) {
     const status = backdrop.passed ? 'PASS' : 'FAIL'
     bullets['17 Backdrop gradient'] = { status, passed: Number(backdrop.passed), measured: 1, required: 1 }
@@ -481,6 +517,7 @@ async function measure({ url, out, before, preStage }) {
     darkForeground: 'Visible frond mask and projected conservative troll bounds',
     air: 'Projected centers that change by at least 3 RGB levels when the corresponding layer is hidden',
     emitters: 'Visible core-center luma and median emissive halo radius along eight rays',
+    clearance: 'Changed RGB pixels with the lantern rig hidden, tested against the projected troll bounds and bottom quarter',
   }
   await writeJson(out, {
     viewport, url, before, methods, trollReference, preStage, lighting, backdrop, bloomWitness, foldResponse, frames, bullets,

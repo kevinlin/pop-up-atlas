@@ -177,6 +177,25 @@ export function readStageEffects(page, mask) {
       return pixels
     }
     const full = draw()
+    const rig = get('stage-effects')?.children.filter((object) => object.name.startsWith('atlas/lantern/') && object.visible)
+    let riggingMask
+    if (rig?.length) {
+      for (const part of rig) part.visible = false
+      try {
+        const off = draw()
+        const pixels = new Uint8Array(width * height)
+        // Compare the composited draw so translucent card, additive glow and blur all count.
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = topOffset(x, y)
+            pixels[y * width + x] = Number(full[i] !== off[i] || full[i + 1] !== off[i + 1] || full[i + 2] !== off[i + 2])
+          }
+        }
+        riggingMask = pixels.toBase64()
+      } finally {
+        for (const part of rig) part.visible = true
+      }
+    }
 
     function air(name) {
       const mesh = get(name)
@@ -314,6 +333,7 @@ export function readStageEffects(page, mask) {
     draw()
     return { bokeh, motes, moss: { samples: ratios.length, sunToShade: median(ratios) },
       fronds: { share: fronds.length * 100 / (width * height), medianLuma: median(fronds), overlap },
+      riggingMask, trollBounds: [left, height - top, right, height - bottom],
       emitters: emitters.filter(Boolean) }
   }, mask.toString('base64'))
 }
