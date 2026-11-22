@@ -9,8 +9,10 @@ import { parseArgs } from 'node:util'
 import { chromium } from 'playwright'
 import { createScheduler } from '../src/audio/music.js'
 import { createLayout } from '../src/world/layout.js'
-import { cellAt, LAST_PAGE_ROW, PAGE_MAX_Z, TILE_SIZE } from '../src/world/tiles.js'
+import { cellAt, FIRST_PAGE_ROW, LAST_PAGE_ROW, PAGE_MAX_Z, TILE_SIZE } from '../src/world/tiles.js'
 import { cueKinds, decodeAudio, ffmpeg, masterMetrics, mixReport, writeCriticPairs } from './capture-audio.mjs'
+import { bandClear, duoContract, pathClear } from './e2e-duo-plan.mjs'
+import { framingStats, installProbe, overlapShare, serveThree } from './e2e-duo-probe.mjs'
 
 export const previewURL = 'http://localhost:4173'
 export const evidenceDir = '.handoff/evidence/T10'
@@ -181,7 +183,152 @@ export function planCaptureRoute() {
   return best
 }
 
-export async function offlineAudio(page, filepath, clipStart, durationSec = duration, { stemsDir, baselineRev } = {}) {
+// Round 5 (docs/contracts.md "Round 5: duo"): from this round on the capture follows the duo route.
+export const duoRound = 5
+export const duoTiming = {
+  danceIdleSeconds: 4,
+  followerDanceDelay: 0.3125,
+  // Room after the follower's dance ends, so the clip does not cut the dance off.
+  tailMarginSeconds: 0.7,
+  faceCameraFrames,
+  // The swap is applied by the next game frame; the held keys then steer the new leader.
+  swapKeyDelayFrames: 3,
+  followGap: 1.1,
+  // Where B takes over, measured back from the bridge centre, and where the pair stops past it.
+  swapBeforeBridge: 3.6,
+  stopAfterBridge: 2.5,
+  minAFrames: 3 * fps,
+  minFoldUps: 4,
+}
+
+// Fold-ups a leader path raises (docs/contracts.md: up at 2 units, down beyond 3, tile centres on the 2-unit grid).
+// Cells already up at frame 0 fold before the clip starts and are not counted. Flat tiles (meadow, river
+// corners and straights) have no hinges and raise no fold event (matches the 10 events of the dry run).
+const flatTile = (id) => id === 'meadow' || id.startsWith('river_')
+export function plannedFoldUps(segments, layout, frames = duration * fps) {
+  const { upRadius, downRadius } = foldContract
+  const positionAt = (frame) => {
+    let pose = segments[0].from
+    for (const { f0, f1, from, to } of segments) {
+      if (frame < f0) break
+      const share = f1 > f0 ? Math.min(1, (frame - f0) / (f1 - f0)) : 1
+      pose = { x: from.x + (to.x - from.x) * share, z: from.z + (to.z - from.z) * share }
+    }
+    return pose
+  }
+  const up = new Set()
+  const folds = []
+  for (let frame = 0; frame < frames; frame++) {
+    const { x, z } = positionAt(frame)
+    const ci = cellAt(x)
+    const cj = cellAt(z)
+    for (let i = ci - 2; i <= ci + 2; i++) {
+      for (let j = Math.max(FIRST_PAGE_ROW, cj - 2); j <= Math.min(LAST_PAGE_ROW, cj + 2); j++) {
+        if (flatTile(layout.getCell(i, j).id)) continue
+        const key = `${i},${j}`
+        const distance = Math.hypot(x - i * TILE_SIZE, z - j * TILE_SIZE)
+        if (up.has(key) && distance > downRadius) up.delete(key)
+        else if (!up.has(key) && distance <= upRadius) {
+          up.add(key)
+          if (frame > 0) folds.push({ frame, i, j, t: frame / fps })
+        }
+      }
+    }
+  }
+  return folds
+}
+
+// The 30 s duo route along the front book edge, then over an eastbound yarn bridge:
+//   A leads east along the edge; Space swaps mid-walk; B (1.1 behind) steps one row north (perpendicular to the
+//   old heading, so the pair never pass through each other), then leads east over the bridge, takes one step
+//   toward the camera and stops; after 4 s idle both dance in canon (the follower starts 0.3125 s later).
+// Everything is key driven at the default camera, so the plan is pure geometry on the deterministic layout.
+export function planDuoCaptureRoute({ danceSeconds = 3, seeds = [112, ...Array.from({ length: 200 }, (_, i) => i)] } = {}) {
+  const t = duoTiming
+  const stride = walkSpeed / fps
+  const edgeZ = PAGE_MAX_Z - 0.22
+  const bridgeZ = LAST_PAGE_ROW * TILE_SIZE
+  const northFrames = Math.round((edgeZ - bridgeZ) / stride)
+  const tailFrames = Math.ceil((t.danceIdleSeconds + danceSeconds + t.followerDanceDelay + t.tailMarginSeconds) * fps)
+  const total = duration * fps
+  const clear = (layout, from, to, half) => bandClear(layout, from, to, half, 0.05)
+  let best
+
+  for (const seed of seeds) {
+    const layout = createLayout(seed)
+    for (let i = 4; i <= 40; i++) {
+      const bridge = layout.getCell(i, LAST_PAGE_ROW)
+      if (bridge.id !== 'yarn_bridge' || bridge.rotation !== 0) continue
+      const bridgeX = i * TILE_SIZE
+      const swapX = bridgeX - t.swapBeforeBridge
+      const bStart = { x: swapX - t.followGap, z: edgeZ }
+      const stop = { x: bridgeX + t.stopAfterBridge, z: bridgeZ }
+      const eastFrames = Math.round((stop.x - bStart.x) / stride)
+      // The frame the pair stand still: D is pressed at frame 1, A walks, swap, north step, east leg, face camera.
+      const aFrames = total - tailFrames - t.faceCameraFrames - eastFrames - northFrames - t.swapKeyDelayFrames - 1
+      if (aFrames < t.minAFrames) continue
+      const start = { x: swapX - aFrames * stride, z: edgeZ, heading: Math.PI / 2, zoom: 1 }
+      const behind = { x: start.x - t.followGap - 0.1, z: edgeZ }
+      const faced = { x: stop.x, z: bridgeZ + t.faceCameraFrames * stride }
+      const swapAt = { x: swapX, z: edgeZ }
+      const northEnd = { x: bStart.x, z: bridgeZ }
+      // Edge legs tolerate 0.1 either side; the bridge deck is 0.32 each side of its centre line.
+      const legsClear = clear(layout, behind, swapAt, 0.1)
+        && clear(layout, bStart, northEnd, 0.1)
+        && clear(layout, northEnd, stop, 0.15)
+        && clear(layout, stop, faced, 0.1)
+        // Both idle slots (0.75 left and right of the leader along the camera's right vector) with a clear walk to them.
+        && [-1, 1].every((side) => {
+          const slot = { x: faced.x + side * 0.75, z: faced.z }
+          return pathClear(layout, faced, slot) && pathClear(layout, { x: stop.x + side * 0.75, z: bridgeZ }, slot)
+        })
+      if (!legsClear) continue
+      let edgeProps = 0
+      for (let col = Math.floor((start.x + foldContract.upRadius) / TILE_SIZE) + 1; col * TILE_SIZE <= swapX; col++) {
+        if (layout.getCell(col, LAST_PAGE_ROW).blockedRadius) edgeProps++
+      }
+      if (best && edgeProps <= best.edgeProps) continue
+
+      const swapFrame = 1 + aFrames
+      const northFrame = swapFrame + t.swapKeyDelayFrames
+      const eastFrame = northFrame + northFrames
+      const stopFrame = eastFrame + eastFrames
+      const releaseFrame = stopFrame + t.faceCameraFrames
+      const danceFrame = releaseFrame + t.danceIdleSeconds * fps
+      const segments = [
+        { leader: 'a', f0: 1, f1: swapFrame, from: start, to: swapAt },
+        { leader: 'b', f0: northFrame, f1: eastFrame, from: bStart, to: northEnd },
+        { leader: 'b', f0: eastFrame, f1: stopFrame, from: northEnd, to: stop },
+        { leader: 'b', f0: stopFrame, f1: releaseFrame, from: stop, to: faced },
+      ]
+      const keys = [
+        { frame: 1, down: ['KeyD'] },
+        { frame: swapFrame, press: ['Space'] },
+        { frame: northFrame, up: ['KeyD'], down: ['KeyW'] },
+        { frame: eastFrame, up: ['KeyW'], down: ['KeyD'] },
+        { frame: stopFrame, up: ['KeyD'], down: ['KeyS'] },
+        { frame: releaseFrame, up: ['KeyS'] },
+      ]
+      const folds = plannedFoldUps(segments, layout)
+      const bridgeFrames = [
+        eastFrame + Math.round((bridgeX - 1 - bStart.x) / stride),
+        eastFrame + Math.round((bridgeX + 1 - bStart.x) / stride),
+      ]
+      best = {
+        seed, layout, bridgeX, bridgeZ, edgeZ, edgeProps, start, swapAt, bStart, northEnd, stop, faced,
+        keys, segments, folds,
+        frames: { swap: swapFrame, north: northFrame, east: eastFrame, bridge: bridgeFrames, stop: stopFrame,
+          release: releaseFrame, dance: danceFrame, danceEnd: danceFrame + Math.ceil((danceSeconds + t.followerDanceDelay) * fps) },
+        danceSeconds,
+      }
+    }
+  }
+  assert.ok(best, 'No clear page-edge route to an eastbound bridge in the duo capture seed search')
+  assert.ok(best.folds.length >= t.minFoldUps, `Duo route plans only ${best.folds.length} fold-ups`)
+  return best
+}
+
+export async function offlineAudio(page, filepath, clipStart, durationSec = duration, { stemsDir, baselineRev, ablationDir } = {}) {
   const folder = new URL('/__atlas_capture_audio/', page.url())
   await page.route(`${folder.href}*.js`, (route) => {
     const name = new URL(route.request().url()).pathname.split('/').at(-1)
@@ -250,6 +397,14 @@ export async function offlineAudio(page, filepath, clipStart, durationSec = dura
 
   const full = await render(filepath, events, cues)
   const result = { events, pops, cues, notes: full.notes }
+  if (!stemsDir && ablationDir) {
+    // Without stems, still render each kind's ablation: a loud overlapping voice (B's sung dance) can hide a quieter
+    // cue's onset in the final mix, and measureOnsets then checks the cue's own effect on the mix.
+    await copyFile(filepath, join(ablationDir, 'full.wav'))
+    for (const kind of cueKinds) {
+      await render(join(ablationDir, `full-minus-${kind}.wav`), events, cues.filter((cue) => cue.kind !== kind))
+    }
+  }
   if (!stemsDir) return result
 
   const revision = execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${baselineRev}^{commit}`],
@@ -317,7 +472,8 @@ function detectOnsets(pcm, ablated) {
   return { onsets, envelope, peak, windowSeconds }
 }
 
-export function measureOnsets(video, { events, notes, pops, cues }, { stemsDir } = {}) {
+export function measureOnsets(video, { events, notes, pops, cues }, { stemsDir, ablationDir } = {}) {
+  const ablations = stemsDir ?? ablationDir
   const pcm = ffmpeg(['-i', video, '-map', '0:a:0', '-t', String(duration), '-ac', '2', '-ar', '48000',
     '-f', 'f32le', 'pipe:1'])
   const { onsets, envelope, peak, windowSeconds } = detectOnsets(pcm)
@@ -337,19 +493,20 @@ export function measureOnsets(video, { events, notes, pops, cues }, { stemsDir }
     pop: [scheduledPops],
     footstep: [cues.filter(({ cause, file }) => cause === 'step' && file !== null), 'step'],
     foldLayer: [cues.filter(({ cause }) => cause === 'fold'), 'sfx'],
-    sing_ta: [cues.filter(({ cue }) => cue === 'sing_ta'), 'voice'],
-    sing_da: [cues.filter(({ cue }) => cue === 'sing_da'), 'voice'],
+    // Round 5: whoever leads sings the dance, A with sing_*, B with b_sing_*.
+    sing_ta: [cues.filter(({ cue }) => /^(b_)?sing_ta$/.test(cue)), 'voice'],
+    sing_da: [cues.filter(({ cue }) => /^(b_)?sing_da$/.test(cue)), 'voice'],
     chorus_yay: [cues.filter(({ cue }) => cue === 'chorus_yay'), 'chorus'],
   }
   const matchedByAblation = {}
   let fullPcm
   const matchedByCategory = Object.fromEntries(Object.entries(required).map(([name, [sounds, kind]]) => {
     let matched = matches(sounds)
-    if (!matched.length && sounds.length && stemsDir && kind) {
+    if (!matched.length && sounds.length && ablations && kind) {
       // A louder overlapping cue can mask the rise in the final mix. Check the cue's effect on the mix directly.
-      fullPcm ??= decodeAudio(join(stemsDir, 'full.wav'))
+      fullPcm ??= decodeAudio(join(ablations, 'full.wav'))
       const ablation = `full-minus-${kind}.wav`
-      const difference = detectOnsets(fullPcm, decodeAudio(join(stemsDir, ablation)))
+      const difference = detectOnsets(fullPcm, decodeAudio(join(ablations, ablation)))
       matched = matches(sounds, difference.onsets)
       if (matched.length) matchedByAblation[name] = `full.wav minus ${ablation} (before AAC)`
     }
@@ -377,14 +534,168 @@ export function measureOnsets(video, { events, notes, pops, cues }, { stemsDir }
     scheduledCues: cues.length,
     matchedWithin25ms: matches(voices).length,
     matchedByCategory,
-    ...(stemsDir && { matchedByAblation }),
+    ...(ablations && { matchedByAblation }),
     peakDbfs: 20 * Math.log10(peak),
     note: 'Voice limits drop some pops and merge chimes on the same eighth-note slot. Simultaneous voices can produce one energy onset.',
     onsetTimesSec: onsets,
   }
 }
 
-export async function runCaptureRoute({ page, open, advance }, baseURL, captureFrame) {
+// DUO-34..36 on every captured frame: the verdict of the capture's framing check.
+export function framingVerdict(stats) {
+  const limit = stats.limitFrames
+  const problems = []
+  if (stats.outsideFrames) problems.push(`${stats.outsideFrames} frames with a character outside the frame (first: ${JSON.stringify(stats.firstOutside[0])})`)
+  if (stats.longestOverlapFrames > limit) {
+    problems.push(`follower covered > ${duoContract.overlapShare * 100} % of the leader for ${stats.longestOverlapFrames} frames at frame ${stats.longestOverlapAt} (limit ${limit})`)
+  }
+  for (const label of ['a', 'b']) {
+    if (stats.longestHiddenFrames[label] > limit) {
+      problems.push(`troll ${label} hidden behind tiles for ${stats.longestHiddenFrames[label]} frames at frame ${stats.longestHiddenAt[label]} (limit ${limit})`)
+    }
+  }
+  return { pass: problems.length === 0, problems }
+}
+
+const round1 = (value) => Math.round(value * 10) / 10
+const roundRect = (rect) => rect.map(round1)
+
+export async function runDuoCaptureRoute({ page, open, advance }, baseURL, captureFrame) {
+  const plan = planDuoCaptureRoute()
+  const { seed, layout, start, frames: planned } = plan
+  const total = duration * fps
+  const url = new URL(baseURL)
+  url.searchParams.set('seed', seed)
+  // Default camera (distance 10, pitch 45) and focus: the framing the gate checks.
+  for (const name of ['cam', 'focus', 'debug', 'plain']) url.searchParams.delete(name)
+  url.searchParams.set('look-shots', '')
+  url.searchParams.set('look-probe', '')
+  const clipStart = (preRollFrames + 1) / fps
+  const actionsAt = new Map(plan.keys.map((action) => [action.frame, action]))
+  const trace = []
+  const swapMarks = []
+  let bridgeFrames = 0
+  let danceRun = 0
+  let danceFrames = 0
+  let completeDance = false
+  let firstLeaderDance
+  let firstFollowerDance
+  let idleSince
+
+  await serveThree(page)
+  await open(url.href)
+  await page.waitForFunction(() => Number.isFinite(window.__atlas.audioReadyMs), undefined,
+    { polling: 50, timeout: 30_000 })
+  const expectedDanceSeconds = await readDanceSeconds(page)
+  assert.ok(expectedDanceSeconds <= plan.danceSeconds,
+    `The dance clip lasts ${expectedDanceSeconds}s, the duo route reserves ${plan.danceSeconds}s`)
+  await page.waitForFunction(() => window.__atlasLookShots?.scene, undefined, { polling: 50, timeout: 5000 })
+  // A leads at load, so the probe can tell the rigs apart by their distance to the leader.
+  await installProbe(page)
+  await page.evaluate((pose) => window.__atlasLookShots.pose(pose), start)
+  await advance(1, fps, preRollFrames)
+  assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Capture camera did not settle')
+  const initial = await page.evaluate(() => window.__duoProbe.peek())
+  const gap = Math.hypot(initial.L.x - initial.F.x, initial.L.z - initial.F.z)
+  // After the pre-roll standing B has taken its idle slot, 0.75 to the screen left or right of A (west: B starts behind A).
+  const west = initial.F.x < initial.L.x
+  assert.ok(initial.leader === 'a' && west && gap > 0.7 && gap < 1.4,
+    `Duo did not start as A leading with B beside or behind it, to the west: ${JSON.stringify({ leader: initial.leader, gap, west })}`)
+  await page.evaluate(() => { window.__atlas.foldLog.length = 0 })
+
+  for (let frame = 0; frame < total; frame++) {
+    const action = actionsAt.get(frame)
+    for (const code of action?.up ?? []) await page.keyboard.up(code)
+    for (const code of action?.down ?? []) await page.keyboard.down(code)
+    for (const code of action?.press ?? []) {
+      await page.keyboard.press(code)
+      swapMarks.push(frame)
+    }
+    if (frame === 1) await page.waitForFunction(() => window.__atlasAudioUnlocked, undefined, { polling: 50, timeout: 5000 })
+    await advance(preRollFrames + 1 + frame, fps)
+    const s = await page.evaluate((n) => window.__duoProbe.sample(n), frame)
+    trace.push(s)
+    if (captureFrame) await captureFrame(frame)
+
+    if (frame === plan.keys[1].frame + duoTiming.swapKeyDelayFrames + 1) {
+      assert.ok(s.swaps === 1 && s.leader === 'b', `Space did not swap the lead: ${JSON.stringify({ swaps: s.swaps, leader: s.leader })}`)
+    }
+    if (s.leader === 'b' && s.L.state === 'walk') {
+      const row = Math.min(LAST_PAGE_ROW, cellAt(s.L.z))
+      if (layout.getCell(cellAt(s.L.x), row).id === 'yarn_bridge') bridgeFrames++
+    }
+    if (frame >= planned.release) {
+      if (s.L.state === 'idle') idleSince ??= frame
+      if (s.L.state === 'dance') firstLeaderDance ??= frame
+      if (s.F.state === 'dance') firstFollowerDance ??= frame
+      if (s.L.state === 'dance') danceRun++
+      else if (danceRun) {
+        danceFrames = danceRun
+        completeDance = s.L.state === 'idle'
+        danceRun = 0
+      }
+    }
+  }
+
+  const final = trace.at(-1)
+  assert.equal(final.swaps, 1, 'The route must swap the lead exactly once')
+  assert.equal(final.leader, 'b', 'B must be leading at the end of the route')
+  assert.ok(final.samePlayer, '__atlas.player changed identity')
+  assert.ok(bridgeFrames > 0, 'B did not lead across the yarn bridge')
+  const stopAt = trace[planned.release]
+  assert.ok(Math.hypot(stopAt.L.x - plan.faced.x, stopAt.L.z - plan.faced.z) < 0.5,
+    `Leader missed the dance spot: ${JSON.stringify(stopAt.L)} vs ${JSON.stringify(plan.faced)}`)
+  assert.ok(firstLeaderDance !== undefined && idleSince !== undefined
+    && (firstLeaderDance - idleSince) / fps >= duoTiming.danceIdleSeconds - 2 / fps,
+  `Leader danced after ${((firstLeaderDance ?? NaN) - (idleSince ?? NaN)) / fps}s idle, expected >= ${duoTiming.danceIdleSeconds}s`)
+  assert.ok(completeDance && Math.abs(danceFrames / fps - expectedDanceSeconds) <= 2 / fps,
+    `Dance lasted ${danceFrames / fps}s, expected the full ${expectedDanceSeconds}s clip`)
+  const followerDelay = (firstFollowerDance - firstLeaderDance) / fps
+  assert.ok(firstFollowerDance !== undefined && Math.abs(followerDelay - duoTiming.followerDanceDelay) <= duoContract.danceDelayTolerance + 1 / fps,
+    `Follower started the dance ${followerDelay}s after the leader, expected ${duoTiming.followerDanceDelay}s`)
+  const foldUps = await page.evaluate(() => window.__atlas.foldLog.filter(({ dir }) => dir === 'up').map(({ t }) => t))
+  assert.ok(foldUps.length >= duoTiming.minFoldUps, `Only ${foldUps.length} fold-ups in the capture`)
+
+  const stats = framingStats(trace, { fps, contract: duoContract })
+  const verdict = framingVerdict(stats)
+  const framing = {
+    contract: 'docs/contracts.md "Round 5: duo", DUO-34..36 (DUO-40 capture framing)',
+    viewport: final.view,
+    camera: 'default (no ?cam, distance 10, pitch 45)',
+    limits: { stretchSeconds: duoContract.stretchSeconds, overlapShare: duoContract.overlapShare },
+    ...stats,
+    ...verdict,
+    perFrame: {
+      columns: ['f', 'leader', 'leaderState', 'followerState', 'aRect', 'bRect', 'aHidden', 'bHidden', 'followerOverlapShare', 'gap'],
+      rows: trace.map((s) => {
+        const [leader, follower] = s.leader === 'b' ? ['b', 'a'] : ['a', 'b']
+        return [s.f, s.leader, s.L.state, s.F.state, roundRect(s.a.rect), roundRect(s.b.rect), s.a.hidden, s.b.hidden,
+          Math.round(overlapShare(s[follower].rect, s[leader].rect) * 100) / 100,
+          Math.round(Math.hypot(s.L.x - s.F.x, s.L.z - s.F.z) * 100) / 100]
+      }),
+    },
+  }
+  return {
+    clipStart,
+    framing,
+    route: {
+      seed, headless, camera: 'default', start, plan: {
+        swapAt: plan.swapAt, bStart: plan.bStart, stop: plan.stop, faced: plan.faced, frames: planned,
+        plannedFoldUps: plan.folds.length,
+      },
+      swapPressedAtFrame: swapMarks, swapAtSec: planned.swap / fps, bridgeSeconds: bridgeFrames / fps,
+      idleBeforeDanceSeconds: (firstLeaderDance - idleSince) / fps, danceSeconds: danceFrames / fps, expectedDanceSeconds,
+      followerDanceDelaySeconds: followerDelay, foldUps: foldUps.length, foldUpTimesSec: foldUps.map((t) => round1(t - clipStart)),
+    },
+  }
+}
+
+export async function runCaptureRoute(session, baseURL, captureFrame, { round = defaultRound } = {}) {
+  if (round >= duoRound) return runDuoCaptureRoute(session, baseURL, captureFrame)
+  return runClassicCaptureRoute(session, baseURL, captureFrame)
+}
+
+async function runClassicCaptureRoute({ page, open, advance }, baseURL, captureFrame) {
   const { seed, layout, start, approach, clickTarget, edgeFrames, alignFrames, approachFrames } = planCaptureRoute()
   const { width, height } = page.viewportSize()
   const url = new URL(baseURL)
@@ -473,17 +784,19 @@ export async function runCaptureRoute({ page, open, advance }, baseURL, captureF
   }
 }
 
-async function capture({ baseURL, roundDir, evidence, stems, baselineRev }) {
+async function capture({ baseURL, round, roundDir, evidence, stems, baselineRev }) {
   await Promise.all([mkdir(roundDir, { recursive: true }), mkdir(evidence, { recursive: true })])
   const temp = await mkdtemp(join(tmpdir(), 'atlas-capture-'))
   const stagedDir = join(temp, 'deliverables')
   const stemsDir = stems ? join(stagedDir, 'audio') : undefined
   const video = join(temp, 'gameplay-30s.mp4')
   const wav = join(temp, 'audio.wav')
+  const ablationDir = !stems && round >= duoRound ? join(temp, 'ablation') : undefined
   let audio
   let route
   try {
     if (stemsDir) await mkdir(stemsDir, { recursive: true })
+    if (ablationDir) await mkdir(ablationDir, { recursive: true })
     const browser = headless && process.platform === 'darwin'
       ? await chromium.launch({ headless: true, args: ['--use-angle=metal'] })
       : await launchChromium()
@@ -494,9 +807,17 @@ async function capture({ baseURL, roundDir, evidence, stems, baselineRev }) {
         await page.screenshot({ path: join(temp, `frame-${String(frame).padStart(4, '0')}.jpg`),
           type: 'jpeg', quality: 94, timeout: 15_000 })
         if ((frame + 1) % 120 === 0) console.log(`Captured ${frame + 1}/${duration * fps} frames`)
-      })
+      }, { round })
       route = gameplay.route
-      audio = await offlineAudio(page, wav, gameplay.clipStart, duration, { stemsDir, baselineRev })
+      if (gameplay.framing) {
+        // Written before the verdict is enforced, so a failing run leaves its per-frame evidence behind.
+        await writeJson(join(evidence, 'capture-framing.json'), gameplay.framing)
+        const { pass, problems } = gameplay.framing
+        assert.ok(pass, `Duo framing check failed (see ${join(evidence, 'capture-framing.json')}): ${problems.join('; ')}`)
+        const { perFrame, ...summary } = gameplay.framing
+        route.framing = summary
+      }
+      audio = await offlineAudio(page, wav, gameplay.clipStart, duration, { stemsDir, baselineRev, ablationDir })
       assert.deepEqual(errors, [], 'Browser errors during capture')
     } finally {
       await browser.close()
@@ -517,8 +838,12 @@ async function capture({ baseURL, roundDir, evidence, stems, baselineRev }) {
       [viewport.width, viewport.height, `${fps}/1`, duration * fps])
     assert.ok(Number(probe.format.duration) >= 29 && Number(probe.format.duration) <= 31)
 
-    const onsets = measureOnsets(video, audio, { stemsDir })
+    const onsets = measureOnsets(video, audio, { stemsDir, ablationDir })
     onsets.route = route
+    if (round >= duoRound) {
+      assert.ok(onsets.scheduledChimes >= duoTiming.minFoldUps && onsets.foldUpEvents >= duoTiming.minFoldUps,
+        `Duo capture needs >= ${duoTiming.minFoldUps} fold-ups with chimes, got ${onsets.foldUpEvents} and ${onsets.scheduledChimes}`)
+    }
     const output = join(roundDir, 'gameplay-30s.mp4')
     if (stemsDir) {
       const mix = mixReport(audio.peaks, masterMetrics(decodeAudio(video)), audio.baselineRev)
