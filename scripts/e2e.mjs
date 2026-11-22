@@ -6,6 +6,7 @@ import {
   createSteppedPage, defaultRound, evidenceDir, foldContract, headless, launchChromium, lineClear, previewURL, readDanceSeconds,
   walkSpeed, writeJson,
 } from './capture.mjs'
+import { duoRequiredChecks, runDuo } from './e2e-duo.mjs'
 import { createLayout } from '../src/world/layout.js'
 import { cellAt, FIRST_PAGE_ROW, LAST_PAGE_ROW, PAGE_MIN_Z, TILE_SIZE } from '../src/world/tiles.js'
 
@@ -49,6 +50,7 @@ const requiredChecks = [
   'VOX-08 dance cue timing and pitch',
   'VOX-09 interrupted dance drops its ending',
   'VOX-10 phrase hold and harmony',
+  ...duoRequiredChecks,
 ]
 const eighth = 60 / 96 / 2
 const epsilon = 1e-6
@@ -673,6 +675,16 @@ try {
   await run()
 } catch (error) {
   checks.push({ name: 'harness', passed: false, error: error.message.split('\n').slice(0, 12).join('\n') })
+}
+// Round 5 duo gate (tests/e2e/duo.feature). DUO_TRACE=1 also writes the per-frame traces next to the report.
+try {
+  await runDuo({
+    baseURL: values.url ?? previewURL,
+    check,
+    traceOut: process.env.DUO_TRACE ? join(dirname(output), 'duo-traces.json') : undefined,
+  })
+} catch (error) {
+  checks.push({ name: 'DUO harness', passed: false, error: error.message.split('\n').slice(0, 12).join('\n') })
 }
 const missingChecks = requiredChecks.filter((name) => !checks.some((check) => check.name === name))
 const passed = missingChecks.length === 0 && checks.every((check) => check.passed)
