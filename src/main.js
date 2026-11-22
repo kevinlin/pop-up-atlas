@@ -38,6 +38,7 @@ const follow = createFollower(player, follower.position)
 const previousLeaderPosition = player.position.clone()
 const dance = createDuoDance()
 const focus = new Vector3()
+const cameraRight = new Vector3()
 const butter = 0xf2ce78
 const secondCapsule = capsule.clone()
 secondCapsule.material = capsule.material.clone()
@@ -121,7 +122,7 @@ function frame(now) {
     follow.reset(follower.position, player.position)
   }
   const hopping = Number.isFinite(follow.landing)
-  if (hopping) setFollowerPose(follow.update(player, follower, dt, elapsed, isBlocked, false))
+  if (hopping) setFollowerPose(follow.update(player, follower, dt, elapsed, isBlocked, false, cameraRight))
   const swapped = swap.update(elapsed, follow.landing)
   const input = controls.update(dt, blockedBy)
   previousLeaderPosition.copy(player.position)
@@ -133,10 +134,11 @@ function frame(now) {
     followerFinished: follower.state === 'dance' && followerCharacter.danceFinished,
   })
   player.state = dancing.leader
-  if (!hopping || swapped) {
-    setFollowerPose(follow.update(player, follower, dt, elapsed, isBlocked, dancing.followerDancing))
-  }
   followPlayer(frameTime)
+  if (!hopping || swapped) {
+    cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion).setY(0).normalize()
+    setFollowerPose(follow.update(player, follower, dt, elapsed, isBlocked, dancing.followerDancing, cameraRight))
+  }
   followLight(player.position)
   leaderCharacter.update(dt, elapsed, player.state)
   followerCharacter.update(dt, elapsed, follower.state)

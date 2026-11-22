@@ -11,7 +11,7 @@ const open = () => false
 const point = (x, z) => ({ x, z })
 const dt = 1 / 60
 
-function route(initial = point(0, -1.1)) {
+function route(initial = point(0, -1.1), cameraRight = point(1, 0)) {
   const leader = createPlayer()
   const follower = { position: initial, heading: 0, state: 'idle' }
   const follow = createFollower(leader, initial)
@@ -23,7 +23,7 @@ function route(initial = point(0, -1.1)) {
     if (leader.velocity.lengthSq()) leader.heading = Math.atan2(leader.velocity.x, leader.velocity.z)
     leader.position.set(x, 0, z)
     follow.observe(leader.position, time)
-    Object.assign(follower, follow.update(leader, follower, stepTime, time, blocked, false))
+    Object.assign(follower, follow.update(leader, follower, stepTime, time, blocked, false, cameraRight))
     return follower.position
   }
   return { leader, follower, follow, step, get time() { return time } }
@@ -173,6 +173,30 @@ describe('separation, idle and recovery', () => {
     expect(sim.follower.position.z).toBeCloseTo(0)
     expect(sim.follower.heading).toBeCloseTo(sim.leader.heading)
     expect(sim.follower.state).toBe('idle')
+  })
+
+  test.each([
+    ['east', 1, 0],
+    ['west', -1, 0],
+    ['north', 0, -1],
+    ['south', 0, 1],
+  ])('takes a screen-side idle slot after walking %s', (_, x, z) => {
+    const sim = route(point(-1.1 * x, -1.1 * z))
+    for (let i = 1; i <= 150; i += 1) sim.step(x * i * 0.02, z * i * 0.02)
+    for (let i = 0; i < 120; i += 1) sim.step(3 * x, 3 * z)
+
+    expect(Math.abs(sim.follower.position.x - sim.leader.position.x)).toBeCloseTo(0.75)
+    expect(sim.follower.position.z).toBeCloseTo(sim.leader.position.z)
+    expect(sim.follower.heading).toBeCloseTo(sim.leader.heading)
+    expect(sim.follower.state).toBe('idle')
+  })
+
+  test('uses the supplied camera right on a rotated page view', () => {
+    const cameraRight = point(Math.SQRT1_2, Math.SQRT1_2)
+    const sim = route(point(0, -1.1), cameraRight)
+    for (let i = 0; i < 120; i += 1) sim.step(0, 0)
+    expect(sim.follower.position.x).toBeCloseTo(-0.75 * cameraRight.x)
+    expect(sim.follower.position.z).toBeCloseTo(-0.75 * cameraRight.z)
   })
 
   test('tries the farther idle slot when the near path is blocked and retains trail if both are blocked', () => {
