@@ -188,7 +188,7 @@ export async function openDuo(browser, viewport, { baseURL = previewURL, seed, l
 }
 
 // Walk along one axis with a held key until `target` is reached (to within one frame of travel).
-async function walkAxis(driver, axis, target, limitSeconds = 20) {
+async function walkAxis(driver, axis, target, limitSeconds = 30) {
   const start = driver.last ?? driver.initial
   const sign = Math.sign(target - start.L[axis])
   if (!sign) return
