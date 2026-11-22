@@ -60,7 +60,7 @@ const swap = createLeadSwap(player, follower, () => {
   leaderCharacter.bind(player, true)
   followerCharacter.bind(follower, false)
   showLeaderHair()
-  follow.reset(follower.position, player.position)
+  follow.reset(follower.position, player.position, { preserveRecovery: true })
   controls.cancelWalk()
 })
 const controls = bindControls(canvas, camera, player, {

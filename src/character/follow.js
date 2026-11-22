@@ -200,11 +200,11 @@ export function createFollower(leader, initial) {
   let farSince
   let hop
 
-  function reset(from, to) {
+  function reset(from, to, { preserveRecovery = false } = {}) {
     trail.reset(from, to)
     history.reset()
     cursor = trail.start()
-    farSince = undefined
+    if (!preserveRecovery) farSince = undefined
     hop = undefined
   }
   reset(initial, leader.position)
