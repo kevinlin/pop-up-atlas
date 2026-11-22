@@ -136,12 +136,14 @@ export function sungValid({ baseMidi, voicedRatio, stability }) {
 }
 
 export function coverageTargets(name) {
+  // Voice B sings in its own lower register (contract "Round 5: duo"): ta D4, da A3, hum an octave down.
+  const b = name.startsWith('b_')
   name = name.replace(/^b_/, '')
-  if (name === 'sing_ta') return [69]
-  if (name === 'sing_da') return [74]
+  if (name === 'sing_ta') return [b ? 62 : 69]
+  if (name === 'sing_da') return [b ? 57 : 74]
   if (name === 'sing_hum') {
     const dMajorPentatonic = new Set([2, 4, 6, 9, 11])
-    return Array.from({ length: 13 }, (_, index) => 69 + index)
+    return Array.from({ length: 13 }, (_, index) => (b ? 57 : 69) + index)
       .filter(note => dMajorPentatonic.has(note % 12))
   }
   return []

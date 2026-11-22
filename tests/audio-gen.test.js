@@ -138,7 +138,9 @@ describe('requests, cache and manifest', () => {
     expect(planned.map(({ pending: [request] }) => [request.endpoint, request.body.model_id])).toEqual([
       [TTS + 'saved-a', 'tts-model'], [TTS + 'saved-b', 'b-model'],
     ])
-    expect(coverageTargets(b.cue)).toEqual([69])
+    expect(coverageTargets(b.cue)).toEqual([62])
+    expect(coverageTargets('b_sing_da')).toEqual([57])
+    expect(coverageTargets('b_sing_hum')).toEqual([57, 59, 62, 64, 66, 69])
     expect(buildManifest([{ cue: b, takes: [{ take: 2, duration: 0.4, ...pitch(69) }] }]).cues.b_sing_ta)
       .toEqual({ kind: 'voice', who: 'b', gain: 0.8, files: [{ src: 'b_sing_ta-2.mp3', duration: 0.4, baseMidi: 69 }] })
   })
@@ -452,10 +454,13 @@ describe('ffmpeg processing', () => {
 
     mkdirSync(join(root, 'audio'))
     const companion = { ...cue, cue: 'b_sing_ta', voice: 'b' }
+    // Voice B's ta target is D4 (contract "Round 5: duo"), so its fixture is a D4 tone.
+    const processedB = processTake(writeTone(scratch(), 293.66), companion)
     writeFileSync(join(root, 'audio/cues.json'), JSON.stringify({ ...sheet, cues: [cue, companion] }))
-    writeFileSync(join(publicAudio, 'b_sing_ta-1.mp3'), processed.audio)
+    writeFileSync(join(publicAudio, 'b_sing_ta-1.mp3'), processedB.audio)
     const manifestFile = join(publicAudio, 'manifest.json')
-    const manifest = buildManifest([cue, companion].map(cue => ({ cue, takes: [{ take: 1, ...processed }] })))
+    const manifest = buildManifest([[cue, processed], [companion, processedB]]
+      .map(([cue, take]) => ({ cue, takes: [{ take: 1, ...take }] })))
     writeFileSync(manifestFile, JSON.stringify(manifest))
     vi.spyOn(console, 'table').mockImplementation(() => {})
     vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -465,7 +470,7 @@ describe('ffmpeg processing', () => {
     manifest.cues.b_sing_ta.files[0].baseMidi = 64
     writeFileSync(manifestFile, JSON.stringify(manifest))
     await expect(main(['--check'], root)).rejects.toThrow('Audio check failed')
-    manifest.cues.b_sing_ta.files[0].baseMidi = processed.baseMidi
+    manifest.cues.b_sing_ta.files[0].baseMidi = processedB.baseMidi
     manifest.cues.sing_ta.files[0].src = '/audio/sing_ta-1.mp3'
     writeFileSync(manifestFile, JSON.stringify(manifest))
     await expect(main(['--check'], root)).rejects.toThrow('Audio check failed')
