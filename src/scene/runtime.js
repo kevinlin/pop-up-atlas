@@ -4,6 +4,8 @@ import { createPlayer } from '../controls/movement.js'
 export const scene = new Scene()
 export const camera = new PerspectiveCamera(30, 1, 0.1, 160)
 export const player = createPlayer()
+// The second troll's controller. A lead swap exchanges the two poses by value, so both objects stay fixed.
+export const follower = createPlayer()
 
 // Heading is in radians from +Z. Position and velocity are world-space Vector3s.
 export let isBlocked = () => false
