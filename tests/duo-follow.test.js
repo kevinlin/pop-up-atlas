@@ -387,11 +387,40 @@ describe('lead swap', () => {
     expect(swaps.update(1.25, -Infinity)).toBe(true)
   })
 
+  test('a swap 0.3 seconds into a wide gap keeps the original 0.5-second hop deadline', () => {
+    const player = createPlayer()
+    const follower = createPlayer()
+    follower.position.z = -4.2
+    const follow = createFollower(player, follower.position)
+    const swaps = createLeadSwap(player, follower, () => {
+      follow.reset(follower.position, player.position, { preserveRecovery: true })
+    })
+    const cameraRight = point(1, 0)
+    function step(frame) {
+      const t = frame * dt
+      follow.observe(player.position, t)
+      const pose = follow.update(player, follower, dt, t, open, false, cameraRight)
+      follower.position.copy(pose.position)
+      return pose.state
+    }
+
+    for (let frame = 0; frame < 18; frame += 1) step(frame)
+    swaps.request()
+    expect(swaps.update(18 * dt, follow.landing)).toBe(true)
+    expect(distance(player.position, follower.position)).toBeGreaterThan(2.6)
+    for (let frame = 18; frame < 30; frame += 1) step(frame)
+    expect(follow.landing).toBe(-Infinity)
+    expect(distance(player.position, follower.position)).toBeGreaterThan(2.6)
+    expect(step(30)).toBe('hop')
+  })
+
   test('leaves the follower airborne until landing, then resets the trail to the exchanged ground poses', () => {
     const sim = route(point(0, -5))
     while (sim.follow.landing === -Infinity) sim.step(0, 0)
     const follower = createPlayer()
-    const swap = createLeadSwap(sim.leader, follower, () => sim.follow.reset(follower.position, sim.leader.position))
+    const swap = createLeadSwap(sim.leader, follower, () => {
+      sim.follow.reset(follower.position, sim.leader.position, { preserveRecovery: true })
+    })
     swap.request()
     const mid = (sim.follow.landing - sim.time) / 2
     const airborne = sim.step(0, 0, open, mid)
