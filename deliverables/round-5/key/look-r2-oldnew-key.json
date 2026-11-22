@@ -1,0 +1,25 @@
+{
+  "seed": 5517,
+  "pairs": [
+    {
+      "pair": "oldnew-01.png",
+      "shot": "game-01.png",
+      "left": "post-L5"
+    },
+    {
+      "pair": "oldnew-02.png",
+      "shot": "game-02.png",
+      "left": "post-L5"
+    },
+    {
+      "pair": "oldnew-03.png",
+      "shot": "game-03.png",
+      "left": "pre-L5"
+    },
+    {
+      "pair": "oldnew-04.png",
+      "shot": "game-04.png",
+      "left": "pre-L5"
+    }
+  ]
+}

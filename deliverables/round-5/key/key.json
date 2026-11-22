@@ -1,0 +1,202 @@
+{
+  "pairs": [
+    {
+      "pair": "pair-01.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r5-01-duo-walk.png",
+      "game": "game-01.png",
+      "seed": 0,
+      "camera": [
+        7,
+        36
+      ],
+      "anchor": [
+        0.56,
+        0.64
+      ],
+      "start": {
+        "x": -0.48,
+        "z": -5.25
+      },
+      "player": {
+        "x": 0.07154328932550705,
+        "z": -4.698456710674496,
+        "state": "walk"
+      },
+      "duo": {
+        "leader": "a",
+        "follower": {
+          "x": -1.0483708450843723,
+          "z": -5.818370845084373,
+          "state": "walk"
+        },
+        "gap": 1.58,
+        "panelRects": {
+          "a": [
+            871,
+            266,
+            1071,
+            654
+          ],
+          "b": [
+            553,
+            154,
+            698,
+            421
+          ]
+        }
+      }
+    },
+    {
+      "pair": "pair-02.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r5-02-duo-fold-up.png",
+      "game": "game-02.png",
+      "seed": 0,
+      "camera": [
+        7.4,
+        38
+      ],
+      "anchor": [
+        0.4,
+        0.68
+      ],
+      "start": {
+        "x": 0.43690513672348597,
+        "z": -2.494797539067061
+      },
+      "player": {
+        "x": 0.65,
+        "z": -2.7,
+        "state": "idle"
+      },
+      "fold": {
+        "dir": "up",
+        "i": 1,
+        "j": -2
+      },
+      "foldAngleDeg": -30.39366128741699,
+      "duo": {
+        "leader": "a",
+        "follower": {
+          "x": -0.2402362053670531,
+          "z": -2.8502587949666154,
+          "state": "walk"
+        },
+        "gap": 0.9,
+        "panelRects": {
+          "a": [
+            589,
+            282,
+            747,
+            641
+          ],
+          "b": [
+            286,
+            358,
+            471,
+            611
+          ]
+        }
+      }
+    },
+    {
+      "pair": "pair-03.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-r5-03-duo-dance.png",
+      "game": "game-03.png",
+      "seed": 167,
+      "camera": [
+        6.4,
+        34
+      ],
+      "anchor": [
+        0.5,
+        0.62
+      ],
+      "start": {
+        "x": -4,
+        "z": 8.56
+      },
+      "player": {
+        "x": -4,
+        "z": 8.56,
+        "state": "dance"
+      },
+      "duo": {
+        "leader": "a",
+        "follower": {
+          "x": -4.75,
+          "z": 8.56,
+          "state": "dance"
+        },
+        "gap": 0.75,
+        "panelRects": {
+          "a": [
+            744,
+            204,
+            1024,
+            583
+          ],
+          "b": [
+            438,
+            256,
+            662,
+            596
+          ]
+        }
+      }
+    },
+    {
+      "pair": "pair-04.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-r5-04-duo-bridge.png",
+      "game": "game-04.png",
+      "seed": 42,
+      "camera": [
+        7,
+        26
+      ],
+      "anchor": [
+        0.5,
+        0.66
+      ],
+      "start": {
+        "x": 23.2,
+        "z": 8
+      },
+      "player": {
+        "x": 23.999999999999982,
+        "z": 8,
+        "state": "walk"
+      },
+      "duo": {
+        "leader": "b",
+        "follower": {
+          "x": 22.69197487819976,
+          "z": 8,
+          "state": "walk"
+        },
+        "gap": 1.31,
+        "panelRects": {
+          "a": [
+            333,
+            272,
+            509,
+            635
+          ],
+          "b": [
+            854,
+            323,
+            977,
+            642
+          ]
+        }
+      }
+    }
+  ]
+}

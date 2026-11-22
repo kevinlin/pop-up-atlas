@@ -1,0 +1,35 @@
+{
+  "seed": 2214419029,
+  "pairs": {
+    "pair-1": {
+      "name": "whole",
+      "x": "full.wav",
+      "y": "baseline.wav"
+    },
+    "pair-2": {
+      "name": "with-vs-without-chorus",
+      "x": "full-minus-chorus.wav",
+      "y": "full.wav"
+    },
+    "pair-3": {
+      "name": "with-vs-without-voice",
+      "x": "full-minus-voice.wav",
+      "y": "full.wav"
+    },
+    "pair-4": {
+      "name": "music",
+      "x": "folds-baseline.wav",
+      "y": "folds.wav"
+    },
+    "pair-5": {
+      "name": "with-vs-without-step",
+      "x": "full-minus-step.wav",
+      "y": "full.wav"
+    },
+    "pair-6": {
+      "name": "with-vs-without-sfx",
+      "x": "full.wav",
+      "y": "full-minus-sfx.wav"
+    }
+  }
+}
