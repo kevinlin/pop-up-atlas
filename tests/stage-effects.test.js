@@ -2,7 +2,7 @@ import { Group, PerspectiveCamera, Scene, Vector3 } from 'three'
 import { expect, it, vi } from 'vitest'
 import { stageFlags } from '../src/effects/flags.js'
 import { makeFronds } from '../src/effects/fronds.js'
-import { airPlacements, MOTE_COUNT, placeLantern } from '../src/effects/placement.js'
+import { motePlacements, MOTE_COUNT, placeLantern } from '../src/effects/placement.js'
 import { createBurstPool, createResponse, FOLD_GLOW, setFold, updateResponse } from '../src/effects/response.js'
 import { afterWorldReady, warmStage } from '../src/effects/startup.js'
 import { createLayout } from '../src/world/layout.js'
@@ -107,24 +107,15 @@ it('cancels a fold that reverses before upright and rearms on the next fold-up',
   expect(updateResponse(state, 1, 0.05, 4)).toBe(false)
 })
 
-it.each(['motes', 'bokeh'])('places %s deterministically by seed', (kind) => {
-  const first = airPlacements(kind, 42)
-  expect(first).toEqual(airPlacements(kind, 42))
-  expect(first).not.toEqual(airPlacements(kind, 43))
-  if (kind === 'bokeh') {
-    expect(first).toHaveLength(24)
-    for (const disc of first) {
-      expect(disc.y).toBeGreaterThanOrEqual(0.66)
-      expect(disc.size).toBeGreaterThanOrEqual(0.03)
-      expect(disc.size).toBeLessThanOrEqual(0.10)
-    }
-  } else {
-    expect(first).toHaveLength(MOTE_COUNT)
-    expect(first.filter(({ twinkle }) => twinkle)).toHaveLength(MOTE_COUNT / 5)
-    for (const mote of first) {
-      expect(mote.speed).toBeGreaterThanOrEqual(0.05)
-      expect(mote.speed).toBeLessThanOrEqual(0.2)
-    }
+it('places motes deterministically by seed', () => {
+  const first = motePlacements(42)
+  expect(first).toEqual(motePlacements(42))
+  expect(first).not.toEqual(motePlacements(43))
+  expect(first).toHaveLength(MOTE_COUNT)
+  expect(first.filter(({ twinkle }) => twinkle)).toHaveLength(MOTE_COUNT / 5)
+  for (const mote of first) {
+    expect(mote.speed).toBeGreaterThanOrEqual(0.05)
+    expect(mote.speed).toBeLessThanOrEqual(0.2)
   }
 })
 
@@ -149,16 +140,16 @@ it('places lantern spans deterministically between grove supports on a seeded la
 })
 
 it.each([
-  [5, 'moss'], [7, 'fronds'], [9, 'bokeh'], [10, 'motes'], [11, 'lanterns'], [13, 'response'],
+  [5, 'moss'], [7, 'fronds'], [10, 'motes'], [11, 'lanterns'], [13, 'response'],
 ])('disables only item %d when its number is omitted', (item, name) => {
-  const enabled = [5, 7, 9, 10, 11, 13].filter((number) => number !== item)
-  const allOn = { moss: true, fronds: true, bokeh: true, motes: true, lanterns: true, response: true }
+  const enabled = [5, 7, 10, 11, 13].filter((number) => number !== item)
+  const allOn = { moss: true, fronds: true, motes: true, lanterns: true, response: true }
   expect(stageFlags(`?effects=${enabled.join(',')}`)).toEqual({ ...allOn, [name]: false })
 })
 
-it('ships bokeh, motes, lanterns and the fold-up response by default; moss and fronds only on request', () => {
-  expect(stageFlags()).toEqual({ moss: false, fronds: false, bokeh: true, motes: true, lanterns: true, response: true })
-  expect(stageFlags('?effects=')).toEqual({ moss: false, fronds: false, bokeh: false, motes: false, lanterns: false, response: false })
+it('ships motes, lanterns and the fold-up response by default; moss and fronds only on request', () => {
+  expect(stageFlags()).toEqual({ moss: false, fronds: false, motes: true, lanterns: true, response: true })
+  expect(stageFlags('?effects=')).toEqual({ moss: false, fronds: false, motes: false, lanterns: false, response: false })
 })
 
 it('hides a frond if the actor can project across its corner', () => {

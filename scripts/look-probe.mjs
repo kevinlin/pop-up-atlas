@@ -210,23 +210,17 @@ export function readStageEffects(page, mask) {
       }
       const { elapsed, focus, parallax } = mesh.material.uniforms
       const { placement, motion } = mesh.geometry.attributes
-      const bokeh = name === 'bokeh'
       const [sx, , , , , sy] = camera.projectionMatrix.elements
-      const result = { placed: placement.count, visible: 0, top40: 0, sharp: 0, twinkling: 0, sizes: [], alphas: [], speeds: [] }
+      const result = { placed: placement.count, visible: 0, twinkling: 0, sizes: [], alphas: [], speeds: [] }
       const wrap = (x) => x - 2 * Math.floor((x + 1) / 2)
       for (let i = 0; i < placement.count; i++) {
         let x = 2 * placement.getX(i) - 1
         let y = 2 * placement.getY(i) - 1
         const phase = motion.getZ(i)
-        if (bokeh) {
-          x += Math.sin(phase + 0.14 * elapsed.value) * 0.022
-          y += Math.cos(phase + 0.18 * elapsed.value) * 0.022
-        } else {
-          const depth = focus.value * (0.40 + 0.40 * motion.getX(i))
-          const angle = phase + elapsed.value * motion.getY(i) / 0.46
-          x = wrap(x + (0.46 * Math.cos(angle) - parallax.value.x) * sx / depth)
-          y = wrap(y + (0.46 * Math.sin(angle) - parallax.value.y) * sy / depth)
-        }
+        const depth = focus.value * (0.40 + 0.40 * motion.getX(i))
+        const angle = phase + elapsed.value * motion.getY(i) / 0.46
+        x = wrap(x + (0.46 * Math.cos(angle) - parallax.value.x) * sx / depth)
+        y = wrap(y + (0.46 * Math.sin(angle) - parallax.value.y) * sy / depth)
         result.sizes.push(placement.getZ(i))
         result.alphas.push(placement.getW(i))
         result.speeds.push(motion.getY(i))
@@ -234,7 +228,7 @@ export function readStageEffects(page, mask) {
         const px = Math.floor((1 + x) * width / 2)
         const py = Math.floor((1 + y) * height / 2)
         let changed = 0
-        const radius = bokeh ? 4 : 2
+        const radius = 2
         for (let cy = py - radius; cy <= py + radius; cy++) {
           for (let cx = px - radius; cx <= px + radius; cx++) {
             if (!inside(cx, cy)) continue
@@ -244,14 +238,11 @@ export function readStageEffects(page, mask) {
         }
         if (changed < 3) continue
         result.visible++
-        if (y >= 0.20) result.top40++
-        if (Math.abs(y) < 0.30) result.sharp++
       }
       for (const key of ['sizes', 'alphas', 'speeds']) result[key] = [Math.min(...result[key]), Math.max(...result[key])]
       return result
     }
 
-    const bokeh = air('bokeh')
     const motes = air('motes')
     const key = scene.children.find((object) => object.isDirectionalLight && object.castShadow)
     const intensity = key.intensity
@@ -331,7 +322,7 @@ export function readStageEffects(page, mask) {
       if (core.name === 'atlas/fold-core' && core.visible) emitters.push(emitter(core.position, 'fold core'))
     }
     draw()
-    return { bokeh, motes, moss: { samples: ratios.length, sunToShade: median(ratios) },
+    return { motes, moss: { samples: ratios.length, sunToShade: median(ratios) },
       fronds: { share: fronds.length * 100 / (width * height), medianLuma: median(fronds), overlap },
       riggingMask, trollBounds: [left, height - top, right, height - bottom],
       emitters: emitters.filter(Boolean) }

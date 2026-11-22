@@ -25,7 +25,7 @@ const updateDebug = setupDebug(player)
 const character = createCharacter(scene, capsule, player, canvas, window.__atlas)
 Object.defineProperty(window.__atlas.player, 'state', { get: () => character.state })
 const world = initWorld(window.__atlas)
-if (stage.fronds || stage.bokeh || stage.motes) {
+if (stage.fronds || stage.motes) {
   afterWorldReady(scene, (root) => registerUpdate(createAtmosphere(root, camera, player, () => world.seed)))
 }
 initAudio(`${import.meta.env.BASE_URL}audio/manifest.json`, world, player, window.__atlas)

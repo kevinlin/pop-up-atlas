@@ -1,6 +1,6 @@
 # Pop-up Atlas: Troll Edition
 
-A small original troll walks across an endless felt-and-paper pop-up scrapbook. Tiles fold up out of the page as it gets close, settle with a springy wobble, and fold flat again once it walks on. Each fold makes a soft pop with a papery layer on top. Fold-ups also ring a chime in D major pentatonic, so walking plays a short tune. The troll has its own voice. It says "hup" when it sets off and "ooh" at the big pop-ups, and it hums the last notes of the tune when it stops. At the end of its dance it sings a little "ta-da", and a tiny chorus answers. Glowing seed-pod lanterns, soft bokeh and drifting motes add a touch of magic to the scrapbook.
+A small original troll walks across an endless felt-and-paper pop-up scrapbook. Tiles fold up out of the page as it gets close, settle with a springy wobble, and fold flat again once it walks on. Each fold makes a soft pop with a papery layer on top. Fold-ups also ring a chime in D major pentatonic, so walking plays a short tune. The troll has its own voice. It says "hup" when it sets off and "ooh" at the big pop-ups, and it hums the last notes of the tune when it stops. At the end of its dance it sings a little "ta-da", and a tiny chorus answers. Glowing seed-pod lanterns and drifting motes add a touch of magic to the scrapbook.
 
 ## Run it
 
@@ -19,7 +19,7 @@ npm run preview    # serve dist/ at http://localhost:4173
   - `?seed=<n>` picks a different world.
   - `?cam=<distance>,<pitchDeg>` changes the camera.
   - `?focus=<x>,<z>` sets the focus point.
-  - `?lookOff=&effects=5,7,9,10,11,13` turns on the full round-4 forest stage (see "Round 4" below). `?lookOff=<layers>` and `?effects=<items>` switch single layers.
+  - `?lookOff=&effects=5,7,10,11,13` turns on the full round-4 forest stage (see "Round 4" below). `?lookOff=<layers>` and `?effects=<items>` switch single layers.
 
 Checks: `npm test` runs 220 unit tests. The browser checks run against `npm run preview`. `node scripts/e2e.mjs` runs the 21-check acceptance gate: 11 world and motion checks and 10 sound and voice checks. `node scripts/perf.mjs` runs the frame-time test, and `node scripts/look-stats.mjs` measures the look against `../docs/contracts.md`.
 
@@ -53,7 +53,7 @@ The WAV files (sound stems and blind sound pairs, about 150 MB) are not in git. 
 
 ElevenLabs spend: 977 credits by the account balance, against a cap of 15,000. The pre-call guard's ledger counts 2,363, because it books calls without a cost header at a conservative estimate.
 
-**Look.** I first built a full "magical forest" stage. It had a warmer grade, light from behind, a green tint per zone, haze, felt moss over the pages and dark fronds in the foreground. You rejected it: it "lost the handmade scrapbook feel" and looked "mushy". The shipped look keeps round 3's light, cream pages and wood table. It adds only glowing lanterns, bokeh, drifting motes and a sparkle when a tile folds up. The full stage is still in the code behind the URL flags above.
+**Look.** I first built a full "magical forest" stage. It had a warmer grade, light from behind, a green tint per zone, haze, felt moss over the pages and dark fronds in the foreground. You rejected it: it "lost the handmade scrapbook feel" and looked "mushy". The shipped look keeps round 3's light, cream pages and wood table. It adds only glowing lanterns, drifting motes and a sparkle when a tile folds up. The full stage is still in the code behind the URL flags above.
 
 **Two bugs found by the round-4 checks.**
 - The synth's volume envelope started each note at full volume instead of silence. A start time with a tiny rounding error then let one raw sample through. On the bridge pluck that was a click as loud as the voice. It had been there since the first build. Fixed.

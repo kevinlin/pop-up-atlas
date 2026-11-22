@@ -268,14 +268,12 @@ function checks(stats) {
 function effectChecks(effects) {
   const inBand = (value, min, max) => value !== null && value >= min && value <= max
   const limits = (pair, min, max) => pair[0] >= min - 1e-6 && pair[1] <= max + 1e-6
-  const { moss, fronds, bokeh, motes, emitters } = effects
+  const { moss, fronds, motes, emitters } = effects
   const lights = emitters.filter(({ luma, radius }) => inBand(luma, 200, 235)
     && inBand(radius / viewport.width, 0.015, 0.03))
   return {
     '5 Sunlit moss contrast': inBand(moss.sunToShade, 1.5, 1.8),
     '7 Dark foreground': inBand(fronds.share, 5, 12) && inBand(fronds.medianLuma, 30, 70) && fronds.overlap === 0,
-    '9 Bokeh': inBand(bokeh?.visible ?? null, 15, 30) && limits(bokeh.sizes, 0.03, 0.10)
-      && limits(bokeh.alphas, 0.15, 0.35) && bokeh.sharp === 0 && bokeh.top40 >= 0.7 * bokeh.visible,
     '10 Motes': inBand(motes?.visible ?? null, 80, 150) && limits(motes.sizes, 2, 5)
       && limits(motes.alphas, 0.20, 0.50) && limits(motes.speeds, 0.05, 0.20)
       && motes.twinkling === 0.2 * motes.placed,
