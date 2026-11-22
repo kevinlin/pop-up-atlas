@@ -13,10 +13,13 @@ import { placeLantern } from './placement.js'
 // 1.5-3 % of frame width. Tuned for core luma ~205-215 on the default camera. Neutral tone mapping flattens the top
 // end, so the values sit well under 1. Gains below ~0.25 starve the bloom threshold in tilt-shift.js (halo drops to 0);
 // above ~0.3 the halo radius barely moves, because the measured edge is set by the cream page, which takes no halo.
-const CORE_LIGHT = '0.50'
+const CORE_LIGHT = '0.48'
 const CORE_DISTANT = '0.15'
 const HALO_NEAR = '0.35'
-const HALO_FAR = '1.20'
+const HALO_FAR = '0.70'
+// The halo cannot spread over the cream page, so a near lantern's halo reaches little past the core silhouette.
+// A fuller core keeps it at 1.5 % of frame width or more while it still sits inside the pod shell.
+const CORE_SCALE = { x: 0.108, y: 0.17 }
 
 const glowColors = [palette.butter, palette.mint, palette.hotPink, palette.sky].map((color) => new Color(color))
 export const glowPlane = () => new PlaneGeometry(2, 2).rotateX(-Math.PI / 2)
@@ -143,7 +146,7 @@ export function createLanterns(scene) {
     ['stem', stemGeometry(), leaf, 2],
     ['yarn', spanGeometry(), yarn, 1],
     ['seed-card', shellGeometry(), shell, 2],
-    ['seed-core', new SphereGeometry(1, 10, 6).scale(0.072, 0.136, 0.072), core, 2],
+    ['seed-core', new SphereGeometry(1, 10, 6).scale(CORE_SCALE.x, CORE_SCALE.y, CORE_SCALE.x), core, 2],
     ['ground-glow', glowPlane(), groundGlow(), 1],
     ['tie', new CylinderGeometry(0.009, 0.009, 0.18, 5).translate(0, 0.09, 0), yarn, 2],
   ]
