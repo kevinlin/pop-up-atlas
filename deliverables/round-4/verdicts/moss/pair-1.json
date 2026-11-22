@@ -1,0 +1,792 @@
+{
+  "mode": "single_clip_rating",
+  "repeats": [
+    {
+      "order": [
+        "X",
+        "Y"
+      ],
+      "items": {
+        "appeal": {
+          "answers": [
+            {
+              "answer": "9. This toy combines whimsical sound effects with a playful, childlike voice, creating a charming and imaginative experience.",
+              "seconds": 2.03
+            },
+            {
+              "answer": "9. This toy combines whimsical sound effects with a playful, childlike voice, creating a charming and imaginative experience.",
+              "seconds": 1.783
+            }
+          ],
+          "scores": {
+            "X": 9.0,
+            "Y": 9.0
+          }
+        },
+        "fold_pop": {
+          "answers": [
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and engaging auditory experience.",
+              "seconds": 1.785
+            },
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and engaging auditory experience.",
+              "seconds": 1.721
+            }
+          ],
+          "scores": {
+            "X": 8.0,
+            "Y": 8.0
+          },
+          "status": "insensitive"
+        },
+        "musicality": {
+          "answers": [
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and expressive vocal line that conveys a sense of wonder and playfulness.",
+              "seconds": 2.459
+            },
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and expressive vocal line.",
+              "seconds": 1.729
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          },
+          "status": "insensitive"
+        },
+        "vocals": {
+          "answers": [
+            {
+              "answer": "9 The high-pitched, bright, and playful vocalizations convey a sense of innocence and charm, typical of cute character design.",
+              "seconds": 1.964
+            },
+            {
+              "answer": "9 The high-pitched, bright, and playful vocalizations convey a sense of innocence and charm, typical of cute character expressions.",
+              "seconds": 1.925
+            }
+          ],
+          "scores": {
+            "X": 9.0,
+            "Y": 9.0
+          }
+        },
+        "clarity": {
+          "answers": [
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud buzzer, indicating high clarity and dynamic range.",
+              "seconds": 1.708
+            },
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud buzzer, indicating high clarity and dynamic range.",
+              "seconds": 1.66
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          },
+          "status": "insensitive"
+        },
+        "fatigue": {
+          "answers": [
+            {
+              "answer": "8. The loud, sustained electronic tone would be highly irritating after prolonged exposure.",
+              "seconds": 1.297
+            },
+            {
+              "answer": "8. The loud, sustained electronic tone would be highly irritating after prolonged exposure.",
+              "seconds": 1.26
+            }
+          ],
+          "scores": {
+            "X": 8.0,
+            "Y": 8.0
+          }
+        }
+      },
+      "scores": {
+        "appeal": {
+          "X": 9.0,
+          "Y": 9.0
+        },
+        "fold_pop": {
+          "X": 8.0,
+          "Y": 8.0
+        },
+        "musicality": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "vocals": {
+          "X": 9.0,
+          "Y": 9.0
+        },
+        "clarity": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "fatigue": {
+          "X": 3.0,
+          "Y": 3.0
+        }
+      },
+      "voice_presence": {
+        "X": {
+          "answer": "yes",
+          "seconds": 0.323,
+          "present": true
+        },
+        "Y": {
+          "answer": "yes",
+          "seconds": 0.238,
+          "present": true
+        }
+      },
+      "preferred": "tie",
+      "window": {
+        "start_seconds": 0.0,
+        "end_seconds": 10.0
+      },
+      "captions": {
+        "X": {
+          "answer": "Hup, Ooh, Ching",
+          "seconds": 0.769
+        },
+        "Y": {
+          "answer": "Hup, Ooh, Ching",
+          "seconds": 0.693
+        }
+      },
+      "defects": {
+        "questions": {
+          "steady_tone": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.294,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.236,
+              "yes": true
+            }
+          },
+          "clipping": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.242,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.237,
+              "yes": true
+            }
+          },
+          "loud_voice": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.285,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.239,
+              "yes": false
+            }
+          },
+          "harsh_sound": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.255,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.235,
+              "yes": false
+            }
+          },
+          "repetition": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.28,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.238,
+              "yes": true
+            }
+          }
+        },
+        "compared_questions": 0,
+        "yes_counts": {
+          "X": 0,
+          "Y": 0
+        },
+        "preferred": "tie"
+      },
+      "rating_preferred": "tie"
+    },
+    {
+      "order": [
+        "Y",
+        "X"
+      ],
+      "items": {
+        "appeal": {
+          "answers": [
+            {
+              "answer": "9. This toy combines whimsical sound effects with expressive vocal reactions, creating a playful and engaging experience.",
+              "seconds": 1.601
+            },
+            {
+              "answer": "9. This toy combines whimsical design with engaging sound effects, making it highly appealing for imaginative play.",
+              "seconds": 1.599
+            }
+          ],
+          "scores": {
+            "Y": 9.0,
+            "X": 9.0
+          }
+        },
+        "fold_pop": {
+          "answers": [
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and engaging auditory experience.",
+              "seconds": 1.76
+            },
+            {
+              "answer": "9 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and engaging auditory experience.",
+              "seconds": 1.745
+            }
+          ],
+          "scores": {
+            "Y": 8.0,
+            "X": 9.0
+          },
+          "status": "insensitive"
+        },
+        "musicality": {
+          "answers": [
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a bright and playful quality that matches the joyful vocal expressions.",
+              "seconds": 2.064
+            },
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and bright tonal quality.",
+              "seconds": 1.785
+            }
+          ],
+          "scores": {
+            "Y": 10.0,
+            "X": 10.0
+          },
+          "status": "insensitive"
+        },
+        "vocals": {
+          "answers": [
+            {
+              "answer": "9 The high-pitched, bright, and playful vocalizations convey a sense of childlike wonder and innocence, making them feel endearing and sweet.",
+              "seconds": 2.222
+            },
+            {
+              "answer": "9 The high-pitched, bright, and playful vocalizations convey a sense of childlike wonder and joy, making them feel endearing and sweet.",
+              "seconds": 2.203
+            }
+          ],
+          "scores": {
+            "Y": 9.0,
+            "X": 9.0
+          }
+        },
+        "clarity": {
+          "answers": [
+            {
+              "answer": "1. The quiet sounds are completely masked by the loud buzzer, making them inaudible.",
+              "seconds": 1.536
+            },
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud exclamation, indicating high clarity and dynamic range.",
+              "seconds": 1.662
+            }
+          ],
+          "scores": {
+            "Y": 1.0,
+            "X": 10.0
+          },
+          "status": "insensitive"
+        },
+        "fatigue": {
+          "answers": [
+            {
+              "answer": "8 The loud, high-pitched squeal would be highly irritating after prolonged exposure.",
+              "seconds": 1.322
+            },
+            {
+              "answer": "8. The loud, high-pitched squeal would be highly irritating after prolonged exposure.",
+              "seconds": 1.405
+            }
+          ],
+          "scores": {
+            "Y": 8.0,
+            "X": 8.0
+          }
+        }
+      },
+      "scores": {
+        "appeal": {
+          "Y": 9.0,
+          "X": 9.0
+        },
+        "fold_pop": {
+          "Y": 8.0,
+          "X": 9.0
+        },
+        "musicality": {
+          "Y": 10.0,
+          "X": 10.0
+        },
+        "vocals": {
+          "Y": 9.0,
+          "X": 9.0
+        },
+        "clarity": {
+          "Y": 1.0,
+          "X": 10.0
+        },
+        "fatigue": {
+          "Y": 3.0,
+          "X": 3.0
+        }
+      },
+      "voice_presence": {
+        "Y": {
+          "answer": "yes",
+          "seconds": 0.244,
+          "present": true
+        },
+        "X": {
+          "answer": "yes",
+          "seconds": 0.236,
+          "present": true
+        }
+      },
+      "preferred": "tie",
+      "window": {
+        "start_seconds": 10.0,
+        "end_seconds": 20.0
+      },
+      "captions": {
+        "Y": {
+          "answer": "A series of sharp, high-pitched clicks and clacks, a soft thud, a bright synthesized chime, a child's voice saying 'Whoa!' and 'Whee!', and a sustained low electronic tone.",
+          "seconds": 3.282
+        },
+        "X": {
+          "answer": "A series of sharp, high-pitched clicks and clacks, a soft thud, a bright synthesized chime, a child's voice saying 'Whoa!' and 'Whee!', and a sustained low electronic tone.",
+          "seconds": 3.235
+        }
+      },
+      "defects": {
+        "questions": {
+          "steady_tone": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.256,
+              "yes": true
+            },
+            "X": {
+              "answer": "yes",
+              "seconds": 0.238,
+              "yes": true
+            }
+          },
+          "clipping": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.246,
+              "yes": true
+            },
+            "X": {
+              "answer": "yes",
+              "seconds": 0.239,
+              "yes": true
+            }
+          },
+          "loud_voice": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.248,
+              "yes": true
+            },
+            "X": {
+              "answer": "yes",
+              "seconds": 0.235,
+              "yes": true
+            }
+          },
+          "harsh_sound": {
+            "Y": {
+              "answer": "no",
+              "seconds": 0.241,
+              "yes": false
+            },
+            "X": {
+              "answer": "no",
+              "seconds": 0.236,
+              "yes": false
+            }
+          },
+          "repetition": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.246,
+              "yes": true
+            },
+            "X": {
+              "answer": "no",
+              "seconds": 0.239,
+              "yes": false
+            }
+          }
+        },
+        "compared_questions": 0,
+        "yes_counts": {
+          "X": 0,
+          "Y": 0
+        },
+        "preferred": "tie"
+      },
+      "rating_preferred": "tie"
+    },
+    {
+      "order": [
+        "X",
+        "Y"
+      ],
+      "items": {
+        "appeal": {
+          "answers": [
+            {
+              "answer": "9. This toy combines whimsy and charm, appealing to both children and adults with its playful design and joyful sounds.",
+              "seconds": 1.799
+            },
+            {
+              "answer": "10 This toy is perfect for a child who loves imaginative play and colorful, whimsical characters.",
+              "seconds": 1.524
+            }
+          ],
+          "scores": {
+            "X": 9.0,
+            "Y": 10.0
+          }
+        },
+        "fold_pop": {
+          "answers": [
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and distinct auditory experience.",
+              "seconds": 1.739
+            },
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and engaging auditory experience.",
+              "seconds": 1.728
+            }
+          ],
+          "scores": {
+            "X": 8.0,
+            "Y": 8.0
+          },
+          "status": "insensitive"
+        },
+        "musicality": {
+          "answers": [
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and expressive vocal performance.",
+              "seconds": 1.723
+            },
+            {
+              "answer": "10 The music is very melodic, in tune, and pleasant, with a clear and bright quality.",
+              "seconds": 1.662
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          },
+          "status": "insensitive"
+        },
+        "vocals": {
+          "answers": [
+            {
+              "answer": "9 The high-pitched, bright, and playful vocalizations strongly convey a sense of cuteness and lightheartedness.",
+              "seconds": 2.008
+            },
+            {
+              "answer": "9 The high-pitched, bright, and playful vocalizations convey a sense of innocence and joy, making them feel endearing and charming.",
+              "seconds": 2.08
+            }
+          ],
+          "scores": {
+            "X": 9.0,
+            "Y": 9.0
+          }
+        },
+        "clarity": {
+          "answers": [
+            {
+              "answer": "1 The quiet sounds are completely masked by the loud buzzer, making them inaudible.",
+              "seconds": 1.478
+            },
+            {
+              "answer": "1 The quiet sounds are completely masked by the loud, sustained electronic tone, making them inaudible.",
+              "seconds": 1.585
+            }
+          ],
+          "scores": {
+            "X": 1.0,
+            "Y": 1.0
+          },
+          "status": "insensitive"
+        },
+        "fatigue": {
+          "answers": [
+            {
+              "answer": "8 The loud, high-pitched squeal would be highly irritating after prolonged exposure.",
+              "seconds": 1.331
+            },
+            {
+              "answer": "8 The loud, high-pitched squeal would be highly irritating after prolonged exposure.",
+              "seconds": 1.318
+            }
+          ],
+          "scores": {
+            "X": 8.0,
+            "Y": 8.0
+          }
+        }
+      },
+      "scores": {
+        "appeal": {
+          "X": 9.0,
+          "Y": 10.0
+        },
+        "fold_pop": {
+          "X": 8.0,
+          "Y": 8.0
+        },
+        "musicality": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "vocals": {
+          "X": 9.0,
+          "Y": 9.0
+        },
+        "clarity": {
+          "X": 1.0,
+          "Y": 1.0
+        },
+        "fatigue": {
+          "X": 3.0,
+          "Y": 3.0
+        }
+      },
+      "voice_presence": {
+        "X": {
+          "answer": "yes",
+          "seconds": 0.248,
+          "present": true
+        },
+        "Y": {
+          "answer": "yes",
+          "seconds": 0.237,
+          "present": true
+        }
+      },
+      "preferred": "Y",
+      "window": {
+        "start_seconds": 20.0,
+        "end_seconds": 30.0
+      },
+      "captions": {
+        "X": {
+          "answer": "A sharp click, a high-pitched electronic chime, a breathy giggle, a high-pitched 'Zee!' exclamation, a soft 'Aww' vocalization, and a sustained low electronic tone.",
+          "seconds": 3.249
+        },
+        "Y": {
+          "answer": "A sharp click, a high-pitched electronic chime, a soft breathy giggle, a high-pitched 'Zee!' exclamation, a low-pitched 'Oh' utterance, a high-pitched 'Yay!' exclamation, and a sustained low-frequency electronic tone.",
+          "seconds": 4.212
+        }
+      },
+      "defects": {
+        "questions": {
+          "steady_tone": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.256,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.238,
+              "yes": true
+            }
+          },
+          "clipping": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.252,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.238,
+              "yes": true
+            }
+          },
+          "loud_voice": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.244,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.236,
+              "yes": true
+            }
+          },
+          "harsh_sound": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.24,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.238,
+              "yes": false
+            }
+          },
+          "repetition": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.248,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.238,
+              "yes": false
+            }
+          }
+        },
+        "compared_questions": 0,
+        "yes_counts": {
+          "X": 0,
+          "Y": 0
+        },
+        "preferred": "tie"
+      },
+      "rating_preferred": "Y"
+    }
+  ],
+  "aggregate": {
+    "wins": {
+      "X": 0,
+      "Y": 1
+    },
+    "ties": 2,
+    "mean_scores": {
+      "X": {
+        "appeal": 9.0,
+        "fold_pop": 8.333333333333334,
+        "musicality": 10.0,
+        "vocals": 9.0,
+        "clarity": 7.0,
+        "fatigue": 3.0
+      },
+      "Y": {
+        "appeal": 9.333333333333334,
+        "fold_pop": 8.0,
+        "musicality": 10.0,
+        "vocals": 9.0,
+        "clarity": 4.0,
+        "fatigue": 3.0
+      }
+    },
+    "preferred": "tie"
+  },
+  "defects": {
+    "questions": {
+      "steady_tone": {
+        "prompt": "Do you hear a loud, steady high-pitched tone? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "clipping": {
+        "prompt": "Do you hear crunchy distortion or clipping? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "loud_voice": {
+        "prompt": "Is a voice too loud compared with the other sounds? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "harsh_sound": {
+        "prompt": "Is any sound harsh or scary for a children's toy? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "repetition": {
+        "prompt": "Does the same sound repeat enough to become annoying? Answer yes or no.",
+        "status": "insensitive"
+      }
+    },
+    "wins": {
+      "X": 0,
+      "Y": 0
+    },
+    "ties": 3,
+    "compared_questions": 0,
+    "yes_counts": {
+      "X": 0,
+      "Y": 0
+    }
+  },
+  "insensitive_items": [
+    "clarity",
+    "fold_pop",
+    "musicality"
+  ],
+  "two_audio_test": {
+    "window": {
+      "start_seconds": 0.0,
+      "end_seconds": 10.0
+    },
+    "passed": false,
+    "trials": [
+      {
+        "order": [
+          "X",
+          "Y"
+        ],
+        "answer": "First. The first clip has a more consistent and playful rhythm with clear, bright vocalizations, making it more engaging for a cheerful handmade fantasy walking toy.",
+        "seconds": 2.838,
+        "choice": "first",
+        "preferred": "X"
+      },
+      {
+        "order": [
+          "Y",
+          "X"
+        ],
+        "answer": "First. The first clip has a more consistent and playful rhythm with clear, bright vocalizations, making it more engaging for a cheerful handmade fantasy walking toy.",
+        "seconds": 2.462,
+        "choice": "first",
+        "preferred": "Y"
+      }
+    ]
+  }
+}

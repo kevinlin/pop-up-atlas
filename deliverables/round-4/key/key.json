@@ -1,0 +1,160 @@
+{
+  "pairs": [
+    {
+      "pair": "pair-01.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r4-01-green-gold-grove.png",
+      "game": "game-01.png",
+      "seed": 42,
+      "camera": [
+        44,
+        34
+      ],
+      "anchor": [
+        0.5,
+        0.5
+      ],
+      "start": {
+        "x": 21.45,
+        "z": -0.2
+      },
+      "player": {
+        "x": 21.45,
+        "z": -0.2,
+        "state": "idle"
+      }
+    },
+    {
+      "pair": "pair-02.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r4-02-amber-grove.png",
+      "game": "game-02.png",
+      "seed": 0,
+      "camera": [
+        4.5,
+        32
+      ],
+      "anchor": [
+        0.5,
+        0.72
+      ],
+      "start": {
+        "x": -0.48,
+        "z": -5.25
+      },
+      "player": {
+        "x": 0.07154328932550712,
+        "z": -4.698456710674496,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-03.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r4-03-pink-lavender-clearing.png",
+      "game": "game-03.png",
+      "seed": 0,
+      "camera": [
+        4.5,
+        32
+      ],
+      "anchor": [
+        0.5,
+        0.72
+      ],
+      "start": {
+        "x": -0.48,
+        "z": -5.25
+      },
+      "player": {
+        "x": 0.07154328932550712,
+        "z": -4.698456710674496,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-04.png",
+      "A": "game",
+      "B": "reference",
+      "reference": "concept-r4-04-teal-river-grove.png",
+      "game": "game-04.png",
+      "seed": 42,
+      "camera": [
+        5.8,
+        24
+      ],
+      "anchor": [
+        0.5,
+        0.71
+      ],
+      "start": {
+        "x": 23.2,
+        "z": 8
+      },
+      "player": {
+        "x": 23.999999999999982,
+        "z": 8,
+        "state": "walk"
+      }
+    },
+    {
+      "pair": "pair-05.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r4-05-world-answers.png",
+      "game": "game-05.png",
+      "seed": 0,
+      "camera": [
+        5.6,
+        38
+      ],
+      "anchor": [
+        0.3333333333333333,
+        0.71
+      ],
+      "start": {
+        "x": 0.43690513672348597,
+        "z": -2.494797539067061
+      },
+      "player": {
+        "x": 0.65,
+        "z": -2.7,
+        "state": "idle"
+      },
+      "fold": {
+        "dir": "up",
+        "i": 1,
+        "j": -2
+      },
+      "foldAngleDeg": -30.393661287416784
+    },
+    {
+      "pair": "pair-06.png",
+      "A": "reference",
+      "B": "game",
+      "reference": "concept-r4-06-dance-moment.png",
+      "game": "game-06.png",
+      "seed": 167,
+      "camera": [
+        4.4,
+        32
+      ],
+      "anchor": [
+        0.5,
+        0.69
+      ],
+      "start": {
+        "x": -4,
+        "z": 8.56
+      },
+      "player": {
+        "x": -4,
+        "z": 8.56,
+        "state": "dance"
+      }
+    }
+  ]
+}

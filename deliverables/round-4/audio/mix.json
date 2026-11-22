@@ -1,0 +1,52 @@
+{
+  "baselineRev": "7b6489c60657075ba5e986a1930020c133e330a7",
+  "stemPeaksDbfs": {
+    "full": -7.5818040350949625,
+    "folds": -10.73852049112173,
+    "chimes": -11.95694815194177,
+    "baseline": -10.73852049112173,
+    "folds-baseline": -10.73852049112173,
+    "voice": -7.5818350182325815,
+    "full-minus-voice": -10.763657468160588,
+    "chorus": -18.17185080993726,
+    "full-minus-chorus": -7.5818040350949625,
+    "sfx": -14.51282984892986,
+    "full-minus-sfx": -7.581837496888365,
+    "step": -27.265806007797263,
+    "full-minus-step": -7.5818021761102194
+  },
+  "master": {
+    "source": "Decoded AAC stream of gameplay-30s.mp4",
+    "peakDbfs": -7.634160572915713,
+    "clippedSamples": 0
+  },
+  "rules": {
+    "voiceAboveChimes": {
+      "db": 4.375113133709188,
+      "minDb": 3,
+      "maxDb": 6,
+      "pass": true
+    },
+    "stepBelowVoice": {
+      "db": 19.68397098956468,
+      "minDb": 12,
+      "pass": true
+    },
+    "chorusBelowVoice": {
+      "db": 10.59001579170468,
+      "minDb": 6,
+      "pass": true
+    },
+    "masterPeak": {
+      "dbfs": -7.634160572915713,
+      "maxDbfs": -1,
+      "pass": true
+    },
+    "masterClipping": {
+      "samples": 0,
+      "maxSamples": 0,
+      "pass": true
+    }
+  },
+  "pass": true
+}

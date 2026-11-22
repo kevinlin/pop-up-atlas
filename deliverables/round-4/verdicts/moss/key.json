@@ -1,0 +1,62 @@
+{
+  "pair-1": {
+    "X": {
+      "side": "b",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-1-y.wav"
+    },
+    "Y": {
+      "side": "a",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-1-x.wav"
+    }
+  },
+  "pair-2": {
+    "X": {
+      "side": "a",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-2-x.wav"
+    },
+    "Y": {
+      "side": "b",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-2-y.wav"
+    }
+  },
+  "pair-3": {
+    "X": {
+      "side": "b",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-3-y.wav"
+    },
+    "Y": {
+      "side": "a",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-3-x.wav"
+    }
+  },
+  "pair-4": {
+    "X": {
+      "side": "a",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-4-x.wav"
+    },
+    "Y": {
+      "side": "b",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-4-y.wav"
+    }
+  },
+  "pair-5": {
+    "X": {
+      "side": "a",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-5-x.wav"
+    },
+    "Y": {
+      "side": "b",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-5-y.wav"
+    }
+  },
+  "pair-6": {
+    "X": {
+      "side": "b",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-6-y.wav"
+    },
+    "Y": {
+      "side": "a",
+      "file": "deliverables/round-4/critic-inputs/audio/pair-6-x.wav"
+    }
+  }
+}

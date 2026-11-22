@@ -1,0 +1,736 @@
+{
+  "mode": "single_clip_rating",
+  "repeats": [
+    {
+      "order": [
+        "X",
+        "Y"
+      ],
+      "items": {
+        "appeal": {
+          "answers": [
+            {
+              "answer": "9. This toy combines whimsy and craftsmanship, evoking a sense of playful adventure.",
+              "seconds": 1.393
+            },
+            {
+              "answer": "9. This toy combines whimsy and craftsmanship, evoking a sense of playful adventure.",
+              "seconds": 1.384
+            }
+          ],
+          "scores": {
+            "X": 9.0,
+            "Y": 9.0
+          }
+        },
+        "fold_pop": {
+          "answers": [
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and deliberate auditory experience.",
+              "seconds": 1.715
+            },
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and distinct auditory experience.",
+              "seconds": 1.743
+            }
+          ],
+          "scores": {
+            "X": 8.0,
+            "Y": 8.0
+          },
+          "status": "insensitive"
+        },
+        "musicality": {
+          "answers": [
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and resonant piano tone.",
+              "seconds": 1.798
+            },
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and harmonious structure.",
+              "seconds": 1.743
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          },
+          "status": "insensitive"
+        },
+        "vocals": {
+          "answers": [],
+          "scores": {
+            "X": null,
+            "Y": null
+          }
+        },
+        "clarity": {
+          "answers": [
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud electronic tone, indicating high clarity and minimal masking.",
+              "seconds": 1.66
+            },
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud electronic tone, indicating high clarity and minimal masking.",
+              "seconds": 1.671
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          },
+          "status": "insensitive"
+        },
+        "fatigue": {
+          "answers": [
+            {
+              "answer": "10 The sudden, loud, and harsh electronic buzz would be extremely irritating after prolonged exposure.",
+              "seconds": 1.463
+            },
+            {
+              "answer": "10 The loud, sustained electronic tone would be extremely irritating after prolonged exposure.",
+              "seconds": 1.266
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          }
+        }
+      },
+      "scores": {
+        "appeal": {
+          "X": 9.0,
+          "Y": 9.0
+        },
+        "fold_pop": {
+          "X": 8.0,
+          "Y": 8.0
+        },
+        "musicality": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "vocals": {
+          "X": null,
+          "Y": null
+        },
+        "clarity": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "fatigue": {
+          "X": 1.0,
+          "Y": 1.0
+        }
+      },
+      "voice_presence": {
+        "X": {
+          "answer": "no",
+          "seconds": 0.244,
+          "present": false
+        },
+        "Y": {
+          "answer": "no",
+          "seconds": 0.236,
+          "present": false
+        }
+      },
+      "preferred": "tie",
+      "window": {
+        "start_seconds": 0.0,
+        "end_seconds": 10.0
+      },
+      "captions": {
+        "X": {
+          "answer": "A series of electronic beeps and a sustained low-frequency tone.",
+          "seconds": 1.037
+        },
+        "Y": {
+          "answer": "A series of electronic beeps and a sustained low-frequency tone.",
+          "seconds": 1.002
+        }
+      },
+      "defects": {
+        "questions": {
+          "steady_tone": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.249,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.237,
+              "yes": true
+            }
+          },
+          "clipping": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.24,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.239,
+              "yes": true
+            }
+          },
+          "loud_voice": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.244,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.24,
+              "yes": false
+            }
+          },
+          "harsh_sound": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.247,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.237,
+              "yes": false
+            }
+          },
+          "repetition": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.243,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.236,
+              "yes": true
+            }
+          }
+        },
+        "compared_questions": 0,
+        "yes_counts": {
+          "X": 0,
+          "Y": 0
+        },
+        "preferred": "tie"
+      },
+      "rating_preferred": "tie"
+    },
+    {
+      "order": [
+        "Y",
+        "X"
+      ],
+      "items": {
+        "appeal": {
+          "answers": [
+            {
+              "answer": "8. This toy combines whimsy and craftsmanship, appealing to those who enjoy imaginative, tactile play.",
+              "seconds": 1.562
+            },
+            {
+              "answer": "8. This toy combines whimsy and craftsmanship, appealing to those who enjoy imaginative, tactile play.",
+              "seconds": 1.552
+            }
+          ],
+          "scores": {
+            "Y": 8.0,
+            "X": 8.0
+          }
+        },
+        "fold_pop": {
+          "answers": [
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and deliberate auditory experience.",
+              "seconds": 1.737
+            },
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly separated, contributing to a clean and deliberate auditory experience.",
+              "seconds": 1.742
+            }
+          ],
+          "scores": {
+            "Y": 8.0,
+            "X": 8.0
+          },
+          "status": "insensitive"
+        },
+        "musicality": {
+          "answers": [
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and resonant piano tone.",
+              "seconds": 1.792
+            },
+            {
+              "answer": "10 The music is highly melodic, in tune, and pleasant, with a clear and resonant piano tone.",
+              "seconds": 1.819
+            }
+          ],
+          "scores": {
+            "Y": 10.0,
+            "X": 10.0
+          },
+          "status": "insensitive"
+        },
+        "vocals": {
+          "answers": [],
+          "scores": {
+            "Y": null,
+            "X": null
+          }
+        },
+        "clarity": {
+          "answers": [
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud electronic tone, indicating high clarity and minimal masking.",
+              "seconds": 1.665
+            },
+            {
+              "answer": "10 The quiet sounds are clearly audible even during the loud electronic tone, indicating high clarity and minimal masking.",
+              "seconds": 1.667
+            }
+          ],
+          "scores": {
+            "Y": 10.0,
+            "X": 10.0
+          },
+          "status": "insensitive"
+        },
+        "fatigue": {
+          "answers": [
+            {
+              "answer": "10 The loud, sustained electronic tone would be extremely irritating after prolonged exposure.",
+              "seconds": 1.255
+            },
+            {
+              "answer": "10 The loud, sustained electronic tone would be extremely irritating after prolonged exposure.",
+              "seconds": 1.254
+            }
+          ],
+          "scores": {
+            "Y": 10.0,
+            "X": 10.0
+          }
+        }
+      },
+      "scores": {
+        "appeal": {
+          "Y": 8.0,
+          "X": 8.0
+        },
+        "fold_pop": {
+          "Y": 8.0,
+          "X": 8.0
+        },
+        "musicality": {
+          "Y": 10.0,
+          "X": 10.0
+        },
+        "vocals": {
+          "Y": null,
+          "X": null
+        },
+        "clarity": {
+          "Y": 10.0,
+          "X": 10.0
+        },
+        "fatigue": {
+          "Y": 1.0,
+          "X": 1.0
+        }
+      },
+      "voice_presence": {
+        "Y": {
+          "answer": "no",
+          "seconds": 0.248,
+          "present": false
+        },
+        "X": {
+          "answer": "no",
+          "seconds": 0.239,
+          "present": false
+        }
+      },
+      "preferred": "tie",
+      "window": {
+        "start_seconds": 10.0,
+        "end_seconds": 20.0
+      },
+      "captions": {
+        "Y": {
+          "answer": "A series of electronic beeps and a sustained low-frequency tone.",
+          "seconds": 1.011
+        },
+        "X": {
+          "answer": "A series of high-pitched, synthetic beeps and a sustained low-frequency electronic tone.",
+          "seconds": 1.329
+        }
+      },
+      "defects": {
+        "questions": {
+          "steady_tone": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.248,
+              "yes": true
+            },
+            "X": {
+              "answer": "yes",
+              "seconds": 0.237,
+              "yes": true
+            }
+          },
+          "clipping": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.242,
+              "yes": true
+            },
+            "X": {
+              "answer": "yes",
+              "seconds": 0.236,
+              "yes": true
+            }
+          },
+          "loud_voice": {
+            "Y": {
+              "answer": "no",
+              "seconds": 0.254,
+              "yes": false
+            },
+            "X": {
+              "answer": "no",
+              "seconds": 0.237,
+              "yes": false
+            }
+          },
+          "harsh_sound": {
+            "Y": {
+              "answer": "no",
+              "seconds": 0.241,
+              "yes": false
+            },
+            "X": {
+              "answer": "no",
+              "seconds": 0.238,
+              "yes": false
+            }
+          },
+          "repetition": {
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.247,
+              "yes": true
+            },
+            "X": {
+              "answer": "yes",
+              "seconds": 0.237,
+              "yes": true
+            }
+          }
+        },
+        "compared_questions": 0,
+        "yes_counts": {
+          "X": 0,
+          "Y": 0
+        },
+        "preferred": "tie"
+      },
+      "rating_preferred": "tie"
+    },
+    {
+      "order": [
+        "X",
+        "Y"
+      ],
+      "items": {
+        "appeal": {
+          "answers": [
+            {
+              "answer": "10 This toy is a delightful, whimsical creation that brings joy and imagination to playtime.",
+              "seconds": 1.52
+            },
+            {
+              "answer": "10 This toy is a delightful, whimsical creation that brings joy and imagination to playtime.",
+              "seconds": 1.559
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          }
+        },
+        "fold_pop": {
+          "answers": [
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly defined, contributing to a clean and precise auditory experience.",
+              "seconds": 1.733
+            },
+            {
+              "answer": "8 The papery folds and soft pops are crisp and clearly defined, contributing to a clean and precise auditory experience.",
+              "seconds": 1.726
+            }
+          ],
+          "scores": {
+            "X": 8.0,
+            "Y": 8.0
+          },
+          "status": "insensitive"
+        },
+        "musicality": {
+          "answers": [
+            {
+              "answer": "1 The music is not melodic or in tune; it consists of a single sustained tone without pitch variation or musical structure.",
+              "seconds": 1.858
+            },
+            {
+              "answer": "1 The music is not melodic or in tune; it consists of a single sustained tone without pitch variation or musical structure.",
+              "seconds": 1.858
+            }
+          ],
+          "scores": {
+            "X": 1.0,
+            "Y": 1.0
+          },
+          "status": "insensitive"
+        },
+        "vocals": {
+          "answers": [],
+          "scores": {
+            "X": null,
+            "Y": null
+          }
+        },
+        "clarity": {
+          "answers": [
+            {
+              "answer": "10 The quiet sounds are completely masked by the loud, sustained electronic tone, leaving no audible trace of the background.",
+              "seconds": 1.812
+            },
+            {
+              "answer": "10 The quiet sounds are completely masked by the loud, sustained electronic tone, leaving no audible trace of the background.",
+              "seconds": 1.805
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          },
+          "status": "insensitive"
+        },
+        "fatigue": {
+          "answers": [
+            {
+              "answer": "10 The sound is extremely loud, high-pitched, and grating, which would be highly irritating after prolonged exposure.",
+              "seconds": 1.868
+            },
+            {
+              "answer": "10 The sound is extremely loud, high-pitched, and grating, which would be highly irritating after prolonged exposure.",
+              "seconds": 1.863
+            }
+          ],
+          "scores": {
+            "X": 10.0,
+            "Y": 10.0
+          }
+        }
+      },
+      "scores": {
+        "appeal": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "fold_pop": {
+          "X": 8.0,
+          "Y": 8.0
+        },
+        "musicality": {
+          "X": 1.0,
+          "Y": 1.0
+        },
+        "vocals": {
+          "X": null,
+          "Y": null
+        },
+        "clarity": {
+          "X": 10.0,
+          "Y": 10.0
+        },
+        "fatigue": {
+          "X": 1.0,
+          "Y": 1.0
+        }
+      },
+      "voice_presence": {
+        "X": {
+          "answer": "no",
+          "seconds": 0.246,
+          "present": false
+        },
+        "Y": {
+          "answer": "no",
+          "seconds": 0.235,
+          "present": false
+        }
+      },
+      "preferred": "tie",
+      "window": {
+        "start_seconds": 20.0,
+        "end_seconds": 30.0
+      },
+      "captions": {
+        "X": {
+          "answer": "A sustained electronic tone at 110 Hz with a buzzy, harmonically rich timbre, resembling a sawtooth or square wave, played at a constant volume and pitch, with no other sounds present.",
+          "seconds": 3.104
+        },
+        "Y": {
+          "answer": "A sustained electronic tone at 110 Hz with a buzzy, harmonically rich timbre, resembling a sawtooth or square wave, played at a constant volume and pitch, with no other sounds present.",
+          "seconds": 3.113
+        }
+      },
+      "defects": {
+        "questions": {
+          "steady_tone": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.246,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.238,
+              "yes": true
+            }
+          },
+          "clipping": {
+            "X": {
+              "answer": "yes",
+              "seconds": 0.247,
+              "yes": true
+            },
+            "Y": {
+              "answer": "yes",
+              "seconds": 0.236,
+              "yes": true
+            }
+          },
+          "loud_voice": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.247,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.238,
+              "yes": false
+            }
+          },
+          "harsh_sound": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.244,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.238,
+              "yes": false
+            }
+          },
+          "repetition": {
+            "X": {
+              "answer": "no",
+              "seconds": 0.249,
+              "yes": false
+            },
+            "Y": {
+              "answer": "no",
+              "seconds": 0.239,
+              "yes": false
+            }
+          }
+        },
+        "compared_questions": 0,
+        "yes_counts": {
+          "X": 0,
+          "Y": 0
+        },
+        "preferred": "tie"
+      },
+      "rating_preferred": "tie"
+    }
+  ],
+  "aggregate": {
+    "wins": {
+      "X": 0,
+      "Y": 0
+    },
+    "ties": 3,
+    "mean_scores": {
+      "X": {
+        "appeal": 9.0,
+        "fold_pop": 8.0,
+        "musicality": 7.0,
+        "vocals": null,
+        "clarity": 10.0,
+        "fatigue": 1.0
+      },
+      "Y": {
+        "appeal": 9.0,
+        "fold_pop": 8.0,
+        "musicality": 7.0,
+        "vocals": null,
+        "clarity": 10.0,
+        "fatigue": 1.0
+      }
+    },
+    "preferred": "tie"
+  },
+  "defects": {
+    "questions": {
+      "steady_tone": {
+        "prompt": "Do you hear a loud, steady high-pitched tone? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "clipping": {
+        "prompt": "Do you hear crunchy distortion or clipping? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "loud_voice": {
+        "prompt": "Is a voice too loud compared with the other sounds? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "harsh_sound": {
+        "prompt": "Is any sound harsh or scary for a children's toy? Answer yes or no.",
+        "status": "insensitive"
+      },
+      "repetition": {
+        "prompt": "Does the same sound repeat enough to become annoying? Answer yes or no.",
+        "status": "insensitive"
+      }
+    },
+    "wins": {
+      "X": 0,
+      "Y": 0
+    },
+    "ties": 3,
+    "compared_questions": 0,
+    "yes_counts": {
+      "X": 0,
+      "Y": 0
+    }
+  },
+  "insensitive_items": [
+    "clarity",
+    "fold_pop",
+    "musicality"
+  ]
+}
