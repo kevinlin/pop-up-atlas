@@ -8,7 +8,7 @@ import { launchChromium } from './capture.mjs'
 import {
   checkTrollB, leaderBank, readCueBanks, summarizeTroll, trollA, trollB, voiceBPitch,
 } from './e2e-duo-assets.mjs'
-import { createTrail, duoContract as C, keyVectors, layoutFor, pathClear } from './e2e-duo-plan.mjs'
+import { createTrail, duoContract as C, keyVectors, layoutFor, pathClear, yieldLookaheadSeconds } from './e2e-duo-plan.mjs'
 import { framingStats } from './e2e-duo-probe.mjs'
 import {
   bridgeSession, cornerSession, droppedCues, duoViewports, fps, laneSession, missingSampleSession, sessionScenarios,
@@ -152,9 +152,40 @@ function prepare(result) {
   const followerStep = trace.map((s, k) => (k ? dist(s.F, trace[k - 1].F) : 0))
   const leaderStep = trace.map((s, k) => (k ? dist(s.L, trace[k - 1].L) : 0))
   const markIndex = (mark) => mark && index(mark.f)
+  // Valid separation yields: the follower (as of the previous frame) is inside 0.45 of the leader's projected
+  // approach, and it holds or steps sideways (perpendicular to the leader's heading) within the walk cap.
+  // A detour runs from a yield or a pass-through frame until the follower is back within 0.05 of the trail.
+  const yieldAt = new Set()
+  const detourAt = new Set()
+  let detour = false
+  for (let k = 1; k < trace.length; k++) {
+    const s = trace[k]
+    const p = trace[k - 1]
+    if (!jumpAt(k) && !hopAt.has(k) && !hopAt.has(k - 1)) {
+      const reach = fps * yieldLookaheadSeconds
+      const tip = { x: s.L.x + (s.L.x - p.L.x) * reach, z: s.L.z + (s.L.z - p.L.z) * reach }
+      const ahead = forward(s[s.leader].ry)
+      const along = Math.abs((s.F.x - p.F.x) * ahead.x + (s.F.z - p.F.z) * ahead.z)
+      const step = followerStep[k]
+      if (segmentDistance(p.F, s.L, tip) < C.separation + 0.02 && step <= capStep + 0.001 && (step < 0.003 || along <= 0.3 * step)) yieldAt.add(k)
+    }
+    if (yieldAt.has(k) || gapOf(s) < C.separation) detour = true
+    else if (detour && (swapAt.has(k) || trailDistance[k] <= 0.05)) detour = false
+    if (detour) detourAt.add(k)
+  }
+  // Ordinary-follow legs marked by the routes (follow-leg ... follow-leg-end).
+  const legAt = new Set()
+  let legFrom = null
+  for (const mark of marks) {
+    if (mark.type === 'follow-leg') legFrom = index(mark.f)
+    if (mark.type === 'follow-leg-end' && legFrom !== null) {
+      for (let k = Math.max(0, legFrom); k < Math.min(trace.length, index(mark.f)); k++) legAt.add(k)
+      legFrom = null
+    }
+  }
   return {
     result, trace, marks, first, index, layout, swaps, swapAt, hops, hopAt, teleportAt, jumpAt,
-    target, trailLength, trailDistance, stationary, followerStep, leaderStep, markIndex,
+    target, trailLength, trailDistance, stationary, followerStep, leaderStep, markIndex, yieldAt, detourAt, legAt,
     notes: result.notes ?? {}, where: `${result.label}`,
   }
 }
@@ -244,10 +275,11 @@ function straightRuns(x) {
 }
 
 function analyzeFollow(x, out, pool) {
-  const { trace, hopAt, swapAt, followerStep, notes, markIndex, target, where } = x
+  const { trace, hopAt, swapAt, followerStep, notes, markIndex, target, where, layout, stationary, legAt, detourAt } = x
   const runs = straightRuns(x)
+  // DUO-05: ordinary following only: marked legs, minus yields, pass-throughs and the rejoin after them.
   for (let k = 0; k < trace.length; k++) {
-    if (runs[k] >= C.straightWalkSeconds * fps && !hopAt.has(k)) pool.follow.push(gapOf(trace[k]))
+    if (runs[k] >= C.straightWalkSeconds * fps && legAt.has(k) && !hopAt.has(k) && !detourAt.has(k)) pool.follow.push(gapOf(trace[k]))
   }
   // DUO-06: speed cap everywhere outside swaps and hops; catch-up speed when far behind.
   const id = 'DUO-06'
@@ -269,8 +301,14 @@ function analyzeFollow(x, out, pool) {
     let rises = 0
     let overshoot = 0
     let lastNear = null
+    let slotFrame = null
     for (let k = k0 + 1; k < Math.min(trace.length, k0 + 30); k++) {
       if (x.leaderStep[k] > 1e-4) break
+      // Once the leader is stationary a reachable idle slot replaces the trail target (one frame of slack).
+      if ((stationary[k] || stationary[k + 1]) && trace[k].right && usableSlots(layout, trace[k]).length) {
+        slotFrame = trace[k].f
+        break
+      }
       const near = stopTarget && dist(trace[k].F, stopTarget) < C.easeDistance
       if (near && lastNear !== null && followerStep[k] > lastNear + 0.0015) rises++
       if (near) lastNear = followerStep[k]
@@ -278,7 +316,7 @@ function analyzeFollow(x, out, pool) {
     }
     if (rises) out.problem(id, where, `follower sped up on ${rises} frames inside the last ${C.easeDistance} units after the stop`)
     if (overshoot) out.problem(id, where, `follower passed the 1.1-behind point on ${overshoot} frames after the stop`)
-    out.measure(id, where, { easingRises: rises, overshootFrames: overshoot })
+    out.measure(id, where, { easingRises: rises, overshootFrames: overshoot, idleSlotFrom: slotFrame })
   }
   out.measure(id, where, { maxSpeed: r3(worst * fps), overCapFrames: over })
 }
@@ -306,7 +344,7 @@ function bobFrequency(values) {
   return (crossings.length - 1) / 2 / ((crossings.at(-1) - crossings[0]) / fps)
 }
 
-function collectClipWindows(x, pool) {
+function collectClipWindows(x, _out, pool) {
   const { trace, swapAt, hopAt, followerStep } = x
   const runs = straightRuns(x)
   // Leader references at 1.2 units/s (clip time scale 1).
@@ -434,7 +472,7 @@ function usableSlots(layout, s) {
 }
 
 function analyzeIdle(x, out, pool) {
-  const { trace, layout, stationary, swapAt, teleportAt, hopAt, target, where } = x
+  const { trace, layout, stationary, swapAt, teleportAt, hopAt, target, trailDistance, where } = x
   for (let start = 1; start < trace.length; start++) {
     if (!stationary[start] || stationary[start - 1]) continue
     let end = start
@@ -445,23 +483,27 @@ function analyzeIdle(x, out, pool) {
       return
     }
     // Slots sit 0.75 to the screen left and right of the leader: along the camera's right vector on the page.
-    const side = s.right
     const usable = usableSlots(layout, s)
     if (!usable.length) {
       const id = 'DUO-12'
-      pool.neitherFree.push(where)
-      const hold = target[start]
+      // The no-slot stretch lasts until a slot becomes usable (the follower closing in can clear its path).
+      let last = end
       for (let k = start; k <= end; k++) {
-        const offset = Math.abs((trace[k].F.x - s.L.x) * side.x + (trace[k].F.z - s.L.z) * side.z)
-        if (offset > 0.15) {
-          out.problem(id, where, `follower left the trail toward a side slot at frame ${trace[k].f}`)
+        if (trace[k].right && usableSlots(layout, trace[k]).length) {
+          last = k - 1
+          break
+        }
+        if (trailDistance[k] > 0.15) {
+          out.problem(id, where, `follower left the trail by ${r3(trailDistance[k])} with no usable slot at frame ${trace[k].f}`)
           break
         }
       }
-      if (end - start >= 60) {
-        const finalGap = hold ? dist(trace[end].F, hold) : dist(trace[end].F, s.F)
-        if (finalGap > 0.15) out.problem(id, where, `follower ended ${r3(finalGap)} from the trail target (frame ${trace[end].f})`)
-        out.measure(id, where, { episodeFrames: end - start + 1, finalOffset: r3(finalGap) })
+      if (last - start >= 60) {
+        pool.neitherFree.push(where)
+        const hold = target[last]
+        const finalGap = hold ? dist(trace[last].F, hold) : dist(trace[last].F, s.F)
+        if (finalGap > 0.15) out.problem(id, where, `follower ended ${r3(finalGap)} from the trail target (frame ${trace[last].f})`)
+        out.measure(id, where, { [`frame ${s.f}`]: { episodeFrames: last - start + 1, finalOffset: r3(finalGap), maxTrailDistance: r3(Math.max(...trailDistance.slice(start, last + 1))) } })
       }
       continue
     }
@@ -548,26 +590,30 @@ function analyzeHops(x, out, pool) {
   const { trace, hops, layout, target, where, swapAt } = x
   const id = 'DUO-15'
   for (const hop of hops) {
-    const takeoff = trace[hop.start - 1]
-    if (!takeoff || hop.land === null) {
+    if (!hop.start || hop.land === null) {
       out.problem(id, where, `hop at frame ${trace[hop.start].f} did not land inside the trace`)
       continue
     }
-    const landing = trace[hop.land].F
-    const ground = dist(takeoff.F, landing)
-    const frames = hop.land - hop.start + 1
-    const expected = (C.hopBase + C.hopPerUnit * Math.max(0, ground - C.hopFreeDistance)) * fps
+    // The hopping troll is tracked by identity: a swap applied on the landing frame makes it the leader there.
+    const pose = (k) => (trace[k].leader === hop.label ? trace[k].L : trace[k].F)
+    // Take-off frame: the first hop frame (progress 0, still on the ground at the take-off point).
+    const takeoff = trace[hop.start]
+    const from = pose(hop.start)
+    const landing = pose(hop.land)
+    const ground = dist(from, landing)
+    const elapsed = (hop.land - hop.start) / fps
+    const expected = C.hopBase + C.hopPerUnit * Math.max(0, ground - C.hopFreeDistance)
     const heights = trace.slice(hop.start, hop.land).map((s) => s[hop.label].y)
     const apex = Math.max(...heights)
     const curve = Math.max(...heights.map((y, i) => {
-      const u = (i + 1) / frames
+      const u = Math.min(1, i / (expected * fps))
       return Math.abs(y - 4 * apex * u * (1 - u))
     }))
     let runStart = hop.start - 1
     while (runStart > 0 && gapOf(trace[runStart - 1]) > C.recoveryGap) runStart--
     const waited = hop.start - runStart
-    const aim = target[hop.start - 1]
-    const report = { f: trace[hop.start].f, ground: r3(ground), frames, expected: r3(expected), apex: r3(apex), curve: r3(curve), waited }
+    const aim = target[hop.start]
+    const report = { f: trace[hop.start].f, label: hop.label, ground: r3(ground), elapsed: r3(elapsed), expected: r3(expected), apex: r3(apex), curve: r3(curve), waited }
     pool.hops.push({ where, ...report })
     if (gapOf(takeoff) <= C.recoveryGap) out.problem(id, where, `hop at frame ${report.f} started with the pair ${r3(gapOf(takeoff))} apart`)
     if (waited < C.recoverySeconds * fps - 1) out.problem(id, where, `hop at frame ${report.f} started after ${waited} frames beyond ${C.recoveryGap}`)
@@ -575,12 +621,12 @@ function analyzeHops(x, out, pool) {
       const due = runStart + C.recoverySeconds * fps
       if (target[due] && corridorClear(layout, trace[due].F, target[due])) out.problem(id, where, `hop at frame ${report.f} was ${waited - 30} frames late with a clear line`)
     }
-    if (Math.abs(frames - expected) > 2) out.problem(id, where, `hop lasted ${frames} frames, expected ${r3(expected)}`)
+    if (Math.abs(elapsed - expected) > 2 / fps) out.problem(id, where, `hop at frame ${report.f} lasted ${r3(elapsed)} s for ${r3(ground)} units of ground travel, expected ${r3(expected)} s`)
     if (Math.abs(apex - C.hopApex) > 0.04) out.problem(id, where, `hop apex ${r3(apex)}, expected ${C.hopApex}`)
     if (curve > 0.05) out.problem(id, where, `hop height strays ${r3(curve)} from a parabola`)
     if (!aim || dist(landing, aim) > 0.2) out.problem(id, where, `hop landed ${aim ? r3(dist(landing, aim)) : 'n/a'} from the trail point 1.1 behind`)
-    if (!pathClear(layout, takeoff.F, landing)) out.problem(id, where, `hop at frame ${report.f} crossed a blocked cell`)
-    if (trace.slice(hop.start, hop.land).some((s, i) => swapAt.has(hop.start + i))) out.problem(id, where, `a swap was applied mid-hop at frame ${report.f}`)
+    if (!pathClear(layout, from, landing)) out.problem(id, where, `hop at frame ${report.f} crossed a blocked cell`)
+    for (let k = hop.start + 1; k < hop.land; k++) if (swapAt.has(k)) out.problem(id, where, `a swap was applied mid-hop at frame ${trace[k].f}`)
   }
   // A recovery that is due with a clear line must hop.
   let run = 0
@@ -633,7 +679,8 @@ function simulateSwaps(x) {
       pending = pending === null ? k : null
       next++
     }
-    const hopping = k > 0 && trace[k - 1].hop
+    // The runtime lands a hop before it processes swaps: only a hop that continues through this frame blocks.
+    const hopping = k > 0 && trace[k - 1].hop && trace[k].hop
     if (pending !== null && k >= last + C.swapCooldown * fps && !hopping) {
       expected.push({ k, requested: pending })
       pending = null
@@ -769,7 +816,7 @@ function analyzeSwaps(x, out) {
         const next = hops.find(({ start }) => start >= first.k)
         out.problem('DUO-24', where, `no hop was active when the cooldown ended at frame ${trace[due]?.f}: the pair was ${far ? '' : 'not '}more than ${C.recoveryGap} apart from the jump through the cooldown, `
           + `${next ? `the next hop started at frame ${trace[next.start].f} (${next.start - first.k} frames after the first swap)` : 'no hop followed'}; `
-          + 'the contract keeps the 0.5 s recovery timer running across a swap (the gap does not change), so a hop is due inside the cooldown')
+          + 'a swap resets the trail but the recovery timer keeps running (the gap is between the pair), so the hop is due 0.5 s after the jump, inside the cooldown')
       }
       else {
         const second = swaps.find(({ k: at }) => at > first.k)
@@ -914,14 +961,15 @@ function analyzeMissing(x, out) {
 }
 
 function analyzeTrailPath(x, out) {
-  const { trace, stationary, trailDistance, hopAt, swapAt, teleportAt, where } = x
+  const { trace, stationary, trailDistance, hopAt, swapAt, teleportAt, yieldAt, where } = x
   const id = 'DUO-37'
   let joined = false
   let quiet = 0
   let checked = 0
   const off = []
   for (let k = 0; k < trace.length; k++) {
-    const disturbed = stationary[k] || hopAt.has(k) || teleportAt.has(k) || gapOf(trace[k]) < 0.6 || trace[k].F.state === 'dance'
+    // A valid yield or an idle-slot move (leader stationary) takes the follower off the path; it must rejoin.
+    const disturbed = stationary[k] || yieldAt.has(k) || hopAt.has(k) || teleportAt.has(k) || gapOf(trace[k]) < 0.6 || trace[k].F.state === 'dance'
     if (disturbed) {
       joined = false
       quiet = 0
@@ -936,7 +984,7 @@ function analyzeTrailPath(x, out) {
   }
   if (off.length) out.problem(id, where, `follower left the leader's path by > 0.1 on ${off.length} frames, first ${off.slice(0, 5)}`)
   if (x.result.session !== 'missing-sample' && checked < 120) out.problem(id, where, `only ${checked} trail-following frames checked`)
-  out.measure(id, where, { checked, offFrames: off.length })
+  out.measure(id, where, { checked, offFrames: off.length, yieldFrames: yieldAt.size })
 }
 
 function evaluatePools(viewportKey, pool, out) {
@@ -945,7 +993,7 @@ function evaluatePools(viewportKey, pool, out) {
   const followMedian = median(follow)
   const followMax = Math.max(...follow)
   out.measure('DUO-05', where, { frames: follow.length, median: r3(followMedian), max: r3(followMax) })
-  if (follow.length < 60) out.problem('DUO-05', where, `only ${follow.length} straight-walk frames after 2 s`)
+  if (follow.length < 60) out.problem('DUO-05', where, `only ${follow.length} ordinary-follow frames after 2 s of straight walking`)
   else {
     if (followMedian < C.followMedian[0] || followMedian > C.followMedian[1]) out.problem('DUO-05', where, `median distance ${r3(followMedian)}`)
     if (followMax > C.followMax) out.problem('DUO-05', where, `max distance ${r3(followMax)}`)

@@ -52,6 +52,10 @@ export const duoContract = {
   perfBaseline: '06da353',
 }
 
+// Gate-side reading of "when the leader closes in": the runtime starts a separation yield when the follower is
+// inside 0.45 of the leader's projected approach (position to position + this many seconds of velocity).
+export const yieldLookaheadSeconds = 0.35
+
 export const keyVectors = { KeyD: [1, 0], KeyA: [-1, 0], KeyW: [0, -1], KeyS: [0, 1] }
 export const sampleStep = 0.05
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)

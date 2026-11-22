@@ -194,8 +194,11 @@ async function walkAxis(driver, axis, target, limitSeconds = 20) {
   if (!sign) return
   const code = keyForAxis[axis][sign]
   await driver.down(code)
+  // Every axis walk is ordinary following (DUO-05); pass-through legs drive keys directly and are not marked.
+  driver.mark('follow-leg')
   await driver.waitFor(limitSeconds, `(s, a) => (s.L[a.axis] - a.target) * a.sign >= -0.01`, { axis, target, sign },
     `leader reaching ${axis}=${target}`)
+  driver.mark('follow-leg-end')
   await driver.up(code)
 }
 
@@ -260,9 +263,11 @@ export async function laneSession(browser, viewport, options) {
   // P2 straight walk east, with a 1-unit leader jump at 3 s to force a sustained catch-up.
   await step('P2 straight walk and catch-up', ['DUO-05', 'DUO-06', 'DUO-07', 'DUO-37'], async () => {
     await driver.down('KeyD')
+    driver.mark('follow-leg')
     await driver.seconds(3)
     notes.catchUp = await driver.teleport(s().L.x + 1, s().L.z, headingOf(1, 0))
     await driver.seconds(5)
+    driver.mark('follow-leg-end')
     await driver.up('KeyD')
     notes.stopEast = driver.mark('stop')
   })
@@ -357,8 +362,10 @@ export async function laneSession(browser, viewport, options) {
     await driver.waitFor(2, predicates.landed, null, 'hop landing')
     await driver.seconds(2)
   })
-  // P12b a swap 0.3 s after a jump, then a second request: per the contract the follower stays > 2.6 away
-  // across the swap, so its hop starts at +0.5 s, inside the cooldown, and the second swap waits for its landing.
+  // P12b a swap 0.3 s after a jump, then a second request: the swap resets the trail but not the recovery timer
+  // (the gap is between the pair), so the new follower hops 0.5 s after the jump, inside the cooldown, and the
+  // second swap waits for its landing.  The `back` plan keeps the line from the jump target to the old follower
+  // clear, which is the new follower's hop line after the swap.
   await step('P12b swap cooldown overlapping a hop', ['DUO-24'], async () => {
     const { jump, mark } = await hopJump(true)
     notes.overlapTeleport = { ...mark, landing: jump.landing, gap: jump.gap }
@@ -400,6 +407,8 @@ export async function bridgeSession(browser, viewport, options) {
   // The follower trails on the last leg; neither slot is free, so it settles on the trail target.
   // A swap then lets the new leader walk back without passing through the follower.
   await step('B2 narrow spot, neither slot free', ['DUO-12'], async () => {
+    // The start swap leaves troll B leading from 1.1 behind the origin; the planned legs start on along = 0.
+    await walkAxis(driver, along, 0)
     await walkAxis(driver, across, plan.narrow.legStart[across])
     await walkAxis(driver, along, plan.narrow.spot[along])
     notes.narrowStop = driver.mark('narrow-stop')
@@ -441,7 +450,8 @@ export async function cornerSession(browser, viewport, options) {
     await walkAxis(driver, 'z', plan.corner.z)
     await driver.seconds(0.1)
     notes.teleport = await driver.teleport(plan.leader.x, plan.leader.z, headingOf(plan.sx, 0))
-    await driver.seconds(4)
+    // 4 s idle to the leader's dance plus room for the follower's 0.3125 s canon start (DUO-13).
+    await driver.seconds(5)
   })
   return driver.result({
     session: 'corner', plan: { seed: plan.seed, corner: plan.corner, leader: plan.leader, landing: plan.landing, dirZ: plan.dirZ, sx: plan.sx }, notes,

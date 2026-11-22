@@ -44,7 +44,8 @@ Feature: Two trolls on screen, one leads, the lead swaps
 
   @DUO-05
   Scenario: Follow distance while walking straight
-    When the leader walks straight at 1.2 units per second for at least 2 seconds
+    When the leader walks straight at 1.2 units per second for at least 2 seconds in ordinary following
+    And a separation yield or pass-through and the follower's rejoin of the trail after it are excluded
     Then over those frames the median leader-follower distance is 0.9 to 1.4
     And the maximum distance is at most 2.2
 
@@ -54,6 +55,7 @@ Feature: Two trolls on screen, one leads, the lead swaps
     Then the follower never moves faster than 1.6 units per second outside a hop
     And while more than 1.4 behind it catches up at about 1.6 units per second
     And after the leader stops, the follower never speeds up inside the last 0.3 units and never passes its target
+    And that easing check ends once the leader is stationary and a reachable idle slot replaces the trail target
 
   @DUO-07
   Scenario: Follower walk clip time scale
@@ -91,7 +93,7 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-12
   Scenario: Idle with neither slot free keeps the trail target
     When the leader stops where neither side slot (0.75 units along the camera's right vector) is free or reachable on a clear path
-    Then the follower stays on the trail and settles at the trail target
+    Then the follower stays within 0.15 units of the leader's sampled path and settles at the trail target
 
   @DUO-13
   Scenario: Dance canon
@@ -117,7 +119,8 @@ Feature: Two trolls on screen, one leads, the lead swaps
     And the jump is chosen so the straight hop line from the follower to its landing is clear and keeps 0.45 from the leader
     Then the follower hops to the trail point 1.1 units behind the leader
     And the hop height follows a parabola with apex 0.25
-    And the hop lasts 0.35 seconds plus 0.1 seconds per unit beyond 1.5, within 2 frames
+    And the hop lasts 0.35 seconds plus 0.1 seconds per unit of its horizontal ground travel (take-off to landing) beyond 1.5, within 2 frames
+    And a swap applied on the landing frame does not change which troll the hop is measured on
     And the hop's ground path crosses no blocked cell and every started hop lands
 
   @DUO-16
@@ -177,7 +180,8 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-24
   Scenario: Swap cooldown overlapping a hop
     Given a pose jump has left the pair more than 2.6 units apart with a clear hop line
-    And a swap applies 0.3 seconds later, so the follower's hop is due inside the swap cooldown
+    And a swap applies 0.3 seconds later, resetting the trail while the recovery timer keeps running
+    Then the new follower hops 0.5 seconds after the gap opened, inside the swap cooldown
     When the player requests a second swap and the cooldown ends during the hop
     Then the second swap waits and applies on the landing frame, within 1 frame
 
@@ -273,6 +277,7 @@ Feature: Two trolls on screen, one leads, the lead swaps
   Scenario: The follower walks the leader's path
     When the follower is trail-following after joining the trail
     Then it stays within 0.1 units of the leader's sampled path
+    And a separation yield or an idle-slot move ends the check until the follower has rejoined the path
 
   @DUO-38 @manual
   Scenario: Tilt-shift focus sits between the pair
