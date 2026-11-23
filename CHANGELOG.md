@@ -24,9 +24,15 @@ Round 6 brings the art direction of a forest film clip to the game: its light, c
 - The tilt-shift sharp band covers 40 % of the frame (was 30 %). Its maximum blur is smaller: 1.0 % of the image width (was 1.5 %).
 - Ground appliqué is larger and layered two or three deep, with French knots, sequins and buttons instead of the pink rectangles. Mushroom caps and cupcake crowns are domes, not flat cards.
 - The duo turns to face the camera when it starts to dance.
+- The companion starts beside the lead, in the place it takes at every stop. It used to start behind the lead, half hidden at the new camera angle.
+- The warm rim takes more of each felt's own colour, so red yarn brightens at the edge and does not turn pale. Hero props get a stronger rim than the characters.
 - The lead hums melody notes above MIDI 78 an octave lower, because the new voice does not reach them.
 - Footsteps follow the length of each character's walk clip.
 - Perf is compared with a new baseline, PB6 (commit fa6d96b).
+
+### Fixed
+- The companion's look-around no longer starts for a single frame before the real one. It now always plays its full length.
+- The mushroom house, cupcake tree, river and bridge chimes were up to 4 dB louder than the bell chime. Their peaks are now within 1.5 dB of the bell at every note, as the sound contract asks, and a new check tests this.
 
 ### Removed
 - The new pair replaces the round-5 characters: the mint troll with the sunset plume and the butter troll with the rope-twist hair.
