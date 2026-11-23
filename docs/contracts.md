@@ -127,6 +127,7 @@ Sources: `docs/review/2026-11-23-art-animation-review.md` (items L1-L6, A1-A8), 
   - A `skip`: 1.0 s, two hops, matches 1.2 units/s, contacts at 0 and 0.5 s. The state stays `walk`; the mixer plays `skip` instead of `walk` for 2 cycles on 1 in 4 walk starts by hash after ≥ 1 s standing, leader only.
   - B `walk`: 0.8 s per 2 steps at 1.2 units/s, spine hunch 8-12°, shoulder swing ≤ ±15°, bob 0.06, same plant and slip limits.
   - B `look`: 0.6 s, head yaw ≥ 25° each way. Follower only: plays before B sets off after ≥ 2 s standing; separation (precedence 2), recovery, a dance start or a swap interrupts it. As leader B never plays it.
+  - Staging: at `duo-dance-start` both characters turn to face the camera (heading 0, each turned 15° toward the other) and dance facing it.
   - `dance` (both): 3.0 ± 0.05 s with shared beat markers (turn start 0.92 s, low landing 1.67 s, bow 2.19 s held 0.35 s; each ±0.03 s, checked from the pose curves), so the cue director's fixed dance times hold for either leader; wrist path spans ≥ 0.35 units vertically.
 - Umbrella (B): `umbrella_closed` and `umbrella_open` under `hand_r`; `umbrella_open` authored at scale 0. The runtime pops it open (scale spring 0 → 1, ω 14, ζ 0.45; `umbrella_closed` hidden) when B, leading, collides with a river (the collision, not the voice line, which the reaction gap may drop; ≤ 1 per 3 s) and at the dance bow; it closes 1.2 s later or at the dance end. Clips never animate the umbrella.
 
