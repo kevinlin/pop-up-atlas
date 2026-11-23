@@ -112,7 +112,11 @@ export function createFace(model, { who, tracker, seed = () => 0 }) {
         else if (progress >= 0) blink = Math.max(blink, Math.sin(Math.PI * progress))
       }
       state.lid = rest + (1 - rest) * blink
-      lids.forEach((lid, index) => { lid.scale.y = MathUtils.lerp(lidOpen[index], 1, state.lid) })
+      // A lid at closure 0 is hidden: at its open scale it reads as a heavy brow on the bubbly lead (round 6 review).
+      lids.forEach((lid, index) => {
+        lid.scale.y = MathUtils.lerp(lidOpen[index], 1, state.lid)
+        lid.visible = state.lid > 0.01
+      })
 
       const segment = leader ? tracker?.latest(t, MOUTH_HOLD, isMouthCue) : undefined
       showCell(segment ? mouthCell(segment.cue, t - segment.t) : restMouth)
