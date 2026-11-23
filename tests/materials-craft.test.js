@@ -72,13 +72,16 @@ test('zone families tint prop felt only', () => {
 })
 
 test('the family shader reads the zone key of the cell and keeps the felt shading', () => {
-  const { shader } = compile('felt_leaf_familytest', { moving: true, tile: 'flower' })
+  // Round 6 integration: near-white felt keeps its own colour, so the fixture is a coloured (leaf-green) felt.
+  const { shader } = compile('felt_leaf_familytest', { moving: true, tile: 'flower', color: new Color(0x5aa04a) })
   expect(shader.vertexShader).toContain('craftZoneKey(')
   expect(shader.fragmentShader).toContain('craftFamilyTint')
   expect(shader.uniforms.craftFamilyColors.value).toHaveLength(8)
   expect(shader.uniforms.craftFamilySlot.value).toBeTypeOf('number')
   const dark = compile('felt_deep_familytest', { moving: true, tile: 'flower', color: new Color(0.1, 0.05, 0.2) })
   expect(dark.shader.uniforms.craftFamilySlot.value).toBe(0)
+  const white = compile('felt_dot_familytest', { moving: true, tile: 'mushroom_house', color: new Color(0xfff8ec) })
+  expect(white.shader.fragmentShader).not.toContain('craftFamilyTint')
 })
 
 test('the shipped page and plain materials are untouched by the round-6 treatments', () => {
