@@ -43,9 +43,13 @@ uint craftZoneHash(ivec2 cell, uint salt) {
   return h ^ (h >> 16u);
 }
 
-vec3 craftCellPigment(vec2 cell, vec3 pigments[4]) {
+// The zone key index of layout.js keyIndex (ZONE_KEYS order).
+uint craftZoneKey(vec2 cell) {
   uint roll = craftZoneHash(craftZone(cell), 22u) % 12u;
-  uint index = roll < 6u ? 0u : 1u + (roll - 6u) % 3u;
-  return pigments[index];
+  return roll < 6u ? 0u : 1u + (roll - 6u) % 3u;
+}
+
+vec3 craftCellPigment(vec2 cell, vec3 pigments[4]) {
+  return pigments[craftZoneKey(cell)];
 }
 `
