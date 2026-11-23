@@ -47,6 +47,29 @@ def skin_color(body, color, tree, x, z, radius):
     return np.median(np.array(samples), axis=0)
 
 
+def mouth_color(body, color, cx, cz, half_w, half_h):
+    """Median baked felt colour (sRGB, as stored) in the skin ring right around the mouth patch.
+
+    The ring is the front-facing skin between 1.1 and 1.8 patch radii from the patch centre, on and
+    below the patch's mid line: the nose and the cheek rouge above it are left out, and the chin and the
+    cheeks beside the mouth carry the same baked shading the patch has to disappear into.
+    """
+    pixels = image_pixels(color)
+    height, width, _ = pixels.shape
+    uv = body.data.uv_layers.active.data
+    samples = []
+    for poly in body.data.polygons:
+        if poly.material_index != 0 or poly.normal.y > -.3:
+            continue
+        dx = (poly.center.x - cx) / half_w
+        dz = (poly.center.z - cz) / half_h
+        if 1.1 <= math.hypot(dx, dz) <= 1.8 and dz <= .35:
+            u, v = sum((uv[i].uv for i in poly.loop_indices), Vector((0, 0))) / poly.loop_total
+            samples.append(pixels[int(v * height) % height, int(u * width) % width, :3])
+    require(len(samples) > 8, f'No skin around the mouth at x={cx:.3f}, z={cz:.3f}')
+    return np.median(np.array(samples), axis=0)
+
+
 def make_material(name, color, roughness, specular=0.):
     material = bpy.data.materials.new(name)
     material.use_nodes = True
@@ -305,6 +328,10 @@ def build_face(p, frame, rig, body, color):
     body_rgb = skin_color(body, color, tree, mid, frame.point((0, 0, spec.z)).z + 2.0 * frame.length(spec.radius),
                           frame.length(.03))
     objects = build_eyes_and_lids(p, frame, rig, tree, body_rgb)
-    objects['mouth'] = build_mouth(p, frame, rig, tree, body_rgb)
+    mouth = p.mouth
+    around = mouth_color(body, color, frame.point((mouth.x, 0, 0)).x, frame.point((0, 0, mouth.z)).z,
+                         frame.length(mouth.half_w), frame.length(mouth.half_h))
+    print(f'{p.title} mouth felt (sRGB) {np.round(around, 3)}, forehead {np.round(body_rgb, 3)}')
+    objects['mouth'] = build_mouth(p, frame, rig, tree, around)
     bm.free()
     return objects
