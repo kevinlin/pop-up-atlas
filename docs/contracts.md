@@ -208,7 +208,7 @@ Sources: `docs/review/2026-11-23-art-animation-review.md` (items L1-L6, A1-A8), 
 - Load: samples fetch and decode without delaying `ready`; `loadMs` ≤ 461 ms at DPR 1 and ≤ 428 ms at DPR 2 (round 3 + 50 ms); perf targets unchanged.
 
 ## Debug hooks
-`window.__atlas` exposes: `player` {x, z, state}, `foldLog` (array of fold events), `hingeTrace(id)` (sampled angles), `hairBones` (world positions), `audioLog` (scheduled notes), `cueLog` (played samples, round 4), `setSeed(n)`.
+`window.__atlas` exposes: `player` {x, z, state}, `events` (the round-6 event bus), `foldLog` (array of fold events), `hingeTrace(id)` (sampled angles), `hairBones` (world positions), `audioLog` (scheduled notes), `cueLog` (played samples, round 4), `setSeed(n)`.
 
 ## Performance (final build, this machine)
 - Headed Chrome, 1280x720 viewport, DPR 1 and DPR 2, all effects on, 60 s scripted route crossing ≥ 6 chunks.

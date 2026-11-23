@@ -1,5 +1,9 @@
+import { events } from '../scene/runtime.js'
+
 export function setupDebug(player) {
   window.__atlas = {
+    // The frozen character and camera event bus (docs/contracts.md "Round 6" → Events), for the gate and capture.
+    events,
     player: {
       get x() { return player.position.x },
       get z() { return player.position.z },
