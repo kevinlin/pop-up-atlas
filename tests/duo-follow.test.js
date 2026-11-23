@@ -483,7 +483,7 @@ describe('lead swap', () => {
     const follower = createPlayer()
     follower.position.x = 0.48
     const camera = new PerspectiveCamera(30, 1280 / 720)
-    const rig = createCameraRig(camera, player.position)
+    const rig = createCameraRig(camera, player.position, { player, follower, events: new EventTarget(), onFold: () => () => {} })
     rig(0)
     const movement = createMovement(player, camera)
     for (let i = 0; i < 24; i += 1) movement.update(dt, 1, 0, open)
@@ -493,7 +493,7 @@ describe('lead swap', () => {
     swaps.request()
     swaps.update(0, -Infinity)
     for (let i = 1; i <= 60; i += 1) rig(dt)
-    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new Vector3()), 10)
-    expect(target.distanceTo(player.position)).toBeLessThan(0.2)
+    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new Vector3()), 7.5)
+    expect(target.distanceTo(player.position)).toBeLessThan(0.15)
   })
 })
