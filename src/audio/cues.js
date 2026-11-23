@@ -6,6 +6,7 @@ const EIGHTH = 0.3125
 const QUIET = 10 ** (-6 / 20)
 const EPSILON = 1e-9
 const BRIDGE_NOTES = [74, 76, 78, 81, 83, 86]
+export const A_HUM_TOP = 78
 const HERO_IDS = new Set(['mushroom_house', 'cupcake_tree', 'yarn_bridge'])
 const FOLD_CUES = {
   flower: 'fold_flower',
@@ -70,6 +71,8 @@ export function createCueDirector(cues, emit, cut = () => {}) {
   }
 
   function sample(cue, t, cause, { pan = 0, level = 1, midi, replace = false } = {}) {
+    // Voice A's hum tops out near MIDI 77, so it hums melody notes above A_HUM_TOP an octave down (round 6).
+    if (leader === 'a' && cue === 'sing_hum' && midi > A_HUM_TOP) midi -= 12
     if (leader === 'b' && (cue.startsWith('voice_') || cue.startsWith('sing_'))) {
       midi = cue === 'sing_hum' ? midi - 12 : B_DANCE_NOTES[cue] ?? midi
       cue = `b_${cue}`

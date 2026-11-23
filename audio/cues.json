@@ -82,8 +82,11 @@
       "texts": ["[giggles] Hee-hee!", "[giggles] Hehe!", "[giggles] Hee!"] },
     { "cue": "voice_whee", "kind": "voice", "source": "tts", "voice": "a", "takes": 3, "keep": 3, "gain": 0.8,
       "texts": ["[excited] Wheeee!", "[joyfully] Wheee!", "[excited] Whee!"] },
-    { "cue": "sing_hum", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "sungWindow": 0.35, "takes": 8, "keep": 8, "gain": 0.7,
-      "texts": ["[sings] Mmmmm.", "[sings softly] Mmmmm.", "[sings, high and light] Mmmmm.", "[sings, very high] Mmmm."] },
+    { "cue": "sing_hum", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "sungWindow": 0.35, "takes": 10, "keep": 10, "gain": 0.7,
+      "texts": ["[sings] Mmmmm.", "[sings softly] Mmmmm.", "[sings, high and light] Mmmmm.", "[sings, very high] Mmmm.",
+        "[sings] Mmmmm.", "[sings softly] Mmmmm.", "[sings, high and light] Mmmmm.", "[sings, very high] Mmmm.",
+        "[sings, very high, light and bright, falsetto] Mmmm.",
+        "[high-pitched squeaky falsetto humming, like a tiny whistle] Mmmmm."] },
     { "cue": "sing_ta", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
       "texts": ["[sings] Taaa!", "[sings] Taaaa!", "[sings brightly] Taaa!", "[sings] Taaa!"] },
     { "cue": "sing_da", "kind": "voice", "source": "tts", "voice": "a", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
@@ -109,7 +112,7 @@
     { "cue": "b_sing_hum", "kind": "voice", "source": "tts", "voice": "b", "sung": true, "sungWindow": 0.35, "takes": 8, "keep": 8, "gain": 0.7,
       "texts": ["[sings, low and warm] Mmmmm.", "[sings softly] Mmmmm.", "[sings, calm] Mmmmm.", "[sings, a little higher] Mmmm."] },
     { "cue": "b_sing_ta", "kind": "voice", "source": "tts", "voice": "b", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
-      "texts": ["[sings] Taaa.", "[sings, warm] Taaaa.", "[sings] Taaa!", "[sings, steady] Taaa."] },
+      "texts": ["[sings, long and held] Taaaaa.", "[sings, warm] Taaaa.", "[sings] Taaa!", "[sings, steady] Taaa."] },
     { "cue": "b_sing_da", "kind": "voice", "source": "tts", "voice": "b", "sung": true, "takes": 4, "keep": 4, "gain": 0.8,
       "texts": ["[sings] Daaaa.", "[sings, warm] Daaaaa.", "[sings] Daaaa!", "[sings, steady] Daaaa."] }
   ]

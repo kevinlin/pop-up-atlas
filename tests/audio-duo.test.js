@@ -74,7 +74,8 @@ it.each(['a', 'b'])('routes every voice and character effect to leader %s', (who
   expect(voice.map(({ cue }) => cue)).toEqual(lines.map((cue) => who === 'b' ? `b_${cue}` : cue))
   for (const play of voice) expect(play.file).toMatch(new RegExp(`^/audio/${play.cue}-`))
   const sung = voice.filter(({ cue }) => cue.includes('sing_'))
-  const targets = who === 'b' ? [57, 62, 69, 62, 57] : [69, 74, 81, 69, 74]
+  // Round 6: A hums melody notes above MIDI 78 an octave down (81 -> 69).
+  const targets = who === 'b' ? [57, 62, 69, 62, 57] : [69, 74, 69, 69, 74]
   sung.forEach((play, i) => expect(pitch(play, cues)).toBeCloseTo(targets[i], 10))
 
   const world = plays.filter(({ cause, kind }) => cause === 'fold' || kind === 'chorus')

@@ -148,7 +148,8 @@ export function coverageTargets(name) {
   if (name === 'sing_da') return [b ? 57 : 74]
   if (name === 'sing_hum') {
     const dMajorPentatonic = new Set([2, 4, 6, 9, 11])
-    return Array.from({ length: 13 }, (_, index) => (b ? 57 : 69) + index)
+    // Voice A hums notes above MIDI 78 an octave down (contract "Round 6"), so its hum covers 69-78.
+    return Array.from({ length: b ? 13 : 10 }, (_, index) => (b ? 57 : 69) + index)
       .filter(note => dMajorPentatonic.has(note % 12))
   }
   return []

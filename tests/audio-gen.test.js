@@ -116,7 +116,8 @@ describe('pitch and sung coverage', () => {
     expect(sungValid(pitch(null))).toBe(false)
     expect(coverageTargets('sing_ta')).toEqual([69])
     expect(coverageTargets('sing_da')).toEqual([74])
-    expect(coverageTargets('sing_hum')).toEqual([69, 71, 74, 76, 78, 81])
+    // Round 6: voice A hums notes above MIDI 78 an octave down, so its hum covers 69-78.
+    expect(coverageTargets('sing_hum')).toEqual([69, 71, 74, 76, 78])
   })
 
   it('checks the rendered pitch at no more than four semitones of shift', () => {
