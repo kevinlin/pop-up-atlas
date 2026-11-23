@@ -3,7 +3,8 @@
 import { createLayout } from '../src/world/layout.js'
 import { FIRST_PAGE_ROW, LAST_PAGE_ROW, TILE_SIZE } from '../src/world/tiles.js'
 
-// Numbers from docs/contracts.md "Round 5: duo". Change them there first.
+// Numbers from docs/contracts.md "Round 5: duo", with the round-6 moves (camera settle measured at the rig's own target,
+// 0.15; hair tip 1.05). Change them there first.
 export const duoContract = {
   startGap: 1.1,
   trailSpacing: 0.05,
@@ -36,7 +37,7 @@ export const duoContract = {
   hopFreeDistance: 1.5,
   swapCooldown: 0.5,
   clickMarginPx: 8,
-  cameraSettleUnits: 0.2,
+  cameraSettleUnits: 0.15,
   cameraSettleSeconds: 1,
   voiceFade: 0.02,
   swapLineGuard: 0.3,
@@ -47,7 +48,7 @@ export const duoContract = {
   maxTriangles: 20_000,
   maxTexture: 1024,
   bodyHeight: [0.5, 0.6],
-  hairTip: 0.95,
+  hairTip: 1.05,
   perfMarginMs: 1.5,
   perfBaseline: '06da353',
 }
@@ -67,6 +68,19 @@ export function pathClear(layout, from, to, step = sampleStep) {
     if (layout.isBlocked(from.x + (to.x - from.x) * i / steps, from.z + (to.z - from.z) * i / steps)) return false
   }
   return true
+}
+
+// Where troll B starts (docs/contracts.md "Roles"): in its idle slot 0.75 units to the screen left of the leader, else to the
+// right, on a clear path; else 1.1 units behind the leader's heading on an unblocked point; else beside the leader. `right` is
+// the camera's right vector on the page. Used to plan routes and to judge DUO-03.
+export function followerStart(layout, { leader, heading, right }) {
+  for (const [name, sign] of [['left', -1], ['right', 1]]) {
+    const point = { x: leader.x + right.x * sign * duoContract.slotOffset, z: leader.z + right.z * sign * duoContract.slotOffset }
+    if (pathClear(layout, leader, point)) return { rule: `${name} slot`, point, gap: duoContract.slotOffset }
+  }
+  const behind = { x: leader.x - Math.sin(heading) * duoContract.startGap, z: leader.z - Math.cos(heading) * duoContract.startGap }
+  if (!layout.isBlocked(behind.x, behind.z)) return { rule: 'behind', point: behind, gap: duoContract.startGap }
+  return { rule: 'beside', point: null, gap: duoContract.startGap }
 }
 
 // A straight corridor with parallel lines at the given lateral offsets.
@@ -232,10 +246,11 @@ function searchBridge({ right, from, to, window }) {
   return best
 }
 
-// Session "corner": walk east, then north or south to a corner C, stop and move the leader 4 units
-// along X. The hop line from wherever the follower stands on the vertical leg to the landing cuts a
-// prop, while the trail (vertical leg, then the jump segment) stays clear.
-export function planBlockedHop({ from = 0, to = 6000, jump = 4 } = {}) {
+// Session "corner": walk east, then north or south to a corner C, stop and move the leader 3 units
+// along X (round 6: 4 units left the leader outside the 7.5 / 35° camera's frame for three frames). The hop line
+// from wherever the follower stands on the vertical leg to the landing cuts a prop, while the trail (vertical leg,
+// then the jump segment) stays clear.
+export function planBlockedHop({ from = 0, to = 6000, jump = 3 } = {}) {
   const landingBack = jump - duoContract.followGap
   for (let seed = from; seed <= to; seed++) {
     const layout = createLayout(seed)
