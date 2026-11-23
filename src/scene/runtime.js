@@ -16,6 +16,9 @@ export function setIsBlocked(check, reason = check) {
   blockedBy = reason
 }
 
+// Character and camera events (docs/contracts.md "Round 6" → Events): dispatch CustomEvents, read event.detail.
+export const events = new EventTarget()
+
 export const updates = new Set()
 
 // Both arguments are seconds. The returned function unregisters the callback.

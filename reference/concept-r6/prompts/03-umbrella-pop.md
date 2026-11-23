@@ -1,0 +1,1 @@
+Scene: at the edge of a glittering blue felt river on the page, the wary creature has just been startled: its small sky-blue felt umbrella has popped open above its head, its eyelids wide open now and its mouth a small round o; the bubbly creature beside it giggles with a wide open smile. A rainbow yarn bridge crosses the river nearby. Warm and gentle, not scary.
