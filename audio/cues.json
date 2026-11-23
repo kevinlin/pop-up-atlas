@@ -1,4 +1,5 @@
 {
+  "round": 6,
   "defaults": {
     "sfxModel": "eleven_text_to_sound_v3",
     "promptInfluence": 0.55,
