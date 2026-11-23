@@ -3,8 +3,64 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { CopyShader } from 'three/examples/jsm/shaders/CopyShader.js'
 import { look, referenceExposure, stage, stageExposure, surfaceBuffer, trollSurfaces } from '../materials/stage-look.js'
 
-const BLUR_RADIUS = 0.015
+// docs/contracts.md "Camera and light": sharp band 40 % of frame height centred on the troll, smooth falloff over
+// 22 % each side, max blur 1.0 % of image width (round 6; was 30 % / 1.5 %).
+export const TILT_SHIFT = { sharpBand: 0.40, falloff: 0.22, maxBlur: 0.010 }
+// The emissive bloom shares the half-res blur but keeps its round-5 radius (lantern halo 1.5-3 % of frame width).
+export const BLOOM_RADIUS = 0.015
+const BLUR_RADIUS = TILT_SHIFT.maxBlur
 const MAX_TAP_PAIRS = 16
+const FOCUS_HEIGHT = 0.38
+const MIN_RAY_ANGLE = Math.PI / 180
+
+// Screen vertical position (fraction of frame height from the centre, up positive) <-> view depth of the plane at
+// the focus height, for a camera `height` above that plane pitched `pitch` radians down.
+const depthAtFraction = (fraction, height, pitch, tanHalf) => {
+  const angle = Math.atan(2 * fraction * tanHalf)
+  const ray = Math.max(MIN_RAY_ANGLE, pitch - angle)
+  return height * Math.cos(angle) / Math.sin(ray)
+}
+const fractionAtDepth = (depth, height, pitch, tanHalf) =>
+  (depth * Math.sin(pitch) - height) / (depth * Math.cos(pitch)) / (2 * tanHalf)
+
+// Depth range kept sharp (the band around the focus range) and the depth width of each falloff, so the band and
+// falloffs hold as fractions of the frame height at any pitch and distance.
+export function defocusBands({ fov, pitch, height, near, far }, focusNear, focusFar, band = TILT_SHIFT) {
+  const tanHalf = Math.tan(fov * Math.PI / 360)
+  const rad = pitch * Math.PI / 180
+  const low = fractionAtDepth(focusNear, height, rad, tanHalf)
+  const high = fractionAtDepth(focusFar, height, rad, tanHalf)
+  const half = band.sharpBand / 2
+  const sharpNear = Math.max(near, Math.min(focusNear, depthAtFraction(low - half, height, rad, tanHalf)))
+  const sharpFar = Math.min(far, Math.max(focusFar, depthAtFraction(high + half, height, rad, tanHalf)))
+  const fallNear = depthAtFraction(low - half - band.falloff, height, rad, tanHalf)
+  const fallFar = depthAtFraction(high + half + band.falloff, height, rad, tanHalf)
+  return {
+    sharpNear, sharpFar,
+    falloffNear: Math.max(0.05, sharpNear - Math.max(near, fallNear)),
+    falloffFar: Math.max(0.05, Math.min(far, fallFar) - sharpFar),
+  }
+}
+
+// Linear-filter Gaussian taps for `radius` texels: fills `taps` ([offset, weight] pairs), returns the centre weight
+// and the number of pairs in use.
+export function gaussianTaps(radius, taps) {
+  const sigma = radius / 2
+  const weight = (offset) => Math.exp(-0.5 * (offset / sigma) ** 2)
+  const tapCount = Math.ceil(radius / 2)
+  let total = 1
+  for (let i = 0; i < tapCount; i++) {
+    const offset = i * 2 + 1
+    const near = weight(offset)
+    const far = offset < radius ? weight(offset + 1) : 0
+    const combined = near + far
+    taps[i * 2] = offset + far / combined
+    taps[i * 2 + 1] = combined
+    total += 2 * combined
+  }
+  for (let i = 0; i < tapCount; i++) taps[i * 2 + 1] /= total
+  return { centerWeight: 1 / total, tapCount }
+}
 const bloomDefine = look.bloom ? { ATLAS_BLOOM: 1 } : {}
 const emissionOutput = /* glsl */ `
   #ifdef ATLAS_BLOOM
@@ -19,17 +75,16 @@ uniform sampler2D sceneDepth;
 uniform float nearPlane;
 uniform float farPlane;
 uniform vec2 focusRange;
+uniform vec2 sharpRange;
+uniform vec2 falloffRange;
 
 float depthAt(float rawDepth) {
   return -perspectiveDepthToViewZ(rawDepth, nearPlane, farPlane);
 }
 
 float defocus(float depth) {
-  float offset = depth - clamp(depth, focusRange.x, focusRange.y);
-  // Foreground scenery falls away quickly, while the footing and the next layer stay readable.
-  float sharp = offset < 0.0 ? 0.40 : 0.60;
-  float falloff = offset < 0.0 ? max(0.38, focusRange.x * 0.12) : max(0.58, focusRange.y * 0.18);
-  return smoothstep(sharp, sharp + falloff, abs(offset));
+  float offset = depth - clamp(depth, sharpRange.x, sharpRange.y);
+  return smoothstep(0.0, offset < 0.0 ? falloffRange.x : falloffRange.y, abs(offset));
 }
 `
 
@@ -45,6 +100,9 @@ class GaussianPass extends ShaderPass {
         centerWeight: { value: 1 },
         tapCount: { value: 0 },
         taps: { value: new Float32Array(MAX_TAP_PAIRS * 2) },
+        bloomCenterWeight: { value: 1 },
+        bloomTapCount: { value: 0 },
+        bloomTaps: { value: new Float32Array(MAX_TAP_PAIRS * 2) },
       },
       vertexShader: CopyShader.vertexShader,
       fragmentShader: `
@@ -53,49 +111,41 @@ class GaussianPass extends ShaderPass {
         uniform float centerWeight;
         uniform int tapCount;
         uniform vec2 taps[${MAX_TAP_PAIRS}];
+        uniform float bloomCenterWeight;
+        uniform int bloomTapCount;
+        uniform vec2 bloomTaps[${MAX_TAP_PAIRS}];
         varying vec2 vUv;
         ${emissionOutput}
 
         void main() {
           gl_FragColor = texture2D(tDiffuse, vUv) * centerWeight;
-          #ifdef ATLAS_BLOOM
-            blurredEmission = texture2D(emission, vUv) * centerWeight;
-          #endif
           for (int i = 0; i < ${MAX_TAP_PAIRS}; i++) {
             if (i >= tapCount) break;
             vec2 offset = taps[i].x * texelStep;
             gl_FragColor += (texture2D(tDiffuse, vUv + offset)
                            + texture2D(tDiffuse, vUv - offset)) * taps[i].y;
-            #ifdef ATLAS_BLOOM
-              blurredEmission += (texture2D(emission, vUv + offset)
-                                 + texture2D(emission, vUv - offset)) * taps[i].y;
-            #endif
           }
+          #ifdef ATLAS_BLOOM
+            blurredEmission = texture2D(emission, vUv) * bloomCenterWeight;
+            for (int i = 0; i < ${MAX_TAP_PAIRS}; i++) {
+              if (i >= bloomTapCount) break;
+              vec2 offset = bloomTaps[i].x * texelStep;
+              blurredEmission += (texture2D(emission, vUv + offset)
+                                 + texture2D(emission, vUv - offset)) * bloomTaps[i].y;
+            }
+          #endif
         }
       `,
     })
   }
 
-  setRadius(radius) {
-    const sigma = radius / 2
-    const weight = (offset) => Math.exp(-0.5 * (offset / sigma) ** 2)
-    const taps = this.uniforms.taps.value
-    const tapCount = Math.ceil(radius / 2)
-    let total = 1
-
-    // Sample adjacent Gaussian texels together using the texture's linear filter.
-    for (let i = 0; i < tapCount; i++) {
-      const offset = i * 2 + 1
-      const near = weight(offset)
-      const far = offset < radius ? weight(offset + 1) : 0
-      const combined = near + far
-      taps[i * 2] = offset + far / combined
-      taps[i * 2 + 1] = combined
-      total += 2 * combined
-    }
-    for (let i = 0; i < tapCount; i++) taps[i * 2 + 1] /= total
-    this.uniforms.centerWeight.value = 1 / total
-    this.uniforms.tapCount.value = tapCount
+  setRadius(radius, bloomRadius = radius) {
+    const color = gaussianTaps(radius, this.uniforms.taps.value)
+    this.uniforms.centerWeight.value = color.centerWeight
+    this.uniforms.tapCount.value = color.tapCount
+    const bloom = gaussianTaps(bloomRadius, this.uniforms.bloomTaps.value)
+    this.uniforms.bloomCenterWeight.value = bloom.centerWeight
+    this.uniforms.bloomTapCount.value = bloom.tapCount
   }
 }
 
@@ -107,11 +157,15 @@ export class TiltShiftPass {
     })
     this.scratch = this.lowResolution.clone()
     this.focusRange = new Vector2(1, 1)
+    this.sharpRange = new Vector2(1, 1)
+    this.falloffRange = new Vector2(1, 1)
     const depthUniforms = {
       sceneDepth: { value: null },
       nearPlane: { value: camera.near },
       farPlane: { value: camera.far },
       focusRange: { value: this.focusRange },
+      sharpRange: { value: this.sharpRange },
+      falloffRange: { value: this.falloffRange },
     }
     this.downsample = new ShaderPass({
       name: 'Defocused color',
@@ -336,20 +390,30 @@ export class TiltShiftPass {
   }
 
   setSize(width, height) {
-    const maxWidth = Math.floor(2 * MAX_TAP_PAIRS / BLUR_RADIUS)
+    const maxWidth = Math.floor(2 * MAX_TAP_PAIRS / BLOOM_RADIUS)
     const scale = Math.min(0.5, maxWidth / width)
     const blurWidth = Math.max(1, Math.round(width * scale))
     const blurHeight = Math.max(1, Math.round(height * scale))
     this.lowResolution.setSize(blurWidth, blurHeight)
     this.scratch.setSize(blurWidth, blurHeight)
-    this.blur.setRadius(Math.max(1, Math.round(blurWidth * BLUR_RADIUS)))
+    this.blur.setRadius(Math.max(1, Math.round(blurWidth * BLUR_RADIUS)),
+      Math.max(1, Math.round(blurWidth * BLOOM_RADIUS)))
   }
 
   render(renderer, image) {
     for (const pass of [this.downsample, this.composite]) {
       pass.uniforms.focusRange.value = this.focusRange
+      pass.uniforms.sharpRange.value = this.sharpRange
+      pass.uniforms.falloffRange.value = this.falloffRange
       pass.uniforms.sceneDepth.value = image.depthTexture
     }
+    const pitch = Math.asin(Math.min(1, Math.max(0, this.camera.matrixWorld.elements[9])))
+    const bands = defocusBands({
+      fov: this.camera.fov, pitch: pitch * 180 / Math.PI, height: this.camera.position.y - FOCUS_HEIGHT,
+      near: this.camera.near, far: this.camera.far,
+    }, this.focusRange.x, this.focusRange.y)
+    this.sharpRange.set(bands.sharpNear, bands.sharpFar)
+    this.falloffRange.set(bands.falloffNear, bands.falloffFar)
     if (look.bloom) {
       this.downsample.uniforms.emission.value = image.textures[1]
     }
