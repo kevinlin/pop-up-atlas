@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import { events } from '../scene/runtime.js'
 
 export function createLeadSwap(player, follower, apply) {
   const position = new Vector3()
@@ -33,6 +34,7 @@ export function createLeadSwap(player, follower, apply) {
       lastSwap = t
       pendingSwap = false
       apply(leader)
+      events.dispatchEvent(new CustomEvent('swap', { detail: { leader, t } }))
       return true
     },
   }
