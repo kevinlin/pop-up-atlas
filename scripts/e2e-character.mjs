@@ -59,11 +59,19 @@ try {
   assert.equal(dance.state, 'dance')
   await page.screenshot({ path: screenshotPath('dance') })
 
-  // The settled 45° camera follows the player. Project a point 3 units north
-  // along the open spawn corridor using the camera's 14-unit distance and 30° FOV.
+  // Round 6: the walk camera is 7.5 units out at 35° (the fit may only raise the distance) and the duo dance beat (4.5 units, 22°)
+  // eases out 0.8 s after the dance, so wait for the dance and the beat to end, then read the camera the page reports.
+  await page.waitForFunction(() => {
+    const { camera, player } = window.__atlas
+    return player.state !== 'dance' && camera.beat === null && Math.abs(camera.pitch - 35) < 0.02
+  }, undefined, { timeout: 8000 })
+  const camera = await page.evaluate(() => ({ distance: window.__atlas.camera.distance, pitch: window.__atlas.camera.pitch }))
+  assert.ok(camera.distance >= 7.5 - 0.05, `The walk camera is ${camera.distance} units out, expected 7.5 or more`)
+  // Project a point 3 units north along the open spawn corridor. It lies 3·sin(pitch) above and (distance + 3·cos(pitch))
+  // in front of the camera's look-at point, the player's ground position; the vertical field of view is 30°.
   const target = { x: dance.x, z: dance.z - 3 }
-  const rise = 3 * Math.SQRT1_2
-  const ndcY = rise / ((10 + rise) * Math.tan(Math.PI / 12))
+  const pitch = camera.pitch * Math.PI / 180
+  const ndcY = 3 * Math.sin(pitch) / ((camera.distance + 3 * Math.cos(pitch)) * Math.tan(Math.PI / 12))
   await page.mouse.click(viewport.width / 2, viewport.height * (1 - ndcY) / 2)
   await page.waitForFunction(() => window.__atlas.player.state === 'walk', undefined, { timeout: 1000 })
   await page.waitForFunction(({ x, z }) => {

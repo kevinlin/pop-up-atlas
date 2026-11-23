@@ -3,7 +3,8 @@
 import { createLayout } from '../src/world/layout.js'
 import { FIRST_PAGE_ROW, LAST_PAGE_ROW, TILE_SIZE } from '../src/world/tiles.js'
 
-// Numbers from docs/contracts.md "Round 5: duo". Change them there first.
+// Numbers from docs/contracts.md "Round 5: duo", with the round-6 moves (camera settle measured at the rig's own target,
+// 0.15; hair tip 1.05). Change them there first.
 export const duoContract = {
   startGap: 1.1,
   trailSpacing: 0.05,
@@ -36,7 +37,7 @@ export const duoContract = {
   hopFreeDistance: 1.5,
   swapCooldown: 0.5,
   clickMarginPx: 8,
-  cameraSettleUnits: 0.2,
+  cameraSettleUnits: 0.15,
   cameraSettleSeconds: 1,
   voiceFade: 0.02,
   swapLineGuard: 0.3,
@@ -47,7 +48,7 @@ export const duoContract = {
   maxTriangles: 20_000,
   maxTexture: 1024,
   bodyHeight: [0.5, 0.6],
-  hairTip: 0.95,
+  hairTip: 1.05,
   perfMarginMs: 1.5,
   perfBaseline: '06da353',
 }

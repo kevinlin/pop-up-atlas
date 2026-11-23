@@ -183,8 +183,15 @@ function prepare(result) {
       legFrom = null
     }
   }
+  // Round 6: B's look before setting off and the catch-up after it are excluded from the follow-distance statistics
+  // (the recorder reads `__atlas.duo.look` each frame; a build without it records nothing and excludes nothing).
+  const lookAt = new Set()
+  for (const [k, s] of trace.entries()) {
+    const flags = result.rec?.frames?.[s.f]
+    if (flags && (flags[0] || flags[1])) lookAt.add(k)
+  }
   return {
-    result, trace, marks, first, index, layout, swaps, swapAt, hops, hopAt, teleportAt, jumpAt,
+    result, trace, marks, first, index, layout, swaps, swapAt, hops, hopAt, teleportAt, jumpAt, lookAt,
     target, trailLength, trailDistance, stationary, followerStep, leaderStep, markIndex, yieldAt, detourAt, legAt,
     notes: result.notes ?? {}, where: `${result.label}`,
   }
@@ -279,7 +286,7 @@ function analyzeFollow(x, out, pool) {
   const runs = straightRuns(x)
   // DUO-05: ordinary following only: marked legs, minus yields, pass-throughs and the rejoin after them.
   for (let k = 0; k < trace.length; k++) {
-    if (runs[k] >= C.straightWalkSeconds * fps && legAt.has(k) && !hopAt.has(k) && !detourAt.has(k)) pool.follow.push(gapOf(trace[k]))
+    if (runs[k] >= C.straightWalkSeconds * fps && legAt.has(k) && !hopAt.has(k) && !detourAt.has(k) && !x.lookAt.has(k)) pool.follow.push(gapOf(trace[k]))
   }
   // DUO-06: speed cap everywhere outside swaps and hops; catch-up speed when far behind.
   const id = 'DUO-06'
@@ -831,7 +838,8 @@ function analyzeSwaps(x, out) {
     const end = k + C.cameraSettleSeconds * fps
     if (!before || end >= trace.length || before.L.state === 'walk' || before.F.state === 'walk') continue
     if (swaps.some(({ k: at }) => at > k && at <= end) || dist(trace[end].L, trace[k].L) > 0.01 || x.teleportAt.has(k)) continue
-    const off = dist(trace[end].cam, trace[end].L)
+    // Round 6: the camera's look-at point, `__atlas.camera.target` (the probe's `cam` is the same point when the rig publishes one).
+    const off = dist(trace[end].camera?.target ?? trace[end].cam, trace[end].L)
     out.measure('DUO-25', where, { [`frame ${trace[k].f}`]: r3(off) })
     if (off > C.cameraSettleUnits) out.problem('DUO-25', where, `camera target ${r3(off)} from the new leader 1 s after the swap at frame ${trace[k].f}`)
   }
@@ -848,6 +856,9 @@ function analyzeFolds(x, out, pool) {
     const leader = [trace[k - 1], trace[k]].map((s) => dist(s.L, centre))
     const follower = dist(trace[k].F, centre)
     if (fold.dir === 'up' && Math.min(...leader) > 2 + 0.03) out.problem(id, where, `tile ${fold.i},${fold.j} folded up with the leader ${r3(Math.min(...leader))} away`)
+    // Round 6: the dance stage folds props within 1.8 of either character down at duo-dance-start (`cause: 'stage'`);
+    // those are not the leader's departure (R6-FOLD-05 checks them), so they are exempt here and never a witness.
+    if (fold.dir === 'down' && fold.cause === 'stage') continue
     if (fold.dir === 'down' && Math.max(...leader) < 3 - 0.03) out.problem(id, where, `tile ${fold.i},${fold.j} folded down with the leader ${r3(Math.max(...leader))} away`)
     if (fold.dir === 'down' && follower < 3 - 0.03) pool.foldWitness++
   }
@@ -1126,7 +1137,7 @@ async function runSession(browser, session, name, viewport, options, out, blocke
   }
 }
 
-async function browserChecks(out, { baseURL, traceOut }) {
+async function browserChecks(out, { baseURL, traceOut, collect }) {
   const browser = await launchChromium()
   const kept = []
   const blocked = []
@@ -1140,6 +1151,9 @@ async function browserChecks(out, { baseURL, traceOut }) {
         // The idle-slot axis is the page's camera right vector, read on the lane page and handed on.
         const result = await runSession(browser, session, name, viewport, { baseURL, right }, out, blocked)
         if (!result) continue
+        // Round 6: the same sessions (with the recorder's data) feed the R6-* analyses without a second run.
+        result.viewport = key
+        collect?.push(result)
         right ??= result.initial?.right
         let x
         try {
@@ -1163,6 +1177,10 @@ async function browserChecks(out, { baseURL, traceOut }) {
       }
     }
     const missing = await runSession(browser, missingSampleSession, 'missing-sample', duoViewports[0], { baseURL }, out, blocked)
+    if (missing) {
+      missing.viewport = `${duoViewports[0].width}x${duoViewports[0].height}`
+      collect?.push(missing)
+    }
     let mx
     try {
       mx = missing && prepare(missing)
@@ -1195,13 +1213,14 @@ async function closeSession(browser) {
 }
 
 // Runs every DUO-* check and reports through the caller's `check(name, measured, verify)`.
-export async function runDuo({ baseURL, check, traceOut }) {
+// `collect` (round 6) is an array that receives every session result, recorder data included, for the R6-* analyses.
+export async function runDuo({ baseURL, check, traceOut, collect }) {
   const out = createResults()
   let failure
   await staticChecks(out)
   // Only a browser that cannot start (or a crash outside every session) leaves scenarios not reached.
   try {
-    await browserChecks(out, { baseURL, traceOut })
+    await browserChecks(out, { baseURL, traceOut, collect })
   } catch (error) {
     failure = error.message.split('\n').slice(0, 6).join('\n')
   }

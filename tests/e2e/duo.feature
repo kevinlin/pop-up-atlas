@@ -25,7 +25,7 @@ Feature: Two trolls on screen, one leads, the lead swaps
   Scenario: Troll B asset contract
     When public/models/troll_b.glb is inspected next to troll.glb
     Then troll B has the same bone names and the same clip names as troll A
-    And its body height is 0.5 to 0.6 and its hair tip is at most 0.95
+    And its body height is 0.5 to 0.6 and its hair tip is at most 1.05 (round 6: was 0.95)
     And it has at most 20,000 triangles and no texture larger than 1024 px
     And its origin is between the feet
     And every material name starts with felt_, card_, glitter_ or yarn_
@@ -188,13 +188,13 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-25
   Scenario: Camera settles on the new leader
     When a swap applies with both trolls standing
-    Then 1.0 second later the camera target is within 0.2 units of the new leader
+    Then 1.0 second later __atlas.camera.target is within 0.15 units of the new leader (round 6: was 0.2 at the ground intersection)
 
   @DUO-26
   Scenario: Folds are driven by the leader only
     When the follower passes near tiles the leader is far from
     Then every fold-up happens with the leader within radius 2 of the tile
-    And every fold-down happens with the leader beyond radius 3
+    And every fold-down happens with the leader beyond radius 3, except a dance-stage fold-down (event cause "stage", R6-FOLD-05)
     And the route has at least one fold-down while the follower is within 3 units of the tile
 
   @DUO-27

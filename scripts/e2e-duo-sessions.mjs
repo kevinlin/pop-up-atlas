@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import { createSteppedPage, headless, previewURL } from './capture.mjs'
 import { installProbe, serveThree } from './e2e-duo-probe.mjs'
+import { installRecorder } from './e2e-duo-recorder.mjs'
 import { pathClear, planBlockedHop, planBridge, planLane, planTeleport } from './e2e-duo-plan.mjs'
 
 export const fps = 60
@@ -10,8 +11,8 @@ export const duoViewports = headless
   ? [{ width: 320, height: 180 }, { width: 480, height: 270 }]
   : [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }]
 export const frames = (seconds) => Math.round(seconds * fps)
-const headingOf = (dx, dz) => Math.atan2(dx, dz)
-const keyForAxis = { x: { 1: 'KeyD', '-1': 'KeyA' }, z: { 1: 'KeyS', '-1': 'KeyW' } }
+export const headingOf = (dx, dz) => Math.atan2(dx, dz)
+export const keyForAxis = { x: { 1: 'KeyD', '-1': 'KeyA' }, z: { 1: 'KeyS', '-1': 'KeyW' } }
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
 
 // Steps the game one frame at a time through the in-page probe and keeps the whole trace.
@@ -51,8 +52,13 @@ export class Driver {
   }
 
   async run(count, until = null, arg = null) {
+    // The round-6 recorder (scripts/e2e-duo-recorder.mjs) takes its sample of the run's last frame here.
     const { hit, trace } = await this.page.evaluate(
-      ([first, total, test, value]) => window.__duoProbe.run(first, total, test, value),
+      async ([first, total, test, value]) => {
+        const result = await window.__duoProbe.run(first, total, test, value)
+        window.__r6rec?.capture()
+        return result
+      },
       [this.frame + 1, count, until && until.toString(), arg],
     )
     const held = [...this.held]
@@ -129,6 +135,10 @@ export class Driver {
     return this.page.evaluate(() => ({
       cueLog: window.__atlas.cueLog.map((cue) => ({ ...cue })),
       foldLog: window.__atlas.foldLog.map((fold) => ({ ...fold })),
+      // Round 6 (R6-*): pops and chimes for the silent-stage check, the recorder's events, squash and hinge samples.
+      popLog: window.__atlas.popLog.map((pop) => ({ ...pop })),
+      audioLog: window.__atlas.audioLog.map((note) => ({ ...note })),
+      rec: window.__r6rec?.dump() ?? null,
     }))
   }
 
@@ -140,7 +150,7 @@ export class Driver {
   }
 }
 
-const predicates = {
+export const predicates = {
   leaderDance: (s) => s.L.state === 'dance',
   followerDance: (s) => s.F.state === 'dance',
   bothIdle: (s) => s.L.state !== 'dance' && s.F.state !== 'dance',
@@ -152,7 +162,8 @@ const predicates = {
   leaderPast: (s, x) => s.L.x <= x,
 }
 
-export async function openDuo(browser, viewport, { baseURL = previewURL, seed, label, manifest } = {}) {
+// `params` adds URL flags after the ones the duo gate always clears (round 6: `{ cam: '9,40' }` for the diagnostic camera).
+export async function openDuo(browser, viewport, { baseURL = previewURL, seed, label, manifest, params = {} } = {}) {
   const stepped = await createSteppedPage(browser, viewport, { waitForAudio: true })
   const { page } = stepped
   await serveThree(page)
@@ -167,6 +178,7 @@ export async function openDuo(browser, viewport, { baseURL = previewURL, seed, l
   url.searchParams.set('seed', String(seed))
   url.searchParams.set('look-shots', '')
   url.searchParams.set('look-probe', '')
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value)
   await stepped.open(url.href)
   await page.waitForFunction(() => Number.isFinite(window.__atlas.audioReadyMs), undefined, { polling: 50, timeout: 30_000 })
   await page.waitForFunction(() => window.__atlasLookShots?.scene, undefined, { polling: 50, timeout: 5000 })
@@ -178,6 +190,7 @@ export async function openDuo(browser, viewport, { baseURL = previewURL, seed, l
   })
   assert.ok(surface, 'window.__atlas.duo is missing: the duo implementation is not in this build')
   await installProbe(page)
+  await installRecorder(page)
   const driver = new Driver(stepped, `${label} ${viewport.width}x${viewport.height}`)
   driver.surface = surface
   driver.initial = await page.evaluate(() => window.__duoProbe.peek())
@@ -188,7 +201,7 @@ export async function openDuo(browser, viewport, { baseURL = previewURL, seed, l
 }
 
 // Walk along one axis with a held key until `target` is reached (to within one frame of travel).
-async function walkAxis(driver, axis, target, limitSeconds = 30) {
+export async function walkAxis(driver, axis, target, limitSeconds = 30) {
   const start = driver.last ?? driver.initial
   const sign = Math.sign(target - start.L[axis])
   if (!sign) return
