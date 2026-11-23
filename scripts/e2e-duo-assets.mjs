@@ -157,19 +157,27 @@ function worldPose(json, tracks, t, parents) {
 // markers are read from `extras.markers` of the clip when the export carries them; otherwise estimated from the head:
 //   landing  the lowest head height in 1.2-2.0 s;
 //   turn     the head's heading yaw: the turn starts where its rate leaves 5 % of the peak rate, searching back from the peak;
-//   bow      the start of the longest slow stretch (head speed under 0.15 units/s) after the landing, `hold` its length.
+//   bow      the start of the longest held stretch after the landing, `hold` its length: every non-hair joint's world
+//            matrix changes by less than STILL per frame (the definition of blender/duo/inspect_duo.py; a head-speed
+//            threshold merged the slow rise into the bow with the head while the body still moved).
+const STILL = 1e-4
 export function danceMetrics(json, bin, parents, clip) {
   const nodes = json.nodes
   const index = (name) => nodes.findIndex((node) => node.name === name)
   const [head, handR, handL] = ['head', 'hand_r', 'hand_l'].map(index)
+  const body = [...new Set((json.skins ?? []).flatMap(({ joints }) => joints))].filter((joint) => !/^hair_/.test(nodes[joint].name ?? ''))
   const tracks = clipTracks(json, bin, clip)
   const duration = clipDuration(json, bin, clip)
   const rate = 60
   const samples = []
+  let previous = null
   for (let t = 0; t <= duration + 1e-9; t += 1 / rate) {
     const worlds = worldPose(json, tracks, t, parents)
+    const still = previous !== null && body.every((joint) => worlds[joint].every((value, k) => Math.abs(value - previous[joint][k]) < STILL))
+    previous = worlds
     samples.push({
       t,
+      still,
       head: head >= 0 ? { x: worlds[head][12], y: worlds[head][13], z: worlds[head][14], yaw: Math.atan2(worlds[head][8], worlds[head][10]) } : null,
       wrists: [handR, handL].filter((i) => i >= 0).map((i) => worlds[i][13]),
     })
@@ -196,14 +204,12 @@ export function danceMetrics(json, bin, parents, clip) {
   const peak = rates.reduce((best, entry) => (entry.rate > best.rate ? entry : best))
   let turnStart = peak.t
   for (let i = rates.findIndex(({ t }) => t === peak.t); i >= 0 && rates[i].rate > 0.05 * peak.rate; i--) turnStart = rates[i].t
-  // The slow stretch.
+  // The held stretch.
   let best = { start: null, length: 0 }
   let run = null
   for (let i = 1; i < samples.length; i++) {
-    const { t, head: now } = samples[i]
-    const before = samples[i - 1].head
-    const speed = Math.hypot(now.x - before.x, now.y - before.y, now.z - before.z) * rate
-    if (t > landing + 0.1 && speed < 0.15) {
+    const { t, still } = samples[i]
+    if (t > landing + 0.1 && still) {
       run ??= { start: samples[i - 1].t, length: 0 }
       run.length = t - run.start
       if (run.length > best.length) best = { ...run }
@@ -233,21 +239,43 @@ export async function summarizeGlb({ json, bin }, file = 'rig.glb') {
   const materials = (json.materials ?? []).map(({ name }) => name)
   let triangles = 0
   let top = -Infinity
+  let largest = { triangles: -1 }
   for (const [nodeIndex, node] of nodes.entries()) {
     if (node.mesh === undefined) continue
     const matrix = node.skin === undefined ? world(nodeIndex) : localMatrix({})
+    let own = 0
     for (const primitive of json.meshes[node.mesh].primitives) {
       const mode = primitive.mode ?? 4
       const position = json.accessors[primitive.attributes.POSITION]
       const count = primitive.indices === undefined ? position.count : json.accessors[primitive.indices].count
-      if (mode === 4) triangles += count / 3
-      else if (mode === 5 || mode === 6) triangles += Math.max(0, count - 2)
+      if (mode === 4) own += count / 3
+      else if (mode === 5 || mode === 6) own += Math.max(0, count - 2)
       for (const x of [position.min[0], position.max[0]]) for (const y of [position.min[1], position.max[1]]) {
         for (const z of [position.min[2], position.max[2]]) {
           top = Math.max(top, matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13])
         }
       }
     }
+    triangles += own
+    if (own > largest.triangles) largest = { triangles: own, node, matrix }
+  }
+  // Origin: the centre of the sole vertices (within 0.018 of the lowest) of the largest mesh, as blender/duo/inspect_duo.py
+  // measures it. The foot bones sit at the ankles, behind the sole centre, on a rig built for its own mesh.
+  let soles = null
+  if (largest.node && bin) {
+    const points = []
+    for (const primitive of json.meshes[largest.node.mesh].primitives) {
+      const { values } = readAccessor(json, bin, primitive.attributes.POSITION)
+      const m = largest.matrix
+      for (let i = 0; i < values.length; i += 3) {
+        const [x, y, z] = [values[i], values[i + 1], values[i + 2]]
+        points.push([m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]])
+      }
+    }
+    const low = Math.min(...points.map(([, y]) => y))
+    const sole = points.filter(([, y]) => y < low + 0.018)
+    const centre = (k) => (Math.min(...sole.map((p) => p[k])) + Math.max(...sole.map((p) => p[k]))) / 2
+    soles = { x: centre(0), y: low, z: centre(2) }
   }
   const textures = []
   for (const [index, image] of (json.images ?? []).entries()) {
@@ -282,6 +310,7 @@ export async function summarizeGlb({ json, bin }, file = 'rig.glb') {
   return {
     bones: [...bones].sort(), clips: [...clips].sort(), materials, triangles, textures, top, nodes: named, clipInfo,
     feetMidpoint: feet.length === 2 ? { x: (feet[0].x + feet[1].x) / 2, z: (feet[0].z + feet[1].z) / 2 } : null,
+    soles,
   }
 }
 
@@ -387,8 +416,10 @@ export function checkRig(rig, summary, contract = rigContract) {
   if (!(summary.top <= contract.hairTip + 1e-3)) add(`rest-pose top ${summary.top.toFixed(3)} exceeds the ${contract.hairTip} hair tip`)
   if (!(summary.top >= contract.bodyHeight[0] - 1e-3)) add(`rest-pose top ${summary.top.toFixed(3)} is below the ${contract.bodyHeight[0]} body height`)
   if (!summary.feetMidpoint) add('foot_L / foot_R bones are missing')
-  else if (Math.hypot(summary.feetMidpoint.x, summary.feetMidpoint.z) > contract.originTolerance + 1e-9) {
-    add(`origin is not between the feet (> ${contract.originTolerance} units)`)
+  if (!summary.soles) add('has no mesh soles to measure the origin against')
+  else if (Math.hypot(summary.soles.x, summary.soles.z) > contract.originTolerance + 1e-9 || Math.abs(summary.soles.y) > contract.originTolerance + 1e-9) {
+    const { x, y, z } = summary.soles
+    add(`origin is not between the feet (> ${contract.originTolerance} units: soles centre x ${x.toFixed(3)} z ${z.toFixed(3)}, soles y ${y.toFixed(3)})`)
   }
   return problems
 }

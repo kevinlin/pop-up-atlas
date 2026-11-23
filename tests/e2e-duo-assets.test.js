@@ -45,13 +45,17 @@ function buildRig(rig, tweak = {}) {
   const materials = [
     { name: `felt_${rig}_body` }, { name: `yarn_${rig}_hair` }, { name: 'felt_mouth' },
   ]
-  const position = accessor([[0, 0, 0]], 'VEC3', { min: [-0.1, 0, -0.1], max: [0.1, tweak.top ?? 1.0, 0.1] })
+  // Body corners: four soles (shifted by `tweak.soles`) and two crown points; the indices accessor carries only the count.
+  const [sx, sy, sz] = tweak.soles ?? [0, 0, 0]
+  const top = tweak.top ?? 1.0
+  const corners = [[-0.1, 0, -0.1], [0.1, 0, -0.1], [-0.1, 0, 0.1], [0.1, 0, 0.1]].map(([x, y, z]) => [x + sx, y + sy, z + sz])
+  const position = accessor([...corners, [-0.1 + sx, top, -0.1 + sz], [0.1 + sx, top, 0.1 + sz]], 'VEC3',
+    { min: [-0.1 + sx, sy, -0.1 + sz], max: [0.1 + sx, top, 0.1 + sz] })
   const mouthPosition = accessor([[0, 0, 0]], 'VEC3', { min: [0, 0, 0], max: [0.1, 0.1, 0.1] })
   const meshes = [
-    { primitives: [{ attributes: { POSITION: position }, material: 0 }] },
+    { primitives: [{ attributes: { POSITION: position }, indices: accessors.push({ componentType: 5125, count: tweak.triangles ?? 3000, type: 'SCALAR' }) - 1, material: 0 }] },
     { primitives: [{ attributes: { POSITION: mouthPosition }, material: tweak.mouthMaterial ?? 2 }] },
   ]
-  accessors[position].count = tweak.triangles ?? 3000 // non-indexed: count / 3 triangles
   nodes.push({ name: 'body', mesh: 0 })
   nodes[index('mouth')].mesh = 1
   accessors[mouthPosition].count = 3
@@ -59,7 +63,10 @@ function buildRig(rig, tweak = {}) {
   // Dance pose curves: head y keys give landing 1.67 and a 0.35 s slow stretch from 2.19; heading yaw turns from 0.92 to 1.67.
   const danceEnd = tweak.danceSeconds ?? 3
   const markers = { turnStart: 0.92, landing: 1.67, bow: 2.19, ...tweak.markers }
-  const headY = [[0, 0.5], [markers.landing, 0.5 - 0.19 * (markers.bow - markers.landing)], [markers.bow, 0.5], [markers.bow + 0.35, 0.5], [markers.bow + 0.45, 0.7], [danceEnd, 0.5]]
+  // `slowRise`: the head is almost still (0.03 units/s) for the last 0.32 s before the bow while the hand still moves, as on the shipped rigs.
+  const low = 0.5 - 0.19 * (markers.bow - markers.landing)
+  const rise = tweak.slowRise ? [[markers.landing + 0.2, 0.49]] : []
+  const headY = [[0, 0.5], [markers.landing, low], ...rise, [markers.bow, 0.5], [markers.bow + 0.35, 0.5], [markers.bow + 0.45, 0.7], [danceEnd, 0.5]]
   const channels = []
   const samplers = []
   const track = (node, path, times, values, type) => {
@@ -70,7 +77,10 @@ function buildRig(rig, tweak = {}) {
   track(index('head'), 'rotation', [0, markers.turnStart, markers.landing, danceEnd],
     [rotY(0), rotY(0), rotY(1.5), rotY(1.5)], 'VEC4')
   const lift = tweak.wristLift ?? 0.4
-  track(index('hand_r'), 'translation', [0, 1.5, danceEnd], [[0.2, 0.6, 0], [0.2, 0.6 + lift, 0], [0.2, 0.6, 0]], 'VEC3')
+  // The hand comes down by the bow and holds through it, as every body joint does.
+  track(index('hand_r'), 'translation', [0, 1.5, markers.bow, danceEnd], [[0.2, 0.6, 0], [0.2, 0.6 + lift, 0], [0.2, 0.6, 0], [0.2, 0.6, 0]], 'VEC3')
+  // `swing`: one joint keeps moving for the whole dance.
+  if (tweak.swing) track(index(tweak.swing), 'translation', [0, danceEnd], [[0, 0, 0], [0, 0.3, 0]], 'VEC3')
   const animations = [{ name: 'dance', samplers, channels }]
   const clipTimes = { walk: rig === 'a' ? 1.0 : 0.8, idle: 2, ...(rig === 'a' ? { skip: 1.0 } : { look: 0.6 }) }
   for (const [name, seconds] of Object.entries(clipTimes)) {
@@ -170,6 +180,16 @@ describe('round 6 per-rig static checks', () => {
     expect((await check('b', { markers: { bow: 2.4 } })).join('\n')).toMatch(/dance marker bow is at 2\.4\d* s/)
   })
 
+  it('takes the bow from the held pose of every body joint, not from a slow head while the body still moves', async () => {
+    const { markers } = (await summarize('b', { slowRise: true })).clipInfo.dance
+    expect(Math.abs(markers.bow - 2.19)).toBeLessThanOrEqual(0.03)
+    expect(Math.abs(markers.bowHold - 0.35)).toBeLessThanOrEqual(0.05)
+    expect(await check('b', { slowRise: true })).toEqual([])
+    // A hair joint moving through the hold does not break it; a body joint does.
+    expect(await check('b', { swing: 'hair_2' })).toEqual([])
+    expect((await check('b', { swing: 'foot_L' })).join('\n')).toMatch(/dance marker bow/)
+  })
+
   it('prefers markers carried in the clip extras', async () => {
     const good = await check('a', { edit: (json) => { json.animations[0].extras = { markers: { turnStart: 0.92, landing: 1.67, bow: 2.19, bowHold: 0.35 } } } })
     expect(good).toEqual([])
@@ -187,8 +207,14 @@ describe('round 6 per-rig static checks', () => {
     expect((await check('b', { top: 1.2 })).join('\n')).toMatch(/exceeds the 1.05 hair tip/)
     // 0.95 (the round-5 B limit) no longer applies.
     expect(await check('b', { top: 1.0 })).toEqual([])
-    const shifted = await check('a', { edit: (json, index) => { json.nodes[index('foot_L')].translation = [0.05, 0, 0]; json.nodes[index('foot_R')].translation = [0.15, 0, 0] } })
-    expect(shifted.join('\n')).toMatch(/origin is not between the feet \(> 0.02/)
+    // Round 6 integration: the origin is measured at the sole centre of the body mesh (inspect_duo.py), not at the ankle bones.
+    const shifted = await check('a', { soles: [0.05, 0, 0] })
+    expect(shifted.join('\n')).toMatch(/origin is not between the feet \(> 0.02 units: soles centre x 0\.050/)
+    expect((await check('b', { soles: [0.015, 0, 0.015] })).join('\n')).toMatch(/origin is not between the feet/)
+    expect((await check('b', { soles: [0, 0.03, 0] })).join('\n')).toMatch(/soles y 0\.030/)
+    expect(await check('b', { soles: [0.012, 0.01, -0.012] })).toEqual([])
+    // Ankle bones behind the sole centre, as on the shipped B, are not an origin error.
+    expect(await check('b', { edit: (json, index) => { json.nodes[index('foot_L')].translation = [-0.1, 0, -0.03]; json.nodes[index('foot_R')].translation = [0.1, 0, -0.03] } })).toEqual([])
     expect(rigContract.originTolerance).toBe(0.02)
   })
 

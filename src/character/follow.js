@@ -10,6 +10,7 @@ const epsilon = 1e-8
 // B's look before setting off: after this long standing, the follower holds still for the clip's length.
 const lookStanding = 2
 const catchUpGap = 1.4
+const idleSlotOffset = 0.75
 
 export const walkTimeScale = (speed) => Math.min(1.4, Math.max(0.6, speed / 1.2))
 export const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
@@ -28,10 +29,15 @@ function clearPath(from, to, isBlocked) {
   return true
 }
 
-export function startFollower(leader, isBlocked) {
+// Round 6: B starts in its idle slot (screen left, else right), the formation the pair returns to whenever it stops. Straight
+// behind, at the 35° walk camera, B stood more than half behind A on screen until the idle rule moved it 0.5 s later.
+export function startFollower(leader, isBlocked, cameraRight = { x: 1, z: 0 }) {
   const x = Math.sin(leader.heading) * followDistance
   const z = Math.cos(leader.heading) * followDistance
   const from = leader.position
+  const slot = [-idleSlotOffset, idleSlotOffset].map((k) => offset(from, k * cameraRight.x, k * cameraRight.z))
+    .find((point) => clearPath(from, point, isBlocked))
+  if (slot) return slot
   const behind = offset(from, -x, -z)
   if (clearPath(from, behind, isBlocked)) return behind
   for (let width = followDistance; width >= separation - epsilon; width -= sampleSpacing) {
@@ -155,8 +161,8 @@ export function createDuoDance() {
 }
 
 function idleSlot(position, from, isBlocked, cameraRight) {
-  const x = 0.75 * cameraRight.x
-  const z = 0.75 * cameraRight.z
+  const x = idleSlotOffset * cameraRight.x
+  const z = idleSlotOffset * cameraRight.z
   return [offset(position, -x, -z), offset(position, x, z)]
     .sort((a, b) => distance(from, a) - distance(from, b))
     .find((point) => leavesClearance(from, point, position) && clearPath(from, point, isBlocked))
