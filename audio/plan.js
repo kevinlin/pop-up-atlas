@@ -59,9 +59,10 @@ export function takeRequest(sheet, cue, take, voiceId) {
     ? { text: inputs.prompt, model_id: inputs.model, duration_seconds: inputs.duration,
         prompt_influence: inputs.promptInfluence, loop: inputs.loop }
     : { text: inputs.text, model_id: inputs.model }
+  // The key hashes the voice id (takeInputs), so takes made for another voice are never reused.
   return {
     endpoint, body, outputFormat: inputs.outputFormat, cue: cue.cue, take, key: cacheKey(inputs),
-    purpose: sfx ? 'sound effect' : 'voice line',
+    purpose: sfx ? 'sound effect' : 'voice line', ...(sfx ? {} : { voiceId }),
   }
 }
 
@@ -99,23 +100,27 @@ export function planTakes(sheet, { only, retake, voiceIds = {}, cached = {} } = 
   })
 }
 
-export function designRequests(sheet) {
-  const voice = sheet.voices.b
-  // The design API requires at least 100 characters. Keep the cue sheet preview verbatim.
-  const text = voice.previewText.length < 100
-    ? voice.previewText + ' Hm.'.repeat(Math.ceil((100 - voice.previewText.length) / 4))
-    : voice.previewText
-  return voice.briefs.map((brief, index) => {
-    const outputFormat = sheet.defaults.outputFormat
-    const body = { voice_description: brief, text }
-    return { endpoint: DESIGN, outputFormat, body, cue: 'b_voice_design', take: index + 1,
-      key: cacheKey({ ...body, outputFormat }), purpose: 'voice previews' }
+const designCue = who => who === 'b' ? 'b_voice_design' : 'voice_design'
+
+export function designRequests(sheet, whos = ['a', 'b']) {
+  return whos.flatMap(who => {
+    const voice = sheet.voices[who]
+    // The design API requires at least 100 characters. Keep the cue sheet preview verbatim.
+    const text = voice.previewText.length < 100
+      ? voice.previewText + ' Hm.'.repeat(Math.ceil((100 - voice.previewText.length) / 4))
+      : voice.previewText
+    return voice.briefs.map((brief, index) => {
+      const outputFormat = sheet.defaults.outputFormat
+      const body = { voice_description: brief, text }
+      return { endpoint: DESIGN, outputFormat, body, who, cue: designCue(who), take: index + 1,
+        key: cacheKey({ ...body, outputFormat }), purpose: 'voice previews' }
+    })
   })
 }
 
-export function saveVoiceRequest(voice, candidate) {
+export function saveVoiceRequest(voice, candidate, who = 'b') {
   const body = { voice_name: voice.name, voice_description: candidate.brief, generated_voice_id: candidate.id }
-  return { endpoint: CREATE_VOICE, body, cue: 'b_voice_design', take: null, key: cacheKey(body),
+  return { endpoint: CREATE_VOICE, body, who, cue: designCue(who), take: null, key: cacheKey(body),
     purpose: 'save selected voice' }
 }
 
@@ -159,10 +164,12 @@ export function coverageResult(baseMidi, target, measure) {
 
 export function buildManifest(results) {
   const cues = {}
-  for (const { cue, takes } of results) {
+  for (const { cue, takes, voiceId } of results) {
     const files = takes.filter(take => !cue.sung || sungValid(take)).slice(0, cue.keep)
       .map(({ take, duration, baseMidi }) => ({
         src: `${cue.cue}-${take}.mp3`, duration, ...(cue.sung ? { baseMidi } : {}),
+        // Every voice take (sung ones included) records the voice that spoke it; --check compares it.
+        ...(cue.voice && voiceId ? { voice_id: voiceId } : {}),
       }))
     if (files.length) cues[cue.cue] = { kind: cue.kind, gain: cue.gain, ...(cue.voice ? { who: cue.voice } : {}), files }
   }

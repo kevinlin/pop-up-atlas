@@ -6,12 +6,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { decode, inspect, probe, processTake, retunedPitch, verifyMediaTools } from './media.js'
 import { detectPitch, medianPitch } from './pitch.js'
-import { buildManifest, coverageResult, coverageTargets, designRequests, planTakes, rawName, saveVoiceRequest,
-  SFX, summarizeCalls, sungValid, takeRequest, TTS } from './plan.js'
+import { buildManifest, coverageResult, coverageTargets, designRequests, estimateCredits, planTakes, rawName,
+  saveVoiceRequest, SFX, summarizeCalls, sungValid, takeRequest, TTS } from './plan.js'
 import { elevenLabs, freeJson, readSpend, reconcileSpend, spendDecision, spendGuard } from './spend.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const BOARD = 'deliverables/round-5'
+const LEGACY_ROUND = 5
+const boardPath = round => `deliverables/round-${round}`
 const safeId = value => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value)
 const emptyManifest = { version: 1, cues: {} }
 const quote = value => String(value).replace(/[&<>"']/g, char => ({
@@ -49,14 +50,15 @@ function list(directory) {
   }
 }
 
-function paths(root) {
+function paths(root, round) {
   return {
     sheet: join(root, 'audio/cues.json'),
     voices: { a: join(root, 'audio/voice.json'), b: join(root, 'audio/voice-b.json') },
     candidates: { a: join(root, 'audio/voice-candidates.json'), b: join(root, 'audio/voice-b-candidates.json') },
     raw: join(root, '.handoff/audio-raw'),
     public: join(root, 'public/audio'),
-    board: join(root, BOARD),
+    boardPath: boardPath(round),
+    board: join(root, boardPath(round)),
     smoke: join(root, '.handoff/evidence/G1/smoke'),
   }
 }
@@ -85,9 +87,9 @@ function soundboard(sheet, files, manifest) {
   }
   for (const [who, file] of Object.entries(files.candidates)) {
     const candidates = readJson(file, []).filter(candidate => safeId(candidate.id))
-    const directory = who === 'a' ? '../round-4/voice-candidates' : 'voice-candidates'
-    groups.set(`Voice ${who.toUpperCase()} candidates`, candidates.map(({ id, brief, medianF0Hz, voicedRatio }) =>
-      player(id, `${directory}/${id}.mp3`,
+    groups.set(`Voice ${who.toUpperCase()} candidates`, candidates.map(({ id, brief, medianF0Hz, voicedRatio, file }) =>
+      // Voice A's round-4 candidates predate the per-round board and carry no file path.
+      player(id, `${who === 'a' && !file ? '../round-4/voice-candidates' : 'voice-candidates'}/${id}.mp3`,
         `${brief} · F0 ${medianF0Hz?.toFixed(1) ?? 'unvoiced'} Hz · ${(voicedRatio * 100).toFixed(0)}% voiced`)))
   }
   const proceduralDirectory = '../round-4/procedural'
@@ -119,15 +121,15 @@ async function verifyModels(send, required) {
   }
 }
 
-function designPlan(sheet, files) {
-  return designRequests(sheet).map(request => {
+function designPlan(sheet, files, whos) {
+  return designRequests(sheet, whos).map(request => {
     const directory = join(files.raw, 'voice-design', request.key)
     return { request, directory, index: join(directory, 'previews.json') }
   })
 }
 
 async function designVoices(designs, files, paid) {
-  const candidates = []
+  const candidates = { a: [], b: [] }
   for (const { request, directory, index } of designs) {
     if (!existsSync(index)) {
       await paid(request, async response => {
@@ -144,16 +146,19 @@ async function designVoices(designs, files, paid) {
     for (const id of readJson(index)) {
       if (!safeId(id)) throw new Error('Invalid cached voice preview id')
       const raw = join(directory, id + '.mp3')
-      const file = `${BOARD}/voice-candidates/${id}.mp3`
+      const file = `${files.boardPath}/voice-candidates/${id}.mp3`
       const destination = join(files.board, 'voice-candidates', id + '.mp3')
       const { medianF0Hz, voicedRatio } = detectPitch(decode(raw))
       mkdirSync(dirname(destination), { recursive: true })
       copyFileSync(raw, destination)
-      candidates.push({ id, brief: request.body.voice_description, medianF0Hz, voicedRatio, file })
+      candidates[request.who].push({ id, brief: request.body.voice_description, medianF0Hz, voicedRatio, file })
     }
   }
-  writeJson(files.candidates.b, candidates)
-  console.table(candidates.map(({ brief, ...candidate }) => candidate))
+  for (const who of new Set(designs.map(design => design.request.who))) {
+    writeJson(files.candidates[who], candidates[who])
+    console.log(`Voice ${who.toUpperCase()} candidates`)
+    console.table(candidates[who].map(({ brief, ...candidate }) => candidate))
+  }
   return candidates
 }
 
@@ -178,15 +183,16 @@ function savedVoice(file) {
   return safeId(record?.voice_id) ? record : null
 }
 
-async function saveVoice(voice, file, candidate, reason, paid, explicit) {
+async function saveVoice(voice, who, file, candidate, reason, paid, replace) {
   if (!voice.briefs.includes(candidate.brief)) throw new Error('Selected voice brief is absent from audio/cues.json.')
-  await paid(saveVoiceRequest(voice, candidate), async response => {
+  await paid(saveVoiceRequest(voice, candidate, who), async response => {
     const { voice_id } = await response.json()
     if (!safeId(voice_id)) throw new Error('ElevenLabs did not return a saved voice id')
     writeJson(file, { voice_id, generated_voice_id: candidate.id, brief: candidate.brief, reason })
   }, () => {
     const current = savedVoice(file)
-    return current && (!explicit || current.generated_voice_id === candidate.id)
+    // An explicit pick or a redesign replaces whatever is saved, so only the same preview counts as done.
+    return current && (!replace || current.generated_voice_id === candidate.id)
   })
   console.log(reason)
 }
@@ -234,7 +240,9 @@ async function ship(sheet, files, plan, paid) {
       }
     }
     if (!takes.some(take => !cue.sung || sungValid(take))) console.error(`No valid takes for ${cue.cue}`)
-    results.push({ cue, takes })
+    const voiceId = cue.voice ? requests[0]?.voiceId : undefined
+    if (requests.length && cue.voice && !safeId(voiceId)) throw new Error(`No saved voice id for ${cue.cue}`)
+    results.push({ cue, takes, voiceId })
   }
   const manifest = buildManifest(results)
   Object.assign(manifest.cues, reused)
@@ -272,6 +280,7 @@ function check(sheet, files) {
   const coverage = []
   const accounted = new Set()
   const spokenB = []
+  const selected = Object.fromEntries(['a', 'b'].map(who => [who, savedVoice(files.voices[who])?.voice_id]))
   let pass = manifest.version === 1
   for (const cue of sheet.cues) {
     const group = manifest.cues[cue.cue]
@@ -289,6 +298,11 @@ function check(sheet, files) {
         continue
       }
       accounted.add(name)
+      if (cue.voice && (!selected[cue.voice] || take.voice_id !== selected[cue.voice])) {
+        assets.push({ cue: cue.cue, file: name, result: `voice_id mismatch: take ${take.voice_id ?? 'none'}, `
+          + `selected ${selected[cue.voice] ?? 'none'} for voice ${cue.voice.toUpperCase()}` })
+        pass = false
+      }
       const file = join(files.public, name)
       try {
         const measureSpokenPitch = cue.voice === 'b' && !cue.sung
@@ -416,6 +430,26 @@ async function smokeTest(sheet, files, ledger, send, paid) {
   if (problems.length) throw new Error(problems.join('\n'))
 }
 
+// spend.js enforces the per-round cap for round 5 only; later rounds are enforced here.
+function roundCapRefusal(calls, estimate, { round, roundCap }) {
+  if (round === LEGACY_ROUND) return null
+  const spent = calls.filter(call => call.round === round).reduce((sum, call) => sum + call.credits, 0)
+  return spent + estimate > roundCap ? `Round ${round} spend cap of ${roundCap} credits exceeded` : null
+}
+
+const refusal = (calls, estimate, guard) => roundCapRefusal(calls, estimate, guard) ?? spendDecision(calls, estimate, guard)
+
+function withRoundCap(paid, guard) {
+  if (guard.round === LEGACY_ROUND) return paid
+  // The skip callback runs inside spendGuard's ledger lock, after it has read the ledger.
+  return (request, receive, skip = () => false) => paid(request, receive, () => {
+    if (skip()) return true
+    const reason = roundCapRefusal(readSpend(guard.ledger), estimateCredits(request.endpoint, request.body, guard.rates), guard)
+    if (reason) throw new Error(reason)
+    return false
+  })
+}
+
 function printPlan(requests, sheet, guard, blocked) {
   const { calls, totals, total } = summarizeCalls(requests, sheet.rates)
   let spent = []
@@ -425,7 +459,7 @@ function printPlan(requests, sheet, guard, blocked) {
     blocked ??= error.message
   }
   for (const call of calls) {
-    blocked ??= spendDecision(spent, call.estimate, guard)
+    blocked ??= refusal(spent, call.estimate, guard)
     call.guard = blocked ? `refuse: ${blocked}` : guard.budget === Infinity ? 'requires --budget' : 'allow'
     if (!blocked) spent.push({ row: guard.row, round: guard.round, run_id: guard.runId, credits: call.estimate })
   }
@@ -434,22 +468,45 @@ function printPlan(requests, sheet, guard, blocked) {
   console.log(`Conservative total: ${total} credits (${calls.length} paid calls)`)
 }
 
-const usage = 'Usage: node audio/generate.mjs [--dry-run] [--check | --soundboard | --design | --pick ID | --smoke | --reconcile] '
-  + '[--only A,B] [--retake A] [--row V5] [--budget CREDITS] [--round-cap 3000] [--cap 15000] [--ledger PATH]'
+const usage = 'Usage: node audio/generate.mjs [--dry-run] [--check | --soundboard | --design [a,b] | --pick a:ID,b:ID | --smoke | --reconcile] '
+  + '[--only A,B] [--retake A] [--round N] [--row V6] [--budget CREDITS] [--round-cap 3000] [--cap 15000] [--ledger PATH]'
+
+const WHO = ['a', 'b']
+
+function parseDesign(value) {
+  const names = value.split(',').map(name => name.trim()).filter(Boolean)
+  if (!names.every(name => WHO.includes(name))) throw new Error('--design takes voices a and/or b, e.g. --design a,b')
+  return new Set(names)
+}
+
+function parsePicks(value) {
+  const picks = {}
+  for (const part of value.split(',')) {
+    const [, who, id] = /^([ab]):([A-Za-z0-9_-]+)$/.exec(part.trim()) ?? []
+    if (!who || who in picks) throw new Error('--pick takes one who:ID per voice, e.g. --pick a:ID,b:ID')
+    picks[who] = id
+  }
+  return picks
+}
 
 export async function main(args = process.argv.slice(2), root = ROOT) {
-  const { values: options } = parseArgs({ args, options: {
+  // A bare --design (no voice list) designs only the voices that have no saved id.
+  const argv = args.flatMap((arg, index) =>
+    arg === '--design' && (args[index + 1] === undefined || args[index + 1].startsWith('--')) ? ['--design='] : [arg])
+  const { values: options } = parseArgs({ args: argv, options: {
     'dry-run': { type: 'boolean' }, check: { type: 'boolean' }, soundboard: { type: 'boolean' },
-    design: { type: 'boolean' }, pick: { type: 'string' }, smoke: { type: 'boolean' }, help: { type: 'boolean' },
+    design: { type: 'string' }, pick: { type: 'string' }, smoke: { type: 'boolean' }, help: { type: 'boolean' },
     reconcile: { type: 'boolean' },
-    only: { type: 'string' }, retake: { type: 'string' }, row: { type: 'string' },
+    only: { type: 'string' }, retake: { type: 'string' }, row: { type: 'string' }, round: { type: 'string' },
     budget: { type: 'string' }, cap: { type: 'string', default: '15000' },
     'round-cap': { type: 'string', default: '3000' },
     ledger: { type: 'string', default: '.handoff/evidence/audio-spend.jsonl' },
   } })
   if (options.help) return console.log(usage)
-  if (options.pick !== undefined && !safeId(options.pick)) throw new Error('Invalid --pick id')
-  const voiceMode = options.design || options.pick
+  const redesign = options.design === undefined ? new Set() : parseDesign(options.design)
+  const picks = options.pick === undefined ? {} : parsePicks(options.pick)
+  if (WHO.some(who => redesign.has(who) && picks[who])) throw new Error('--design and --pick cannot name the same voice')
+  const voiceMode = options.design !== undefined || options.pick !== undefined
   const cueMode = options.only !== undefined || options.retake !== undefined
   const modes = [options.check, options.soundboard, voiceMode, options.smoke, options.reconcile].filter(Boolean)
   if (modes.length > 1 || (cueMode && modes.length)
@@ -463,9 +520,14 @@ export async function main(args = process.argv.slice(2), root = ROOT) {
       : 'No unresolved paid call')
   }
 
-  const files = paths(root)
-  const sheet = readJson(files.sheet)
-  for (const who of ['a', 'b']) {
+  const sheet = readJson(join(root, 'audio/cues.json'))
+  // --round wins over the cue sheet's round field. Sheets without one keep the round-5 ledger and board.
+  const round = options.round === undefined ? sheet.round ?? LEGACY_ROUND : Number(options.round)
+  if (!Number.isSafeInteger(round) || round < 1 || (options.round !== undefined && !/^[1-9]\d*$/.test(options.round))) {
+    throw new Error('--round (or the cue sheet round) requires a positive integer')
+  }
+  const files = paths(root, round)
+  for (const who of WHO) {
     const voice = sheet.voices?.[who]
     const range = voice?.targetPitchHz
     if (!voice?.ttsModel || !Array.isArray(range) || range.length !== 2
@@ -501,13 +563,17 @@ export async function main(args = process.argv.slice(2), root = ROOT) {
   const pending = plan.flatMap(group => group.pending)
   const needsVoices = new Set(plan.filter(group => group.cue.voice && group.pending.length).map(group => group.cue.voice))
   const missingA = needsVoices.has('a') && !voiceIds.a ? 'Voice A requires its saved ID in audio/voice.json.' : null
-  const needsDesign = !voiceIds.b && (options.design || needsVoices.has('b'))
-  const designs = needsDesign ? designPlan(sheet, files) : []
-  const voiceB = sheet.voices.b
-  const explicit = options.pick ? selectVoice(voiceB, readJson(files.candidates.b, []), options.pick) : null
+  // Redesigned voices ignore their saved id. Otherwise a voice is designed only when it has none: B on demand
+  // when cues need it (the long-standing behaviour), either voice under a bare --design.
+  const designed = WHO.filter(who => !picks[who] && (redesign.has(who)
+    || (!voiceIds[who] && (options.design !== undefined || (who === 'b' && needsVoices.has('b'))))))
+  const designs = designed.length ? designPlan(sheet, files, designed) : []
+  const explicit = Object.fromEntries(Object.entries(picks).map(([who, id]) =>
+    [who, selectVoice(sheet.voices[who], readJson(files.candidates[who], []), id)]))
+  const touched = WHO.filter(who => explicit[who] || designed.includes(who))
   const number = value => value?.trim() ? Number(value) : NaN
   const guard = {
-    ledger, row: options.row ?? (options.smoke ? 'G1' : 'V5'), round: 5,
+    ledger, row: options.row ?? (options.smoke ? 'G1' : `V${round}`), round,
     cap: number(options.cap), budget: number(options.budget), roundCap: number(options['round-cap']),
     maxCalls: options.smoke ? 3 : Infinity,
   }
@@ -521,33 +587,45 @@ export async function main(args = process.argv.slice(2), root = ROOT) {
   if (options.smoke && guard.row !== 'G1') throw new Error('--smoke requires row G1')
 
   if (options['dry-run']) {
-    const create = explicit ? savedVoice(files.voices.b)?.generated_voice_id !== explicit.candidate.id : needsDesign
+    const create = who => explicit[who] ? savedVoice(files.voices[who])?.generated_voice_id !== explicit[who].candidate.id
+      : designed.includes(who)
     const requests = options.smoke ? smokePlan(sheet, '<premade_voice_id>').map(item => item.request)
       : [
           ...designs.filter(item => !existsSync(item.index)).map(item => item.request),
-          ...(create ? [saveVoiceRequest(voiceB, explicit?.candidate ?? { id: '<candidate_id>' })] : []),
+          ...WHO.filter(create).map(who =>
+            saveVoiceRequest(sheet.voices[who], explicit[who]?.candidate ?? { id: '<candidate_id>' }, who)),
           ...pending,
         ]
+    console.log(`Round ${round}, row ${guard.row}`)
     return printPlan(requests, sheet, { ...guard, runId: 'dry-run',
       budget: options.budget === undefined ? Infinity : guard.budget }, missingA)
   }
 
   if (missingA) throw new Error(missingA)
-  if (options.design && !needsDesign && !explicit) return console.log('Voice B is already saved.')
-  if (!voiceMode || needsDesign) verifyMediaTools()
+  if (options.design !== undefined && !touched.length) return console.log('The requested voices are already saved.')
+  if (!voiceMode || designs.length) verifyMediaTools()
   if (!voiceMode && !options.smoke && !pending.length) return ship(sheet, files, plan)
   readSpend(ledger)
   const send = connect()
-  const paid = spendGuard({ ...guard, rates: sheet.rates, send })
+  const paid = withRoundCap(spendGuard({ ...guard, rates: sheet.rates, send }), { ...guard, rates: sheet.rates })
   if (options.smoke) return smokeTest(sheet, files, ledger, send, paid)
   if (needsVoices.size) await verifyModels(send, new Set([...needsVoices].map(who => sheet.voices[who].ttsModel)))
-  if (needsDesign || explicit) {
-    const candidates = needsDesign ? await designVoices(designs, files, paid) : []
+  if (touched.length) {
+    const candidates = designs.length ? await designVoices(designs, files, paid) : {}
     soundboard(sheet, files, readJson(manifestFile, emptyManifest))
-    const { candidate, reason } = explicit ?? selectVoice(voiceB, candidates)
-    await saveVoice(voiceB, files.voices.b, candidate, reason, paid, Boolean(explicit))
+    const failures = []
+    for (const who of touched) {
+      try {
+        const { candidate, reason } = explicit[who] ?? selectVoice(sheet.voices[who], candidates[who])
+        await saveVoice(sheet.voices[who], who, files.voices[who], candidate, reason, paid,
+          Boolean(explicit[who]) || redesign.has(who))
+      } catch (error) {
+        failures.push(`Voice ${who.toUpperCase()}: ${error.message}`)
+      }
+    }
+    if (failures.length) throw new Error(failures.join('\n'))
     if (voiceMode) return
-    voiceIds.b = savedVoice(files.voices.b).voice_id
+    for (const who of touched) voiceIds[who] = savedVoice(files.voices[who]).voice_id
     plan = makePlan()
   }
   await ship(sheet, files, plan, paid)

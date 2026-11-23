@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { main } from '../audio/generate.mjs'
 import { decodeArgs, encodeArgs, inspect, processTake, retunedPitch } from '../audio/media.js'
 import { detectPitch, selectSungWindow } from '../audio/pitch.js'
-import { buildManifest, cacheKey, coverageResult, coverageTargets, DESIGN, estimateCredits, planTakes,
-  rawName, SFX, summarizeCalls, sungValid, takeRequest, TTS } from '../audio/plan.js'
+import { buildManifest, cacheKey, coverageResult, coverageTargets, DESIGN, designRequests, estimateCredits, planTakes,
+  rawName, saveVoiceRequest, SFX, summarizeCalls, sungValid, takeRequest, TTS } from '../audio/plan.js'
 import { elevenLabs, readSpend, spendGuard } from '../audio/spend.js'
 
 const temp = []
@@ -399,9 +399,13 @@ describe('ffmpeg processing', () => {
       writeFileSync(join(output, `${cue.cue}-${take}.mp3`), processed.audio)
       return { take, ...processed }
     }
+    // --check also requires every voice take to carry the voice id selected in audio/voice*.json.
+    writeFileSync(join(root, 'audio/voice.json'), JSON.stringify({ voice_id: 'voice-a' }))
+    writeFileSync(join(root, 'audio/voice-b.json'), JSON.stringify({ voice_id: 'voice-b' }))
     const manifest = buildManifest([
-      { cue: lead, takes: [addTake(lead, 1, 440)] },
-      { cue: { ...bLead, keep: 2 }, takes: [addTake(bLead, 1, 300, 0.7), addTake(bLead, 2, 440, 0.15)] },
+      { cue: lead, voiceId: 'voice-a', takes: [addTake(lead, 1, 440)] },
+      { cue: { ...bLead, keep: 2 }, voiceId: 'voice-b',
+        takes: [addTake(bLead, 1, 300, 0.7), addTake(bLead, 2, 440, 0.15)] },
     ])
     const save = () => writeFileSync(join(output, 'manifest.json'), JSON.stringify(manifest))
     vi.spyOn(console, 'table').mockImplementation(() => {})
@@ -459,8 +463,10 @@ describe('ffmpeg processing', () => {
     writeFileSync(join(root, 'audio/cues.json'), JSON.stringify({ ...sheet, cues: [cue, companion] }))
     writeFileSync(join(publicAudio, 'b_sing_ta-1.mp3'), processedB.audio)
     const manifestFile = join(publicAudio, 'manifest.json')
-    const manifest = buildManifest([[cue, processed], [companion, processedB]]
-      .map(([cue, take]) => ({ cue, takes: [{ take: 1, ...take }] })))
+    writeFileSync(join(root, 'audio/voice.json'), JSON.stringify({ voice_id: 'voice-a' }))
+    writeFileSync(join(root, 'audio/voice-b.json'), JSON.stringify({ voice_id: 'voice-b' }))
+    const manifest = buildManifest([[cue, processed, 'voice-a'], [companion, processedB, 'voice-b']]
+      .map(([cue, take, voiceId]) => ({ cue, voiceId, takes: [{ take: 1, ...take }] })))
     writeFileSync(manifestFile, JSON.stringify(manifest))
     vi.spyOn(console, 'table').mockImplementation(() => {})
     vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -543,5 +549,234 @@ describe('ffmpeg processing', () => {
     expect(board).toContain('src="../round-4/procedural/tile%20chime.mp3"')
     expect(json('audio/voice-b-candidates.json')[0].file).toBe('deliverables/round-5/voice-candidates/candidate.mp3')
     expect(board).not.toContain('.handoff')
+  })
+})
+
+describe('voice cache keys and design requests', () => {
+  it('never reuses takes generated for another voice', () => {
+    const cue = sheet.cues[1]
+    const oldTake = takeRequest(sheet, cue, 1, 'old-voice')
+    const newTake = takeRequest(sheet, cue, 1, 'new-voice')
+    expect(newTake.key).not.toBe(oldTake.key)
+    expect(rawName(newTake)).not.toBe(rawName(oldTake))
+    expect(oldTake.voiceId).toBe('old-voice')
+    const cached = { sing_ta: [1, 2, 3].map(take => rawName(takeRequest(sheet, cue, take, 'old-voice'))) }
+    const [, sung] = planTakes(sheet, { voiceIds: { a: 'new-voice' }, cached })
+    expect(sung.hits).toEqual([])
+    expect(sung.pending.map(request => request.endpoint)).toEqual(Array(3).fill(TTS + 'new-voice'))
+    const [, same] = planTakes(sheet, { voiceIds: { a: 'old-voice' }, cached })
+    expect(same.pending).toEqual([])
+    expect(same.hits).toHaveLength(3)
+  })
+
+  it('designs voice A and voice B from their own briefs', () => {
+    const requests = designRequests(sheet)
+    expect(requests.map(request => [request.who, request.cue, request.body.voice_description]))
+      .toEqual([['a', 'voice_design', 'A concept'], ['b', 'b_voice_design', 'B concept']])
+    expect(requests[0].body.text).toContain('Example text')
+    expect(requests[1].body.text).toContain('A second example')
+    expect(new Set(requests.map(request => request.key)).size).toBe(2)
+    expect(designRequests(sheet, ['b']).map(request => request.who)).toEqual(['b'])
+    expect(saveVoiceRequest(sheet.voices.a, { id: 'x', brief: 'A concept' }, 'a').cue).toBe('voice_design')
+  })
+
+  it('records voice_id on every voice take, sung ones included, and on nothing else', () => {
+    const [fold, sing] = sheet.cues
+    const manifest = buildManifest([
+      { cue: fold, voiceId: 'ignored', takes: [{ take: 1, duration: 0.3 }] },
+      { cue: sing, voiceId: 'voice-a', takes: [{ take: 1, duration: 0.3, ...pitch(69) }, { take: 2, duration: 0.2, ...pitch(69) }] },
+      { cue: bLead, voiceId: 'voice-b', takes: [{ take: 1, duration: 0.3 }] },
+    ])
+    expect(manifest.cues.fold.files[0]).not.toHaveProperty('voice_id')
+    expect(manifest.cues.sing_ta.files.map(file => file.voice_id)).toEqual(['voice-a', 'voice-a'])
+    expect(manifest.cues.b_voice_lead.files[0].voice_id).toBe('voice-b')
+  })
+})
+
+describe('duo voices end to end', () => {
+  const FIXTURE_ROUND_5_SPEND = [
+    { ts: 't', row: 'V5', round: 5, run_id: 'old', call_id: 'old-call', estimate: 900 },
+    { ts: 't', row: 'V5', call_id: 'old-call', outcome: 'ok', credits: 900, credits_source: 'header' },
+  ]
+
+  function world({ saved = true, cues = [sheet.cues[0], sheet.cues[1], bLead], extra = {} } = {}) {
+    const root = scratch()
+    const json = file => JSON.parse(readFileSync(join(root, file), 'utf8'))
+    const { audio } = processTake(writeTone(root), sheet.cues[0])
+    const voices = { a: { ...sheet.voices.a, name: 'Fixture A' },
+      b: { ...sheet.voices.b, name: 'Fixture B', targetPitchHz: [300, 520] } }
+    mkdirSync(join(root, 'audio'))
+    writeFileSync(join(root, 'audio/cues.json'), JSON.stringify({ ...sheet, voices, cues, ...extra }))
+    if (saved) {
+      writeFileSync(join(root, 'audio/voice.json'), JSON.stringify({ voice_id: 'old-a', generated_voice_id: 'old-ga' }))
+      writeFileSync(join(root, 'audio/voice-b.json'), JSON.stringify({ voice_id: 'old-b', generated_voice_id: 'old-gb' }))
+    }
+    const fetch = vi.fn(async (url, options) => {
+      const body = options.body ? JSON.parse(options.body) : {}
+      if (url.pathname === DESIGN) {
+        const id = body.voice_description === 'A concept' ? 'cand-a' : 'cand-b'
+        return Response.json({ previews: [{ generated_voice_id: id, audio_base_64: audio.toString('base64') }] })
+      }
+      if (url.pathname === '/v1/text-to-voice') return Response.json({ voice_id: `saved-${body.generated_voice_id}` })
+      if (url.pathname === '/v1/user/subscription') return subscription(100)
+      if (url.pathname === '/v1/models') return Response.json([{ model_id: 'tts-model' }, { model_id: 'b-model' }])
+      if (url.pathname === SFX || url.pathname.startsWith(TTS)) return new Response(audio)
+      throw new Error('Unexpected request ' + url.pathname)
+    })
+    vi.stubGlobal('fetch', fetch)
+    vi.stubEnv('ELEVENLABS_API_KEY', 'fixture-key')
+    const table = vi.spyOn(console, 'table').mockImplementation(() => {})
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    table.mockClear()
+    log.mockClear()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const paid = () => fetch.mock.calls.map(([url]) => url.pathname).filter(path => path !== '/v1/user/subscription')
+    const ledger = join(root, '.handoff/evidence/audio-spend.jsonl')
+    const seed = lines => {
+      mkdirSync(join(root, '.handoff/evidence'), { recursive: true })
+      writeFileSync(ledger, lines.map(line => JSON.stringify(line)).join('\n') + '\n')
+    }
+    return { root, json, fetch, table, log, paid, ledger, seed, audio }
+  }
+
+  it('dry-run --design a,b lists both voices\' design calls with estimates and makes no network call', async () => {
+    const { root, fetch, table, log } = world()
+    await main(['--dry-run', '--design', 'a,b'], root)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(table.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ endpoint: DESIGN, cue: 'voice_design', estimate: 200, guard: 'requires --budget' }),
+      expect.objectContaining({ endpoint: DESIGN, cue: 'b_voice_design', estimate: 200 }),
+      expect.objectContaining({ cue: 'voice_design', estimate: 0 }),
+      expect.objectContaining({ cue: 'b_voice_design', estimate: 0 }),
+    ])
+    expect(log).toHaveBeenCalledWith('Conservative total: 400 credits (4 paid calls)')
+  })
+
+  it('designs only the named voices and ignores their saved ids', async () => {
+    const { root, json, paid } = world()
+    await main(['--design', 'a,b', '--budget', '1000'], root)
+    expect(paid()).toEqual([DESIGN, DESIGN, '/v1/text-to-voice', '/v1/text-to-voice'])
+    expect(json('audio/voice.json')).toMatchObject({ voice_id: 'saved-cand-a', generated_voice_id: 'cand-a' })
+    expect(json('audio/voice-b.json')).toMatchObject({ voice_id: 'saved-cand-b', generated_voice_id: 'cand-b' })
+    expect(json('audio/voice-candidates.json')[0]).toMatchObject({ id: 'cand-a', brief: 'A concept' })
+    expect(json('audio/voice-b-candidates.json')[0]).toMatchObject({ id: 'cand-b', brief: 'B concept' })
+  })
+
+  it('leaves the voice that is not named untouched', async () => {
+    const { root, json, paid } = world()
+    await main(['--design', 'b', '--budget', '1000'], root)
+    expect(paid()).toEqual([DESIGN, '/v1/text-to-voice'])
+    expect(json('audio/voice.json')).toEqual({ voice_id: 'old-a', generated_voice_id: 'old-ga' })
+    expect(json('audio/voice-b.json').voice_id).toBe('saved-cand-b')
+  })
+
+  it('plain --design still skips voices that are already saved and rejects unknown names', async () => {
+    const { root, fetch } = world()
+    await main(['--design'], root)
+    expect(fetch).not.toHaveBeenCalled()
+    await expect(main(['--design', 'c'], root)).rejects.toThrow(/--design/)
+  })
+
+  it('--pick who:ID saves each voice from its own candidates', async () => {
+    const { root, json, paid } = world()
+    const candidate = (id, brief) => ({ id, brief, medianF0Hz: 400, voicedRatio: 1 })
+    writeFileSync(join(root, 'audio/voice-candidates.json'),
+      JSON.stringify([candidate('a1', 'A concept'), candidate('a2', 'A concept')]))
+    writeFileSync(join(root, 'audio/voice-b-candidates.json'), JSON.stringify([candidate('b1', 'B concept')]))
+    await main(['--pick', 'a:a2,b:b1', '--budget', '1000'], root)
+    expect(paid()).toEqual(['/v1/text-to-voice', '/v1/text-to-voice'])
+    expect(json('audio/voice.json')).toMatchObject({ voice_id: 'saved-a2', generated_voice_id: 'a2' })
+    expect(json('audio/voice-b.json')).toMatchObject({ voice_id: 'saved-b1', generated_voice_id: 'b1' })
+    await main(['--pick', 'a:a1', '--budget', '1000'], root)
+    expect(json('audio/voice.json').generated_voice_id).toBe('a1')
+    expect(json('audio/voice-b.json').generated_voice_id).toBe('b1')
+  })
+
+  it.each([['a2'], ['c:a2'], ['a:a2,a:a1'], ['a:'], ['a:bad id']])('rejects --pick %s', async pick => {
+    const { root, fetch } = world()
+    await expect(main(['--pick', pick, '--budget', '1000'], root)).rejects.toThrow(/--pick/)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects a candidate that is not among the voice\'s own candidates', async () => {
+    const { root, fetch } = world()
+    writeFileSync(join(root, 'audio/voice-candidates.json'), JSON.stringify([{ id: 'a1', brief: 'A concept' }]))
+    await expect(main(['--pick', 'b:a1', '--budget', '1000'], root)).rejects.toThrow('Unknown voice candidate a1')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('accounts spend to --round 6, enforces that round\'s cap, and excludes other rounds', async () => {
+    const { root, ledger, seed, paid } = world()
+    seed(FIXTURE_ROUND_5_SPEND)
+    await expect(main(['--design', 'a,b', '--round', '6', '--budget', '1000', '--round-cap', '300'], root))
+      .rejects.toThrow('Round 6 spend cap of 300 credits exceeded')
+    expect(paid()).toEqual([DESIGN])
+    expect(readSpend(ledger).slice(1)).toEqual([expect.objectContaining({
+      row: 'V6', round: 6, cue: 'voice_design', estimate: 200, outcome: 'ok' })])
+    // The same run under round 5 would be refused by the 900 credits already spent there.
+    await expect(main(['--design', 'a,b', '--round', '5', '--budget', '1000', '--round-cap', '1000'], root))
+      .rejects.toThrow('Round 5 spend cap of 1000 credits exceeded')
+  })
+
+  it('takes the round from cues.json, lets --round override it, and defaults to 5', async () => {
+    const run = async (args, extra) => {
+      const { root, table, seed } = world({ extra })
+      seed([{ ts: 't', row: 'V6', round: 6, run_id: 'old', call_id: 'c', estimate: 250 },
+        { ts: 't', row: 'V6', call_id: 'c', outcome: 'ok', credits: 250, credits_source: 'header' }])
+      await main(['--dry-run', '--design', 'a', '--budget', '1000', '--round-cap', '300', ...args], root)
+      return table.mock.calls[0][0][0].guard
+    }
+    expect(await run([], { round: 6 })).toMatch(/Round 6 spend cap of 300/)
+    expect(await run(['--round', '5'], { round: 6 })).toBe('allow')
+    expect(await run([], {})).toBe('allow')
+    await expect(run(['--round', 'six'], {})).rejects.toThrow(/--round/)
+  })
+
+  it('ships voice_id for every voice take and --check fails when the selected voice differs', async () => {
+    const { root, json, paid } = world({
+      cues: [sheet.cues[0], { ...sheet.cues[1], takes: 1, keep: 1 }, { ...bLead, takes: 1, keep: 1 }] })
+    await main(['--budget', '1000'], root)
+    expect(paid().filter(path => path.startsWith(TTS))).toEqual([TTS + 'old-a', TTS + 'old-b'])
+    const { cues } = json('public/audio/manifest.json')
+    expect(cues.fold.files[0]).not.toHaveProperty('voice_id')
+    expect(cues.sing_ta.files[0].voice_id).toBe('old-a')
+    expect(cues.b_voice_lead.files[0].voice_id).toBe('old-b')
+    await expect(main(['--check'], root)).resolves.toBeUndefined()
+
+    writeFileSync(join(root, 'audio/voice-b.json'), JSON.stringify({ voice_id: 'new-b' }))
+    await expect(main(['--check'], root)).rejects.toThrow('Audio check failed')
+    expect(console.table.mock.calls.at(-2)[0]).toContainEqual(expect.objectContaining({
+      cue: 'b_voice_lead', result: expect.stringMatching(/voice_id/) }))
+    writeFileSync(join(root, 'audio/voice-b.json'), JSON.stringify({ voice_id: 'old-b' }))
+    writeFileSync(join(root, 'audio/voice.json'), JSON.stringify({ voice_id: 'new-a' }))
+    await expect(main(['--check'], root)).rejects.toThrow('Audio check failed')
+    writeFileSync(join(root, 'audio/voice.json'), JSON.stringify({ voice_id: 'old-a' }))
+    await expect(main(['--check'], root)).resolves.toBeUndefined()
+  })
+
+  it('--check fails a shipped voice take with no voice_id or no selected voice', async () => {
+    const { root, json } = world({
+      cues: [sheet.cues[0], { ...sheet.cues[1], takes: 1, keep: 1 }, { ...bLead, takes: 1, keep: 1 }] })
+    await main(['--budget', '1000'], root)
+    const manifest = json('public/audio/manifest.json')
+    delete manifest.cues.sing_ta.files[0].voice_id
+    writeFileSync(join(root, 'public/audio/manifest.json'), JSON.stringify(manifest))
+    await expect(main(['--check'], root)).rejects.toThrow('Audio check failed')
+    manifest.cues.sing_ta.files[0].voice_id = 'old-a'
+    writeFileSync(join(root, 'public/audio/manifest.json'), JSON.stringify(manifest))
+    rmSync(join(root, 'audio/voice-b.json'))
+    await expect(main(['--check'], root)).rejects.toThrow('Audio check failed')
+  })
+
+  it('regenerates every voice take after a voice is replaced', async () => {
+    const { root, json, paid } = world({
+      cues: [sheet.cues[0], { ...sheet.cues[1], takes: 1, keep: 1 }, { ...bLead, takes: 1, keep: 1 }] })
+    await main(['--budget', '1000'], root)
+    writeFileSync(join(root, 'audio/voice.json'), JSON.stringify({ voice_id: 'new-a' }))
+    await main(['--budget', '1000'], root)
+    expect(paid().filter(path => path.startsWith(TTS))).toEqual([TTS + 'old-a', TTS + 'old-b', TTS + 'new-a'])
+    const { cues } = json('public/audio/manifest.json')
+    expect(cues.sing_ta.files[0].voice_id).toBe('new-a')
+    expect(cues.b_voice_lead.files[0].voice_id).toBe('old-b')
   })
 })
