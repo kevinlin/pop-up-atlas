@@ -70,6 +70,19 @@ export function pathClear(layout, from, to, step = sampleStep) {
   return true
 }
 
+// Where troll B starts (docs/contracts.md "Roles"): in its idle slot 0.75 units to the screen left of the leader, else to the
+// right, on a clear path; else 1.1 units behind the leader's heading on an unblocked point; else beside the leader. `right` is
+// the camera's right vector on the page. Used to plan routes and to judge DUO-03.
+export function followerStart(layout, { leader, heading, right }) {
+  for (const [name, sign] of [['left', -1], ['right', 1]]) {
+    const point = { x: leader.x + right.x * sign * duoContract.slotOffset, z: leader.z + right.z * sign * duoContract.slotOffset }
+    if (pathClear(layout, leader, point)) return { rule: `${name} slot`, point, gap: duoContract.slotOffset }
+  }
+  const behind = { x: leader.x - Math.sin(heading) * duoContract.startGap, z: leader.z - Math.cos(heading) * duoContract.startGap }
+  if (!layout.isBlocked(behind.x, behind.z)) return { rule: 'behind', point: behind, gap: duoContract.startGap }
+  return { rule: 'beside', point: null, gap: duoContract.startGap }
+}
+
 // A straight corridor with parallel lines at the given lateral offsets.
 export function bandClear(layout, from, to, halfWidth, step = 0.1) {
   const length = distance(from, to) || 1

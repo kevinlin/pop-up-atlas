@@ -69,8 +69,8 @@ Feature: A closer camera, a two-stage fold, living faces and a walking troll wit
   Scenario: Both characters stay on screen under every shipped camera
     When the duo routes and the round-6 routes run at 1280x720 and 1920x1080 with the default camera
     Then on every rendered frame under the walk, dance and hero cameras both characters' projected bounds are inside the frame
-    And the follower overlaps the leader by more than 50 % of its area for at most 0.5 s at a stretch
-    And a character with both body centre and hair tip occluded by tiles is hidden for at most 0.5 s at a stretch
+    And the follower overlaps the leader by more than 50 % of its area for at most 0.5 s at a stretch within one route
+    And a character with both body centre and hair tip occluded by tiles is hidden for at most 0.5 s at a stretch within one route
     And the walk, dance and hero cameras each appeared in at least 300, 60 and 30 frames of the run
 
   # ---- Folds ----------------------------------------------------------------------------------------------------------

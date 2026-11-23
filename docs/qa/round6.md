@@ -14,7 +14,7 @@ GLBs (`@needs-round-6-glb`), which fail on the round-5 files until those are int
    at a fixed, comfortable level.
 2. Press any key once to unlock audio. WASD or the arrow keys walk; Space swaps the lead.
 3. Seeds used by the gate's routes: 236 (a cupcake tree beside a straight corridor: hero beat, dance stage, bump),
-   76 (a river 21 units east of the start, for B's umbrella), 935 (a first walk that is a skip, for the hum). The
+   21 (a river 21 units east of the start, for B's umbrella), 935 (a first walk that is a skip, for the hum). The
    gate prints them in the `plan` of each route in its saved results.
 4. `R6_RESULTS=path node scripts/e2e.mjs` also saves every session result (duo routes and round-6 routes). The
    saved file can be re-analysed without a browser: `node scripts/e2e-duo-round6-run.mjs --load path
@@ -52,7 +52,7 @@ console.log(e.detail))` shows the events.
 | R6-CHR-04 | Walk, dance and make the follower hop. Watch the body. | A small squash on each footfall, a bigger squash when the dance jump lands, a stretch at hop take-off and a squash at the landing. Volume looks constant (wider when shorter) and the body settles in under a second. | A squash that does not spring back, a stretch that looks like a growth spurt, or no squash on a landing. |
 | R6-CHR-05 | Lead with B (Space) into a river bank, keep the key down, then let B dance. | B's orange umbrella pops open on the collision and again at the dance's bow, and folds closed about a second later (or at once when the dance ends). A repeated collision re-opens it at most every 3 s. A has no umbrella. | An umbrella open for no reason, one that stays open, or one on A. |
 | R6-CHR-06 | With A leading, stand 1 s, then walk (reload until a walk starts as a skip). | A walks with two hops (a skip), still read as walking: `__atlas.player.state` stays `'walk'`, never `'skip'`. | A state called `skip`, or the troll sliding during the skip. |
-| R6-CHR-07 | Lead with A, stand about 4 s (B first walks to its side slot and has to stand there for 2 s), then walk. Watch B. | B turns to look around for about 0.6 s, standing still, then follows. A swap during the look cuts it and B takes over at once. | B walking while it looks, a look that ignores the swap, or a look while B leads. |
+| R6-CHR-07 | Lead with A, stand 3 s (B has to stand still in its side slot for 2 s, so stand 4 s again after any walk), then walk. Watch B. | B turns to look around for about 0.6 s, standing still, then follows. A swap during the look cuts it and B takes over at once. | B walking while it looks, a look that ignores the swap, or a look while B leads. |
 | R6-AUD-01 | Walk a straight line and listen. | One felt step per foot contact, at the left foot's contact (clip time 0) and half a clip later: 0.5 s apart for A, 0.4 s for B. Only the leader's feet make sound. | A late or doubled step, steps from the follower, or a cadence that does not match the legs. |
 | R6-AUD-02 | Step in and out of one prop's fold distances (about 2 and 3 units) twelve times in a row, each fold-up within 6 s of the last, so the melody reaches the fourth note of its second phrase (the top note, above MIDI 78); then stand still for the hum. | The hum echoes the last notes of the melody. Notes above MIDI 78 are sung an octave lower, in A's comfortable range. | A hum note squeaking above the melody's register. |
 

@@ -86,31 +86,28 @@ export function planStage({ from = 1, to = 6000, window = 120 } = {}) {
   return best
 }
 
-// Session "river": troll B (leading after the start swap, standing 1.1 behind the origin) walks along x = 0 to the row
-// z = river.z, then east along it into a river at x = river.x. Both legs are clear, so the first blocked point is the
-// river. Prefers the shortest route among the first `window` seeds that qualify.
+// Session "river": troll A walks south along x = 0 while troll B looks (V1); B, leading after the swap from one of its side slots
+// (0.75 to either side of the corridor), walks north to the row z = river.z, then east along it into a river at x = river.x.
+// The corridor 1.05 either side of x = 0 and the row from x = -1.05 are clear, so the first blocked point is the river. Prefers
+// the shortest route among the first `window` seeds that qualify.
 let riverPlan
 export function planRiver({ from = 1, to = 6000, window = 60 } = {}) {
   if (riverPlan) return riverPlan
-  const startZ = -1.1
   let best
   for (let seed = from; seed <= to && !(best && seed >= best.seed + window); seed++) {
     const layout = createLayout(seed)
-    if (!startClear(layout) || layout.isBlocked(0, startZ)) continue
-    // Troll A walks south along x = 0 while B looks (V1), so that corridor is clear too; B then walks back up it.
-    if (!bandClear(layout, { x: 0, z: 0 }, { x: 0, z: 5.6 }, 0.3)) continue
+    if (!startClear(layout)) continue
     for (let z = -9; z <= 7.4; z += 0.2) {
-      const walkZ = Math.abs(z - startZ)
-      if (z < -9 || (walkZ > 0.05 && !bandClear(layout, { x: 0, z: startZ }, { x: 0, z }, 0.3))) continue
+      if (!bandClear(layout, { x: 0, z: Math.min(0, z) }, { x: 0, z: Math.max(5.6, z) }, 1.05)) continue
       let x = 0
       while (x < 40 && !layout.isBlocked(x, z)) x += 0.1
       if (x < 2.6 || x >= 40 || layout.blockedBy(x, z) !== 'river') continue
-      if (!bandClear(layout, { x: 0, z }, { x: x - 0.1, z }, 0.3)) continue
-      const walk = walkZ + x
+      if (!bandClear(layout, { x: -1.05, z }, { x: x - 0.1, z }, 0.3)) continue
+      const walk = Math.abs(z) + x
       if (!best || walk < best.walk) best = { seed, layout, river: { x: +x.toFixed(2), z: +z.toFixed(2) }, walk }
     }
   }
-  if (!best) throw new Error('No seed has a clear route from troll B at its start to a river for the river session')
+  if (!best) throw new Error('No seed has a clear corridor and row from troll B at its start slot to a river for the river session')
   riverPlan = best
   return best
 }

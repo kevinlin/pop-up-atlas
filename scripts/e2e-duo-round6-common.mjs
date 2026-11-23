@@ -1,5 +1,6 @@
 // Shared pieces of the round-6 analyses (R6-*): the scenario list, the result collector and a session wrapper.
 // Every analysis is a pure function of what a session recorded (scripts/e2e-duo-sessions.mjs result objects).
+import { framingStats } from './e2e-duo-probe.mjs'
 
 export const fps = 60
 export const frame = 1 / fps
@@ -66,3 +67,40 @@ export function prepare(result) {
     frames: result.rec.frames ?? {},
   }
 }
+
+// Framing (DUO-34..36, R6-CAM-08) per route: the overlap and hidden runs are counted inside one route, so a run never
+// continues from the last frame of one route into the first frame of the next. Each route is `{ label, trace }`;
+// `frames` is the length of a run and `span` its first and last frame; the
+// result has the totals, the longest run of each kind with the route, the frames it spans and what stood where.
+export function framingPerRoute(routes, contract) {
+  const describe = ({ trace }, at, length) => {
+    const end = trace.find((s) => s.f === at)
+    if (!end) return { span: [at - length + 1, at] }
+    return {
+      span: [at - length + 1, at],
+      leader: { x: r3(end.L.x), z: r3(end.L.z) }, follower: { x: r3(end.F.x), z: r3(end.F.z) }, beat: end.camera?.beat ?? null,
+      states: `${end.L.state}/${end.F.state}`,
+    }
+  }
+  const total = { frames: 0, outsideFrames: 0, firstOutside: [], longestOverlap: { frames: 0 }, longestHidden: { a: { frames: 0 }, b: { frames: 0 } }, routes: [] }
+  for (const route of routes) {
+    const stats = framingStats(route.trace, { fps, contract })
+    total.frames += stats.frames
+    total.outsideFrames += stats.outsideFrames
+    for (const outside of stats.firstOutside) if (total.firstOutside.length < 5) total.firstOutside.push({ route: route.label, ...outside })
+    if (stats.longestOverlapFrames > total.longestOverlap.frames) {
+      total.longestOverlap = { frames: stats.longestOverlapFrames, route: route.label, ...describe(route, stats.longestOverlapAt, stats.longestOverlapFrames) }
+    }
+    for (const label of ['a', 'b']) {
+      if (stats.longestHiddenFrames[label] > total.longestHidden[label].frames) {
+        total.longestHidden[label] = { frames: stats.longestHiddenFrames[label], route: route.label, ...describe(route, stats.longestHiddenAt[label], stats.longestHiddenFrames[label]) }
+      }
+    }
+    total.routes.push({ route: route.label, outsideFrames: stats.outsideFrames, longestOverlapFrames: stats.longestOverlapFrames, longestHiddenFrames: stats.longestHiddenFrames })
+  }
+  return total
+}
+
+// A run as one line for a problem text: where it was and what the camera and the pair were doing.
+export const runText = ({ route, span, leader, follower, beat, states }) =>
+  `${route}, frames ${span[0]}-${span[1]}${leader ? `, leader (${leader.x}, ${leader.z}) follower (${follower.x}, ${follower.z}), ${states}, camera beat ${beat}` : ''}`

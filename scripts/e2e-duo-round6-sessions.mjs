@@ -152,12 +152,16 @@ export async function riverSession(browser, viewport, options) {
   const step = (name, fn) => driver.phase(name, ids, notes, fn)
   const { river } = plan
 
-  // B walks to its idle side slot within 1.4 s and must stand there for 2 s before a look: 4.2 s leaves it 2.8 s. A walks south
-  // along the clear corridor x = 0 (the plan checks it) away from B, which then looks before it sets off.
-  await step('V1a stand 4.2 s, walk, B looks and sets off', async () => {
-    await driver.seconds(4.2)
+  // B starts in its idle side slot and must stand there for 2 s before a look: 2.6 s leaves it 0.6 s to spare. A walks south
+  // along the clear corridor x = 0 (the plan checks it) away from B, which then looks before it sets off. The route waits for
+  // the look that comes once A is 0.2 units away; the look flag that the first frame of A's walk raises (reported by
+  // R6-CHR-07 as a one-frame look) is not the look this step is waiting for.
+  const realLook = (sample, from, atlas) => atlas.duo.look?.active === true && sample.L.z - from.z > 0.2
+  await step('V1a stand 2.6 s, walk, B looks and sets off', async () => {
+    await driver.seconds(2.6)
+    const from = { z: s().L.z }
     notes.walk = await driver.down('KeyS')
-    await driver.waitFor(4, (_s, _a, atlas) => atlas.duo.look?.active === true, null, 'troll B starting its look')
+    await driver.waitFor(4, realLook, from, 'troll B starting its look')
     notes.lookSeen = { f: s().f }
     await driver.waitFor(2, (_s, _a, atlas) => atlas.duo.look?.active !== true, null, 'troll B finishing its look')
     await driver.up('KeyS')
@@ -165,8 +169,9 @@ export async function riverSession(browser, viewport, options) {
   })
   await step('V1b stand again, walk, B looks, a swap interrupts it', async () => {
     await driver.seconds(4.2)
+    const from = { z: s().L.z }
     notes.walkAgain = await driver.down('KeyS')
-    await driver.waitFor(4, (_s, _a, atlas) => atlas.duo.look?.active === true, null, 'troll B starting its second look')
+    await driver.waitFor(4, realLook, from, 'troll B starting its second look')
     await driver.seconds(0.2)
     notes.swapInLook = await driver.tap('Space')
     await driver.up('KeyS')

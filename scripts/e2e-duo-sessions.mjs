@@ -420,7 +420,7 @@ export async function bridgeSession(browser, viewport, options) {
   // The follower trails on the last leg; neither slot is free, so it settles on the trail target.
   // A swap then lets the new leader walk back without passing through the follower.
   await step('B2 narrow spot, neither slot free', ['DUO-12'], async () => {
-    // The start swap leaves troll B leading from 1.1 behind the origin; the planned legs start on along = 0.
+    // The start swap leaves troll B leading from its idle slot 0.75 to the screen side of the origin; the planned legs start on along = 0.
     await walkAxis(driver, along, 0)
     await walkAxis(driver, across, plan.narrow.legStart[across])
     await walkAxis(driver, along, plan.narrow.spot[along])

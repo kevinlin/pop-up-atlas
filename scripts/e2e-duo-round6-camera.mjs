@@ -2,8 +2,8 @@
 // beat gate (hero fold-up within 2.5, 8 s gap, hop block, cancels) is modelled here from the logged events and checked
 // against the camera state the probe sampled each frame (`__atlas.camera` = {distance, pitch, target, beat}).
 import { duoContract } from './e2e-duo-plan.mjs'
-import { framingStats, insideFrame } from './e2e-duo-probe.mjs'
-import { distance, fps, median, r3, viewportOf } from './e2e-duo-round6-common.mjs'
+import { insideFrame } from './e2e-duo-probe.mjs'
+import { distance, fps, framingPerRoute, median, r3, runText, viewportOf } from './e2e-duo-round6-common.mjs'
 
 export const cameraNumbers = {
   walk: { distance: 7.5, pitch: 35 },
@@ -296,7 +296,8 @@ function analyzeYaw(x, out) {
 function analyzeFraming(group, out) {
   const stretch = Math.round(duoContract.stretchSeconds * fps)
   for (const [viewport, list] of group) {
-    const frames = list.flatMap(({ trace }) => trace)
+    // Runs are counted inside one route (framingPerRoute): a run never continues across a route boundary.
+    const stats = framingPerRoute(list.map((x) => ({ label: x.where, trace: x.trace })), duoContract)
     const outsideByCamera = {}
     const framesByCamera = {}
     for (const x of list) {
@@ -307,12 +308,14 @@ function analyzeFraming(group, out) {
         if (!insideFrame(s.a.rect, s.view) || !insideFrame(s.b.rect, s.view)) outsideByCamera[category] = (outsideByCamera[category] ?? 0) + 1
       }
     }
-    const stats = framingStats(frames, { fps, contract: duoContract })
-    out.measure('R6-CAM-08', viewport, { frames: stats.frames, framesByCamera, outsideByCamera, longestOverlapFrames: stats.longestOverlapFrames, longestHiddenFrames: stats.longestHiddenFrames })
+    out.measure('R6-CAM-08', viewport, {
+      frames: stats.frames, framesByCamera, outsideByCamera, longestOverlap: stats.longestOverlap, longestHidden: stats.longestHidden, routes: stats.routes,
+    })
     if (stats.outsideFrames) out.problem('R6-CAM-08', viewport, `${stats.outsideFrames} frames with a character outside the frame (${JSON.stringify(outsideByCamera)}; first ${JSON.stringify(stats.firstOutside[0])})`)
-    if (stats.longestOverlapFrames > stretch) out.problem('R6-CAM-08', viewport, `follower overlapped the leader by > 50 % for ${stats.longestOverlapFrames} frames`)
+    if (stats.longestOverlap.frames > stretch) out.problem('R6-CAM-08', viewport, `follower overlapped the leader by > 50 % for ${stats.longestOverlap.frames} frames (${runText(stats.longestOverlap)})`)
     for (const label of ['a', 'b']) {
-      if (stats.longestHiddenFrames[label] > stretch) out.problem('R6-CAM-08', viewport, `troll ${label} hidden behind tiles for ${stats.longestHiddenFrames[label]} frames`)
+      const hidden = stats.longestHidden[label]
+      if (hidden.frames > stretch) out.problem('R6-CAM-08', viewport, `troll ${label} hidden behind tiles for ${hidden.frames} frames (${runText(hidden)})`)
     }
     for (const [camera, least] of [['walk', 300], ['dance', 60], ['hero', 30]]) {
       if ((framesByCamera[camera] ?? 0) < least) out.problem('R6-CAM-08', viewport, `only ${framesByCamera[camera] ?? 0} frames under the ${camera} camera (need ${least}): the routes did not show it`)

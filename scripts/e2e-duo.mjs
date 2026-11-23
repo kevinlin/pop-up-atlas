@@ -8,8 +8,8 @@ import { launchChromium } from './capture.mjs'
 import {
   checkTrollB, leaderBank, readCueBanks, summarizeTroll, trollA, trollB, voiceBPitch,
 } from './e2e-duo-assets.mjs'
-import { createTrail, duoContract as C, keyVectors, layoutFor, pathClear, yieldLookaheadSeconds } from './e2e-duo-plan.mjs'
-import { framingStats } from './e2e-duo-probe.mjs'
+import { createTrail, duoContract as C, followerStart, keyVectors, layoutFor, pathClear, yieldLookaheadSeconds } from './e2e-duo-plan.mjs'
+import { framingPerRoute, runText } from './e2e-duo-round6-common.mjs'
 import {
   bridgeSession, cornerSession, droppedCues, duoViewports, fps, laneSession, missingSampleSession, sessionScenarios,
 } from './e2e-duo-sessions.mjs'
@@ -231,16 +231,21 @@ function analyzeStart(x, out) {
   const id = 'DUO-03'
   const heading = s.a.ry
   const ahead = forward(heading)
-  const behind = { x: s.L.x - ahead.x * C.startGap, z: s.L.z - ahead.z * C.startGap }
+  const expected = followerStart(layout, { leader: s.L, heading, right: s.right })
   const gap = gapOf(s)
   const along = (s.F.x - s.L.x) * ahead.x + (s.F.z - s.L.z) * ahead.z
   if (s.leader !== 'a') out.problem(id, where, `troll ${s.leader} leads at start`)
-  if (Math.abs(gap - C.startGap) > 0.03) out.problem(id, where, `start gap ${r3(gap)}, expected ${C.startGap}`)
-  if (!layout.isBlocked(behind.x, behind.z)) {
-    if (dist(s.F, behind) > 0.05) out.problem(id, where, `follower ${JSON.stringify(s.F)} is not 1.1 behind the leader's heading`)
-  } else if (Math.abs(along) > 0.05) out.problem(id, where, 'the point behind is blocked but the follower is not beside the leader')
+  // Round 6: B starts in its idle slot (0.75 to the screen left of A, else right, on a clear path), else 1.1 behind A's
+  // heading on an unblocked point, else beside A. The gap (0.03) and position (0.05) tolerances are the round-5 ones.
+  if (Math.abs(gap - expected.gap) > 0.03) out.problem(id, where, `start gap ${r3(gap)}, expected ${expected.gap} (${expected.rule})`)
+  if (expected.point) {
+    if (dist(s.F, expected.point) > 0.05) out.problem(id, where, `follower ${JSON.stringify(s.F)} is not at the ${expected.rule} ${JSON.stringify(expected.point)}`)
+  } else if (Math.abs(along) > 0.05) out.problem(id, where, 'the slots and the point behind are blocked but the follower is not beside the leader')
+  const faced = s[followerOf(s)].ry
+  const turn = Math.abs(Math.atan2(Math.sin(faced - heading), Math.cos(faced - heading)))
+  if (turn > 0.05) out.problem(id, where, `follower faces ${r3(faced)} rad, not the leader's heading ${r3(heading)} (off by ${r3(turn)})`)
   if (layout.isBlocked(s.F.x, s.F.z)) out.problem(id, where, 'follower starts on a blocked point')
-  out.measure(id, where, { leader: s.L, follower: s.F, heading: r3(heading), gap: r3(gap) })
+  out.measure(id, where, { leader: s.L, follower: s.F, heading: r3(heading), gap: r3(gap), rule: expected.rule, facingOffset: r3(turn) })
 }
 
 function analyzeTrail(x, out) {
@@ -1042,14 +1047,16 @@ function evaluatePools(viewportKey, pool, out) {
   // DUO-27
   if (pool.followerOnly < 30) out.problem('DUO-27', where, 'route never had the follower walking while the leader stood')
   // DUO-34..36
-  const stats = framingStats(pool.framing, { fps, contract: C })
+  // Runs are counted inside one route: a run never continues from the last frame of a route into the first of the next.
+  const stats = framingPerRoute(pool.framing, C)
   out.measure('DUO-34', where, { frames: stats.frames, outsideFrames: stats.outsideFrames, firstOutside: stats.firstOutside })
-  out.measure('DUO-35', where, { longestOverlapFrames: stats.longestOverlapFrames, at: stats.longestOverlapAt })
-  out.measure('DUO-36', where, { longestHiddenFrames: stats.longestHiddenFrames, at: stats.longestHiddenAt })
-  if (stats.outsideFrames) out.problem('DUO-34', where, `${stats.outsideFrames} frames with a character outside the frame`)
-  if (stats.longestOverlapFrames > stretch) out.problem('DUO-35', where, `follower overlapped the leader by > 50 % for ${stats.longestOverlapFrames} frames`)
+  out.measure('DUO-35', where, { longestOverlap: stats.longestOverlap, routes: stats.routes })
+  out.measure('DUO-36', where, { longestHidden: stats.longestHidden })
+  if (stats.outsideFrames) out.problem('DUO-34', where, `${stats.outsideFrames} frames with a character outside the frame (first ${JSON.stringify(stats.firstOutside[0])})`)
+  if (stats.longestOverlap.frames > stretch) out.problem('DUO-35', where, `follower overlapped the leader by > 50 % for ${stats.longestOverlap.frames} frames (${runText(stats.longestOverlap)})`)
   for (const label of ['a', 'b']) {
-    if (stats.longestHiddenFrames[label] > stretch) out.problem('DUO-36', where, `troll ${label} hidden behind tiles for ${stats.longestHiddenFrames[label]} frames`)
+    const hidden = stats.longestHidden[label]
+    if (hidden.frames > stretch) out.problem('DUO-36', where, `troll ${label} hidden behind tiles for ${hidden.frames} frames (${runText(hidden)})`)
   }
 }
 
@@ -1167,7 +1174,7 @@ async function browserChecks(out, { baseURL, traceOut, collect }) {
         reportBlocked(out, x.where, name, result.failures ?? [], blocked)
         errors.push(...result.errors.map((error) => `${x.where}: ${error}`))
         analyze(analyses, x, out, pool)
-        pool.framing.push(...result.trace)
+        pool.framing.push({ label: result.label, trace: result.trace })
         if (traceOut) kept.push(result)
       }
       try {

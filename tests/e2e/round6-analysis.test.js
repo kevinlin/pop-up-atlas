@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { initHinge, startHinge, updateHinge } from '../../src/world/fold.js'
 import { FLAT, STAGE_ONE, UPRIGHT } from '../../src/world/spring.js'
 import { foldNumbers, makeSeries, measureFall, measureRise, riseProblems, simulateCell } from '../../scripts/e2e-duo-folds.mjs'
-import { analyzeCamera, newCameraPool } from '../../scripts/e2e-duo-round6-camera.mjs'
+import { analyzeCamera, finishCamera, newCameraPool } from '../../scripts/e2e-duo-round6-camera.mjs'
+import { followerStart } from '../../scripts/e2e-duo-plan.mjs'
 import { createResults, prepare } from '../../scripts/e2e-duo-round6-common.mjs'
 
 // The round-6 gate's analysers (scripts/e2e-duo-folds.mjs and friends) judged on the game's own hinge physics, on analytic
@@ -206,5 +207,67 @@ describe('the camera analyses', () => {
   it('reports a missing camera in the probe sample against every camera scenario', () => {
     const out = analyse({ trace: frames(20, null), ...witnesses })
     for (const id of ['R6-CAM-01', 'R6-CAM-06', 'R6-CAM-08']) expect(out.results.get(id).problems.join('\n')).toMatch(/camera is missing/)
+  })
+})
+
+describe('framing is judged inside one route', () => {
+  const view = [1280, 720]
+  const walk = { distance: 7.5, pitch: 35, beat: null, target: { x: 0, y: 0, z: 0 } }
+  const rect = (x0) => [x0, 100, x0 + 100, 300]
+  const apart = { a: { rect: rect(100), hidden: false }, b: { rect: rect(400), hidden: false } }
+  const stacked = { a: { rect: rect(100), hidden: false }, b: { rect: rect(100), hidden: false } }
+  const hiddenB = { a: apart.a, b: { rect: rect(400), hidden: true } }
+  const route = (label, shapes) => ({
+    label, rec: { events: [], frames: {} }, marks: [], foldLog: [],
+    trace: shapes.map((shape, k) => ({ f: 1 + k, camera: walk, view, right: { x: 1, z: 0 }, L: { x: 0, z: 0 }, F: { x: 0, z: 1 }, leader: 'a', held: [], ...shape })),
+  })
+  const framing = (results) => {
+    const out = createResults()
+    const pool = newCameraPool()
+    for (const result of results) analyzeCamera(prepare(result), out, pool)
+    finishCamera(pool, out, { fixedSeen: true })
+    // The witness minimums (frames under each camera) are not under test here.
+    return out.results.get('R6-CAM-08').problems.filter((text) => !/frames under the/.test(text))
+  }
+
+  it('does not join an overlap run that ends one route to one that starts the next (20 + 20 frames, limit 30)', () => {
+    // 100 frames apart then 20 stacked, then 20 stacked then 100 apart.
+    const shapes1 = [...Array(100).fill(apart), ...Array(20).fill(stacked)]
+    const shapes2 = [...Array(20).fill(stacked), ...Array(100).fill(apart)]
+    expect(framing([route('lane 1280x720', shapes1), route('bridge 1280x720', shapes2)])).toEqual([])
+  })
+
+  it('does not join a hidden run across routes either', () => {
+    const shapes1 = [...Array(100).fill(apart), ...Array(20).fill(hiddenB)]
+    const shapes2 = [...Array(20).fill(hiddenB), ...Array(100).fill(apart)]
+    expect(framing([route('lane 1280x720', shapes1), route('bridge 1280x720', shapes2)])).toEqual([])
+  })
+
+  it('still fails a run longer than 0.5 s inside one route and names the route, the frames and the camera', () => {
+    const problems = framing([route('lane 1280x720', [...Array(50).fill(apart), ...Array(31).fill(stacked), ...Array(50).fill(apart)])])
+    expect(problems.join('\n')).toMatch(/overlapped the leader by > 50 % for 31 frames \(lane 1280x720, frames 51-81, leader \(0, 0\) follower \(0, 1\), .*camera beat null\)/)
+    const hidden = framing([route('bridge 1280x720', [...Array(50).fill(apart), ...Array(31).fill(hiddenB), ...Array(50).fill(apart)])])
+    expect(hidden.join('\n')).toMatch(/troll b hidden behind tiles for 31 frames \(bridge 1280x720, frames 51-81/)
+  })
+})
+
+describe('the start rule for troll B', () => {
+  const right = { x: 1, z: 0 }
+  const layoutOf = (blocked) => ({ isBlocked: (x, z) => blocked.some((box) => x >= box[0] && x <= box[1] && z >= box[2] && z <= box[3]) })
+  const start = (blocked, heading = 0) => followerStart(layoutOf(blocked), { leader: { x: 0, z: 0 }, heading, right })
+
+  it('takes the left slot, 0.75 to the screen left, when the path is clear', () => {
+    expect(start([])).toMatchObject({ rule: 'left slot', point: { x: -0.75, z: 0 }, gap: 0.75 })
+  })
+
+  it('takes the right slot when the left path is blocked', () => {
+    expect(start([[-0.5, -0.4, -1, 1]])).toMatchObject({ rule: 'right slot', point: { x: 0.75, z: 0 } })
+  })
+
+  it('stands 1.1 behind the heading when both slots are blocked and that point is free, else beside', () => {
+    const slots = [[-0.8, -0.3, -1, 1], [0.3, 0.8, -1, 1]]
+    expect(start(slots, 0)).toMatchObject({ rule: 'behind', gap: 1.1 })
+    expect(start(slots, 0).point.z).toBeCloseTo(-1.1)
+    expect(start([...slots, [-1, 1, -1.3, -0.9]], 0)).toMatchObject({ rule: 'beside', point: null })
   })
 })
