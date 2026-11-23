@@ -5,7 +5,7 @@ import { glitterGLSL, glitterLights, riverGlintBoost } from './glitter.js'
 import { stitchGLSL } from './stitch.js'
 import { look, stage } from './stage-look.js'
 import { applyBend } from './bend.js'
-import { familySlot } from './zone-family.js'
+import { familySlot, takesFamily } from './zone-family.js'
 
 const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
 const plain = query.has('plain')
@@ -251,8 +251,9 @@ export function applyCraftMaterial(source, { moving, page = false, tile, charact
   if (!['felt', 'card', 'glitter', 'yarn'].includes(kind)) return source
 
   const {
-    fibre, prop, glitter, river, largeFlakes, mint, goldenRim, contact, stitch, rim, family, bend,
+    fibre, prop, glitter, river, largeFlakes, mint, goldenRim, contact, stitch, rim, family: zoned, bend,
   } = craftTreatment(source.name, { moving, tile, character, hasMap: Boolean(source.map) })
+  const family = zoned && takesFamily(source.color)
   const slot = family ? familySlot(source.color) : 0
   // Moving (hinge) materials are their own objects so the world can define USE_INSTANCE_BEND on them alone.
   const materials = moving ? hingeMaterials : flatMaterials

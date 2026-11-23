@@ -35,3 +35,7 @@ export const FAMILY_COLORS = ZONE_KEYS.flatMap((key) => FAMILY_PIGMENTS[zoneFami
 // Felts lighter than this (linear luminance of their source colour) take the secondary colour.
 export const LIGHT_FELT = 0.62
 export const familySlot = ({ r, g, b }) => (0.2126 * r + 0.7152 * g + 0.0722 * b > LIGHT_FELT ? 1 : 0)
+// Near-white felt (cream, white dots and highlights) keeps its own colour in every zone, so props keep their contrast
+// accents instead of turning one flat family colour (driver, round 6 integration: a green-on-green mushroom house).
+export const WHITE_FELT = 0.78
+export const takesFamily = ({ r, g, b }) => 0.2126 * r + 0.7152 * g + 0.0722 * b <= WHITE_FELT

@@ -1,7 +1,8 @@
+import { Color } from 'three'
 import { expect, test } from 'vitest'
 import { ZONE_KEYS, zoneKeyAt } from '../src/world/layout.js'
 import { cellZoneGLSL } from '../src/materials/cell-jitter.js'
-import { FAMILY_COLORS, ZONE_FAMILIES, familySlot, zoneFamilyAt, zoneFamilyForKey } from '../src/materials/zone-family.js'
+import { FAMILY_COLORS, ZONE_FAMILIES, familySlot, takesFamily, zoneFamilyAt, zoneFamilyForKey } from '../src/materials/zone-family.js'
 
 test('the four families are the contract names, one per zone key, all different', () => {
   expect([...ZONE_FAMILIES].sort()).toEqual(['lime-mint', 'orange-butter', 'pink-violet', 'sky-mint'])
@@ -45,6 +46,14 @@ test('family colours are two per zone key in ZONE_KEYS order, primary then secon
 test('light felts take the secondary colour, deeper ones the primary', () => {
   expect(familySlot({ r: 0.9, g: 0.9, b: 0.7 })).toBe(1)
   expect(familySlot({ r: 0.2, g: 0.1, b: 0.4 })).toBe(0)
+})
+
+test('near-white felt keeps its own colour; butter and pink felt take the zone family', () => {
+  const linear = (hex) => new Color(hex)
+  expect(takesFamily(linear(0xfff8ec))).toBe(false)
+  expect(takesFamily(linear(0xf6ead2))).toBe(false)
+  expect(takesFamily(linear(0xf7dc6f))).toBe(true)
+  expect(takesFamily(linear(0xf4a6c8))).toBe(true)
 })
 
 test('the shader mirrors the key roll of the CPU zone function', () => {

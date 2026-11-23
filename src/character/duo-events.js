@@ -26,3 +26,11 @@ export function createDuoDanceEvents(bus = events) {
     },
   }
 }
+
+// Dance staging (contract "Round 6" → Characters): the duo turns to face the camera, which never yaws, so heading 0
+// (toward +Z) faces it; each one turns 15° toward its partner so they read as dancing together.
+export const DANCE_TURN = 15 * Math.PI / 180
+export function danceHeadings(leaderX, followerX) {
+  const side = Math.sign(followerX - leaderX) || 1
+  return { leader: side * DANCE_TURN, follower: -side * DANCE_TURN }
+}

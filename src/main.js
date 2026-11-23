@@ -2,7 +2,7 @@ import { Color, Raycaster, Vector3 } from 'three'
 import { flushAudioFolds, initAudio, playFold, setLeader } from './audio/live.js'
 import { createDuoDance, createFollower, startFollower } from './character/follow.js'
 import { createCharacter } from './character/index.js'
-import { createDuoDanceEvents } from './character/duo-events.js'
+import { createDuoDanceEvents, danceHeadings } from './character/duo-events.js'
 import { bindControls } from './controls/index.js'
 import { createBumpEvents } from './controls/bump.js'
 import { createGuide } from './controls/guide.js'
@@ -15,7 +15,7 @@ import { createCameraRig } from './scene/camera-rig.js'
 import { createLights } from './scene/lights.js'
 import { addPlaceholders } from './scene/placeholders.js'
 import { createRenderer } from './scene/renderer.js'
-import { blockedBy, camera, follower, isBlocked, player, registerUpdate, scene, updates } from './scene/runtime.js'
+import { blockedBy, camera, events, follower, isBlocked, player, registerUpdate, scene, updates } from './scene/runtime.js'
 import { initWorld, onFold } from './world/index.js'
 
 export { camera, isBlocked, player, registerUpdate, scene, setIsBlocked } from './scene/runtime.js'
@@ -59,6 +59,11 @@ let followerCharacter = characters.b
 const debug = window.__atlas
 setupCharacterDebug(characters)
 const bump = createBumpEvents()
+events.addEventListener('duo-dance-start', () => {
+  const headings = danceHeadings(player.position.x, follower.position.x)
+  player.heading = headings.leader
+  follower.heading = headings.follower
+})
 
 function showLeaderHair() {
   debug.hairBones.splice(0, debug.hairBones.length, ...leaderCharacter.hairBones)

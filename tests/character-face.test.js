@@ -185,6 +185,22 @@ describe('blinks', () => {
     expect(root.getObjectByName('lid_l').scale.y).toBeCloseTo(LID_OPEN)
   })
 
+  test('a lid at closure 0 is hidden; B keeps its half-lowered lids visible at rest', () => {
+    const a = setup('a')
+    a.face.update(dt, 0, true)
+    expect(a.root.getObjectByName('lid_l').visible).toBe(false)
+    expect(a.root.getObjectByName('lid_r').visible).toBe(false)
+    let shown = false
+    for (let t = 0; t < 8 && !shown; t += 1 / 60) {
+      a.face.update(1 / 60, t, true)
+      shown = a.root.getObjectByName('lid_l').visible
+    }
+    expect(shown).toBe(true)
+    const b = setup('b')
+    b.face.update(dt, 0, true)
+    expect(b.root.getObjectByName('lid_l').visible).toBe(true)
+  })
+
   test('the follower shows the rest shape and blinks', () => {
     const { face, cue } = setup('b')
     cue({ who: 'b', cue: 'b_voice_ooh', t: 0, end: 100 })

@@ -19,11 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from craft import Craft, Materials, image_from_pixels, level, linear_rgb, rect
 from tile_coverage import CAMERA_DISTANCE, CAMERA_FOV, GRID_RESOLUTION, GRID_TARGET, counts_as_cover, coverage
 from tile_glb import package
-from tiles import TILES
+from tiles import TILES, build
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FLAT_VIEWS = {"flower", "mushroom_house", "cupcake_tree", "path_corner"}
+# Round 6: the contact sheet shows the upright and the flat pose of every tile that folds.
+FLAT_VIEWS = {name for name in TILES if not name.startswith("page_") and name != "gutter"}
 GRID = (
     (("mushroom_house", 0), ("meadow_c", 0), ("river_straight", 0), ("flower", 0)),
     (("path_corner", 2), ("cupcake_tree", 0), ("river_straight", 0), ("meadow_a", 0)),
@@ -42,10 +43,7 @@ def clear_objects():
 
 
 def model(name, materials):
-    craft = Craft(name, materials)
-    TILES[name](craft)
-    craft.finish()
-    return craft
+    return build(name, materials)
 
 
 def export(craft, scratch, destination, textures):
@@ -57,7 +55,7 @@ def export(craft, scratch, destination, textures):
     gltf = work / (destination.stem + ".gltf")
     bpy.ops.export_scene.gltf(
         filepath=str(gltf), export_format='GLTF_SEPARATE', use_selection=True,
-        export_animations=False, export_cameras=False, export_lights=False,
+        export_animations=False, export_cameras=False, export_lights=False, export_extras=True,
         export_image_format='AUTO', export_yup=True,
     )
     package(gltf, destination, textures)
@@ -243,14 +241,17 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "public/models/tiles")
     parser.add_argument("--evidence", type=Path, default=ROOT / ".handoff/evidence/T4/fix2")
     parser.add_argument("--only", nargs="+", choices=TILES, default=list(TILES))
+    parser.add_argument("--skip-render", action="store_true",
+                        help="export and inspect only (fast loop while editing geometry)")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
     names = list(dict.fromkeys(args.only))
     full = set(names) == set(TILES)
-    expected = [f"{name}-upright.png" for name in names]
-    expected.extend(f"{name}-flat.png" for name in names if name in FLAT_VIEWS)
-    expected.append("contact-sheet.png")
+    expected = [] if args.skip_render else [f"{name}-upright.png" for name in names]
+    if not args.skip_render:
+        expected.extend(f"{name}-flat.png" for name in names if name in FLAT_VIEWS)
+        expected.append("contact-sheet.png")
     if full:
-        expected.extend(("mixed-grid.png", "coverage.txt", "inspect.txt"))
+        expected.extend(("inspect.txt",) if args.skip_render else ("mixed-grid.png", "coverage.txt", "inspect.txt"))
     for path in (args.evidence / name for name in expected):
         if path.exists():
             raise FileExistsError(path)
@@ -270,12 +271,14 @@ def main():
             clear_objects()
             craft = model(name, materials)
             export(craft, scratch, stage / f"{name}.glb", textures)
-            render_tile(craft, materials, name, evidence)
+            if not args.skip_render:
+                render_tile(craft, materials, name, evidence)
             print(f"Finished {name} at {monotonic() - start:.1f}s", flush=True)
-        if full:
+        if full and not args.skip_render:
             render_grid(materials, evidence)
             print(f"Finished 4x4 spread at {monotonic() - start:.1f}s", flush=True)
-        contact_sheet(evidence, names, full)
+        if not args.skip_render:
+            contact_sheet(evidence, names, full)
         if full:
             inspection = subprocess.run(
                 ["node", str(ROOT / "scripts/inspect-glb.mjs"), str(stage)],
