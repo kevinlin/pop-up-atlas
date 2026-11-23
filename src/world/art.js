@@ -1,5 +1,5 @@
 import {
-  Box3, BoxGeometry, Color, CylinderGeometry, Float32BufferAttribute, InstancedMesh,
+  Box3, BoxGeometry, Color, CylinderGeometry, Float32BufferAttribute, InstancedBufferAttribute, InstancedMesh,
   Matrix4, MeshLambertMaterial, StaticDrawUsage, DynamicDrawUsage, Vector3,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
@@ -9,6 +9,7 @@ import {
   BRIDGE_HALF_WIDTH, cellAt, GUTTER_INTERVAL, PAGE_MAX_Z, PAGE_MIN_Z,
   RIVER_HALF_WIDTH, riverHalfWidth, TILES, TILE_SIZE,
 } from './tiles.js'
+import { initHinge } from './fold.js'
 import { FLAT } from './spring.js'
 
 const mat = new MeshLambertMaterial({ vertexColors: true })
@@ -138,6 +139,25 @@ const CARD_YAW_LIMIT = Math.PI / 15
 const MEADOW_MODELS = ['meadow_a', 'meadow_b', 'meadow_c']
 const PAGE_DECORATIONS = ['page_deco_a', 'page_deco_b', 'page_deco_c']
 const hingeIndex = (name) => /^hinge_(\d+)$/.exec(name)
+const secondaryIndex = (name) => /^sec_(\d+)$/.exec(name)
+// The bend shader (src/materials, another row) switches on this define and reads `instanceBend`.
+const BEND_DEFINE = 'USE_INSTANCE_BEND'
+const bendMaterials = new WeakMap()
+
+// A hinge batch gets its own clone of the material so the define never reaches a static batch that
+// shares the source. The clone keeps the craft shader patches (`Material.copy` leaves them out).
+function bendMaterial(source) {
+  if (source.defines?.[BEND_DEFINE] !== undefined) return source
+  let material = bendMaterials.get(source)
+  if (!material) {
+    material = source.clone()
+    material.onBeforeCompile = source.onBeforeCompile
+    material.customProgramCacheKey = source.customProgramCacheKey
+    material.defines = { ...source.defines, [BEND_DEFINE]: '' }
+    bendMaterials.set(source, material)
+  }
+  return material
+}
 const hingeOrder = (a, b) => b.height - a.height || a.index - b.index
 
 export function createArt(scene, camera, layout) {
@@ -147,6 +167,8 @@ export function createArt(scene, camera, layout) {
   const showGutter = { value: 0 }
   const hingeMatrix = new Matrix4()
   const angleMatrix = new Matrix4()
+  const secMatrix = new Matrix4()
+  const movingMaterial = bendMaterial(mat)
   const pageMatrix = new Matrix4()
   let loader
   let capacity = 0
@@ -183,6 +205,7 @@ ${shader.fragmentShader}`.replace(
 
   function primitiveBatch(parts, moving = false, material = mat) {
     if (!parts?.length) return []
+    if (moving && material === mat) material = movingMaterial
     const geometry = mergeGeometries(parts)
     for (const part of parts) part.dispose()
     return [addBatch(geometry, material, moving)]
@@ -212,7 +235,15 @@ ${shader.fragmentShader}`.replace(
     }]
   }))
 
-  function modelBatches(root, id, moving = false, isPage = false, wide = false) {
+  // Meshes under a `sec_<k>` pivot belong to that pivot's own batches, not to the hinge's.
+  function insideAny(node, root, pivots) {
+    for (let parent = node.parent; parent && parent !== root.parent; parent = parent.parent) {
+      if (pivots.has(parent)) return true
+    }
+    return false
+  }
+
+  function modelBatches(root, id, moving = false, isPage = false, wide = false, skip = null) {
     const parts = []
     const gutter = id === 'gutter'
     const page = isPage || gutter
@@ -220,14 +251,75 @@ ${shader.fragmentShader}`.replace(
     if (moving) inversePivot.copy(root.matrixWorld).invert()
 
     root.traverse((node) => {
-      if (!node.isMesh) return
+      if (!node.isMesh || skip && insideAny(node, root, skip)) return
       const transform = new Matrix4().multiplyMatrices(inversePivot, node.matrixWorld)
       const geometry = node.geometry.clone().applyMatrix4(transform)
       if (wide) widenRiver(geometry)
       if (page) clipPageAtGutter(node.material, gutter)
-      parts.push(addBatch(geometry, applyCraftMaterial(node.material, { moving, page, tile: id }), moving, `atlas/${id}/${node.name}`))
+      const material = applyCraftMaterial(node.material, { moving, page, tile: id })
+      parts.push(addBatch(geometry, moving ? bendMaterial(material) : material, moving, `atlas/${id}/${node.name}`))
     })
     return parts
+  }
+
+  // Turn a tile object (hinge_N empties with sec_K pivots nested in them, an optional `base`) into the
+  // shared batches and plain hinge records. Used by `load` and by tests with fixture objects.
+  function installTile(id, model) {
+    model.updateWorldMatrix(true, true)
+    const base = model.getObjectByName('base')
+    const hinges = []
+    model.traverse((node) => {
+      const match = hingeIndex(node.name)
+      if (!match) return
+      const pivots = []
+      node.traverse((child) => {
+        if (child !== node && secondaryIndex(child.name) && !insideAny(child, node, new Set(pivots))) pivots.push(child)
+      })
+      // Bake each mesh into its authored pivot space so a tile can share draw calls.
+      const batches = modelBatches(node, id, true, false, false, new Set(pivots))
+      const inverse = node.matrixWorld.clone().invert()
+      const secs = pivots.map((pivot) => ({
+        index: Number(secondaryIndex(pivot.name)[1]),
+        pivot: inverse.clone().multiply(pivot.matrixWorld),
+        batches: modelBatches(pivot, id, true),
+      }))
+      const bounds = new Box3()
+      for (const { geometry } of batches) {
+        geometry.computeBoundingBox()
+        bounds.union(geometry.boundingBox)
+      }
+      for (const { pivot, batches: secBatches } of secs) {
+        for (const { geometry } of secBatches) {
+          geometry.computeBoundingBox()
+          bounds.union(geometry.boundingBox.clone().applyMatrix4(pivot))
+        }
+      }
+      hinges.push({
+        index: Number(match[1]),
+        height: new Box3().setFromObject(node, true).max.y,
+        depth: bounds.max.z,
+        bottom: bounds.min.y,
+        pivot: node.matrixWorld.clone(),
+        batches,
+        secs,
+      })
+    })
+    hinges.sort(hingeOrder)
+    const [lead] = hinges
+    // A separate floating crown needs paper between the hinge and the crown cutout.
+    if (TILES.find((tile) => tile.id === id)?.blockedRadius && lead?.bottom > 0.12) {
+      const tieHeight = lead.bottom + 0.16
+      lead.batches.push(...primitiveBatch([
+        paperTie(0xe6cb9c, tieHeight, 0.20, -0.008),
+        paperTie(0xffedd1, tieHeight, 0.155, 0.001),
+      ], true))
+    }
+    models.set(id, {
+      base: base ? modelBatches(base, id) : [],
+      wideBase: base && id === 'river_straight' ? modelBatches(base, id, false, false, true) : null,
+      hinges,
+    })
+    revision += 1
   }
 
   async function load(id, isPage = false) {
@@ -241,49 +333,15 @@ ${shader.fragmentShader}`.replace(
     loader ??= new GLTFLoader()
     const { scene } = await loader.parseAsync(data, new URL('.', url).href)
     const model = scene.getObjectByName(id) ?? scene
-    model.updateWorldMatrix(true, true)
-    const base = model.getObjectByName('base')
     if (isPage) {
+      model.updateWorldMatrix(true, true)
+      const base = model.getObjectByName('base')
       pageModels.set(id, modelBatches(base ?? model, id, false, id !== 'gutter'))
       if (id === 'gutter') showGutter.value = 1
+      revision += 1
     } else {
-      const hinges = []
-      model.traverse((node) => {
-        const match = hingeIndex(node.name)
-        if (!match) return
-        // Bake each mesh into its authored pivot space so a tile can share draw calls.
-        const batches = modelBatches(node, id, true)
-        const bounds = new Box3()
-        for (const { geometry } of batches) {
-          geometry.computeBoundingBox()
-          bounds.union(geometry.boundingBox)
-        }
-        hinges.push({
-          index: Number(match[1]),
-          height: new Box3().setFromObject(node, true).max.y,
-          depth: bounds.max.z,
-          bottom: bounds.min.y,
-          pivot: node.matrixWorld.clone(),
-          batches,
-        })
-      })
-      hinges.sort(hingeOrder)
-      const [lead] = hinges
-      // A separate floating crown needs paper between the hinge and the crown cutout.
-      if (TILES.find((tile) => tile.id === id)?.blockedRadius && lead?.bottom > 0.12) {
-        const tieHeight = lead.bottom + 0.16
-        lead.batches.push(...primitiveBatch([
-          paperTie(0xe6cb9c, tieHeight, 0.20, -0.008),
-          paperTie(0xffedd1, tieHeight, 0.155, 0.001),
-        ], true))
-      }
-      models.set(id, {
-        base: base ? modelBatches(base, id) : [],
-        wideBase: base && id === 'river_straight' ? modelBatches(base, id, false, false, true) : null,
-        hinges,
-      })
+      installTile(id, model)
     }
-    revision += 1
   }
 
   const loads = []
@@ -309,6 +367,11 @@ ${shader.fragmentShader}`.replace(
         batch.mesh.dispose()
       }
       const mesh = new InstancedMesh(batch.geometry, batch.material, capacity)
+      if (batch.moving) {
+        // One bend value per instance, written with that instance's pose (the craft shader reads it).
+        batch.bend = new InstancedBufferAttribute(new Float32Array(capacity), 1).setUsage(DynamicDrawUsage)
+        batch.geometry.setAttribute('instanceBend', batch.bend)
+      }
       mesh.name = batch.name
       mesh.instanceMatrix.setUsage(batch.moving ? DynamicDrawUsage : StaticDrawUsage)
       mesh.receiveShadow = true
@@ -390,7 +453,7 @@ ${shader.fragmentShader}`.replace(
       : tile.rotation * Math.PI / 2
     let tileMatrix = meadow ? meadowMatrix(yaw, i, j, x, z) : new Matrix4().makeRotationY(yaw)
       .scale(new Vector3(scale, scale, scale)).setPosition(x + (tile.offsetX ?? 0), 0, z + (tile.offsetZ ?? 0))
-    const hinges = clearing ? [] : template.hinges.map((hinge) => ({ ...hinge }))
+    const hinges = clearing ? [] : template.hinges.map((hinge) => initHinge({ ...hinge }))
     if (tile.blockedRadius && hinges.length) tileMatrix = aimLead(hinges[0], tile, tileMatrix, i, j)
     return {
       model,
@@ -424,20 +487,49 @@ ${shader.fragmentShader}`.replace(
     const [lead] = art.hinges
     if (lead?.sign) place(crease, hingeMatrix.multiplyMatrices(art.tileMatrix, lead.pivot))
     for (const hinge of art.hinges) {
-      if (!hinge.batches.length) continue
-      hinge.slot = hinge.batches[0].count
+      if (!hinge.batches.length && !hinge.secs.some((sec) => sec.batches.length)) continue
+      hinge.slot = hinge.batches[0]?.count
       for (const batch of hinge.batches) batch.count += 1
+      for (const sec of hinge.secs) {
+        sec.slot = sec.batches[0]?.count
+        for (const batch of sec.batches) batch.count += 1
+      }
       poseHinge(art, hinge)
     }
   }
 
+  function writeBend(batches, slot, bend) {
+    for (let b = 0; b < batches.length; b += 1) {
+      const attribute = batches[b].bend
+      attribute.array[slot] = bend
+      attribute.needsUpdate = true
+    }
+  }
+
+  // Writes the hinge's pose, its bend and its sec_<k> poses (angle φ relative to the parent). No allocation.
   function poseHinge(art, hinge) {
-    const angle = (hinge.angle ?? FLAT) * (hinge.sign ?? 1)
+    const sign = hinge.sign ?? 1
+    const angle = (hinge.angle ?? FLAT) * sign
     hingeMatrix.multiplyMatrices(art.tileMatrix, hinge.pivot).multiply(angleMatrix.makeRotationX(angle))
     if (hinge.lift && angle > 0) hingeMatrix.elements[13] += hinge.lift * Math.sin(angle)
-    for (const batch of hinge.batches) {
-      batch.mesh.setMatrixAt(hinge.slot, hingeMatrix)
-      batch.mesh.instanceMatrix.needsUpdate = true
+    for (let b = 0; b < hinge.batches.length; b += 1) {
+      const { mesh } = hinge.batches[b]
+      mesh.setMatrixAt(hinge.slot, hingeMatrix)
+      mesh.instanceMatrix.needsUpdate = true
+    }
+    writeBend(hinge.batches, hinge.slot, hinge.bend ?? 0)
+    const { secs } = hinge
+    if (!secs) return
+    for (let k = 0; k < secs.length; k += 1) {
+      const sec = secs[k]
+      if (!sec.batches.length) continue
+      secMatrix.multiplyMatrices(hingeMatrix, sec.pivot).multiply(angleMatrix.makeRotationX(sec.phi * sign))
+      for (let b = 0; b < sec.batches.length; b += 1) {
+        const { mesh } = sec.batches[b]
+        mesh.setMatrixAt(sec.slot, secMatrix)
+        mesh.instanceMatrix.needsUpdate = true
+      }
+      writeBend(sec.batches, sec.slot, sec.bend)
     }
   }
 
@@ -451,5 +543,5 @@ ${shader.fragmentShader}`.replace(
     }
   }
 
-  return { begin, create, placeTile, end, poseHinge, modelAt, revision: () => revision, ready }
+  return { begin, create, placeTile, end, poseHinge, modelAt, addTile: installTile, revision: () => revision, ready }
 }
