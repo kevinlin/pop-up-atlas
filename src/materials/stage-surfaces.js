@@ -89,6 +89,33 @@ function addEmission(shader, material, tag, emits) {
   }
 }
 
+// Alpha tags of the surface buffer. Hero and flat props are the only tags the look statistics count as props; the
+// 0.43 and 0.72 values are the look probe's diagnostic alphas, so no surface takes them.
+export const SURFACE_TAGS = Object.freeze({
+  hair: trollSurfaces.hair, page: 0.2, body: trollSurfaces.body, bridgeRail: 0.35, heroProp: 0.4, moss: 0.5, table: 0.6,
+  flatProp: 0.7, frond: 0.8, core: 0.9, other: 1,
+})
+
+const heroPropObject = /^atlas\/(flower|mushroom_house|cupcake_tree)\//
+const flatPropObject = /^atlas\/(meadow(?:_[abc])?|page_deco_[abc])\//
+
+// `character` is the root-object mark (userData.craftCharacter, set by applyCraftMaterials on every mesh of a rig), never a
+// material name: a character is a character whatever its materials are called, and a prop is never one. Inside a
+// character every yarn is hair and everything else is body.
+export function surfaceTag({ objectName = '', parentName = '', materialName = '', character = false }) {
+  if (character) return /^yarn_/.test(materialName) ? SURFACE_TAGS.hair : SURFACE_TAGS.body
+  if (/^card_(page|core|cream)$/.test(materialName) && /^atlas\/(page_[ab]|gutter)\//.test(objectName)) return SURFACE_TAGS.page
+  if (heroPropObject.test(objectName)) return SURFACE_TAGS.heroProp
+  // Bridge rails are yarn on the bridge tile: a prop to the eye, but not a hero prop and not zone coloured.
+  if (objectName.startsWith('atlas/yarn_bridge/') && materialName.startsWith('yarn_')) return SURFACE_TAGS.bridgeRail
+  if (objectName.startsWith('atlas/moss/')) return SURFACE_TAGS.moss
+  if (objectName === 'atlas/table') return SURFACE_TAGS.table
+  if (flatPropObject.test(objectName)) return SURFACE_TAGS.flatProp
+  if (parentName === 'atlas/foreground-fronds') return SURFACE_TAGS.frond
+  if (objectName === 'atlas/fold-core') return SURFACE_TAGS.core
+  return SURFACE_TAGS.other
+}
+
 export function trackStageMaterials(scene) {
   if (!surfaceBuffer && !look.dapple && !look.backlight) return
   const patched = new WeakSet()
@@ -101,20 +128,16 @@ export function trackStageMaterials(scene) {
       if (patched.has(material)) continue
       patched.add(material)
       const prop = /^atlas\/(flower|mushroom_house|cupcake_tree)\//.test(object.name)
-      const applique = /^atlas\/meadow(?:_[abc])?\//.test(object.name)
       const page = /^card_(page|core|cream)$/.test(material.name) && /^atlas\/(page_[ab]|gutter)\//.test(object.name)
       const moss = object.name.startsWith('atlas/moss/')
       const table = object.name === 'atlas/table'
       const dapple = look.dapple && (prop || page || moss)
       const mossLighting = moss && look.backlight
       if (!surfaceBuffer && !dapple && !mossLighting) continue
-      const frond = object.parent?.name === 'atlas/foreground-fronds'
-      const yarnRail = object.name.startsWith('atlas/yarn_bridge/') && material.name.startsWith('yarn_')
-      const core = object.name === 'atlas/fold-core'
-      const character = object.userData.craftCharacter
-      const hair = /^yarn_sunset(_fibres)?$/.test(material.name)
-      const tag = character ? trollSurfaces[hair ? 'hair' : 'body']
-        : page ? 0.2 : prop || yarnRail ? 0.4 : moss ? 0.5 : table ? 0.6 : applique ? 0.7 : frond ? 0.8 : core ? 0.9 : 1
+      const tag = surfaceTag({
+        objectName: object.name, parentName: object.parent?.name, materialName: material.name,
+        character: Boolean(object.userData.craftCharacter),
+      })
       const pigment = material.emissive
       const emits = look.bloom && Boolean(pigment && (pigment.r || pigment.g || pigment.b))
       const beforeCompile = material.onBeforeCompile

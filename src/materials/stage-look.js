@@ -4,16 +4,19 @@ import { zoneBlendAt, zoneSeedFor } from '../world/layout.js'
 import { hash } from '../world/hash.js'
 import { TILE_SIZE } from '../world/tiles.js'
 import { isBlocked } from '../scene/runtime.js'
+import { FAMILY_COLORS } from './zone-family.js'
 
 const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
 // Shipped look (owner decision 2026-11-22): round-3 light and grade plus emissive-only bloom for the accents. The
-// other layers made the book mushy; ?lookOff= (empty) turns the full round-4 stage back on.
+// other layers made the book mushy; ?lookOff= (empty) turns the full round-4 stage back on. Round 6 adds `rim` (warm fuzz
+// rim on characters and hero props), which ships on: it is not in this list, and the rim-off comparison URL is
+// `?lookOff=${DEFAULT_LOOK_OFF},rim`. ?lookOff= replaces the list, so that URL must repeat the default entries.
 export const DEFAULT_LOOK_OFF = 'grade,backlight,bounce,zones,haze,backdrop,dapple'
 
 export function lookFlags(search = '') {
   const disabled = new Set((new URLSearchParams(search).get('lookOff') ?? DEFAULT_LOOK_OFF).split(','))
   return Object.freeze(Object.fromEntries(
-    ['grade', 'backlight', 'bounce', 'zones', 'haze', 'backdrop', 'dapple', 'bloom'].map((name) => [name, !disabled.has(name)]),
+    ['grade', 'backlight', 'bounce', 'zones', 'haze', 'backdrop', 'dapple', 'bloom', 'rim'].map((name) => [name, !disabled.has(name)]),
   ))
 }
 export const look = lookFlags(query.toString())
@@ -38,6 +41,7 @@ export const stage = {
   seed: { value: 0 },
   warp: { value: new Vector3() },
   propPigments: { value: propPigments },
+  familyColors: { value: FAMILY_COLORS },
   gain: { value: new Vector3(1, 1, 1) },
   haze: { value: new Color() },
   mossFill: { value: 0.20 },
