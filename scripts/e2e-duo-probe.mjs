@@ -1,5 +1,9 @@
 // In-page, per-frame duo probe. Installed after `__atlas.ready`; every stepped frame records both
-// controllers, both rigs, their projected screen bounds, tile occlusion and the camera target.
+// controllers, both rigs, their projected screen bounds, tile occlusion and the camera rig's state.
+// Round 6 (docs/contracts.md "Round 6" → Camera): the camera target is read from `__atlas.camera.target` (the rig's
+// own point, not a ray-ground intersection, which a beat camera's aim height would skew); `camera`, `umbrella` and
+// `face` carry what the round-6 capture and its witnesses need. Builds without them (the round-5 build behind the
+// old-vs-new comparison) fall back to the ray intersection and report null for the new fields.
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -152,6 +156,8 @@ async function probe({ threeURL, stride }) {
     // The camera's right vector on the page (XZ): the axis the idle side slots sit on.
     right.set(1, 0, 0).applyQuaternion(camera.quaternion).setY(0).normalize()
     const follower = duo?.follower ?? {}
+    const rigCamera = atlas.camera
+    const rigTarget = rigCamera?.target
     const s = {
       f: frame,
       leader: duo?.leader,
@@ -161,7 +167,17 @@ async function probe({ threeURL, stride }) {
       F: { x: follower.x, z: follower.z, state: follower.state },
       a: rig('a'),
       b: rig('b'),
-      cam: { x: camera.position.x + direction.x * reach, z: camera.position.z + direction.z * reach },
+      cam: rigTarget
+        ? { x: rigTarget.x, z: rigTarget.z }
+        : { x: camera.position.x + direction.x * reach, z: camera.position.z + direction.z * reach },
+      camera: rigCamera
+        ? { distance: rigCamera.distance, pitch: rigCamera.pitch, beat: rigCamera.beat ?? null,
+          target: { x: rigTarget.x, y: rigTarget.y, z: rigTarget.z } }
+        : null,
+      umbrella: atlas.umbrella ? { open: Boolean(atlas.umbrella.open), t: atlas.umbrella.t } : null,
+      face: atlas.face
+        ? { a: { cell: atlas.face.a.cell, lid: atlas.face.a.lid }, b: { cell: atlas.face.b.cell, lid: atlas.face.b.lid } }
+        : null,
       right: { x: right.x, z: right.z },
       cues: atlas.cueLog.length,
       voice: lastVoice < 0 ? null : (({ t, end, cue, who }) => ({ i: lastVoice, t, end, cue, who }))(atlas.cueLog[lastVoice]),

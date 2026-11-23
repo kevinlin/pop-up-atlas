@@ -1,17 +1,39 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { parseArgs } from 'node:util'
 import { chromium } from 'playwright'
 import { CHUNK_SIZE } from '../src/world/layout.js'
 import { PAGE_MAX_Z, TILE_SIZE } from '../src/world/tiles.js'
-import { perfMisses } from './perf-contract.mjs'
+import { DEFAULT_EFFECTS } from '../src/effects/flags.js'
+import { DEFAULT_LOOK_OFF, look } from '../src/materials/stage-look.js'
+import { effectiveFlags, perfMisses, pb6Comparison, pb6Misses } from './perf-contract.mjs'
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
-  options: { out: { type: 'string' } },
+  options: {
+    out: { type: 'string' },
+    // The PB6 baseline run (fa6d96b, same host, route and DPR) as a perf JSON; round 6 compares p95 against it.
+    baseline: { type: 'string', default: 'deliverables/round-6/perf-baseline.json' },
+    // The commit the served build was made from, when it is not this checkout's HEAD.
+    commit: { type: 'string' },
+  },
 })
-if (positionals.length > 1) throw new Error('Usage: node scripts/perf.mjs [URL] [--out PATH]')
+if (positionals.length > 1) throw new Error('Usage: node scripts/perf.mjs [URL] [--out PATH] [--baseline PATH] [--commit REV]')
+
+function git(...args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8' }).trim()
+  } catch {
+    return null
+  }
+}
+let baseline = null
+try {
+  baseline = JSON.parse(await readFile(values.baseline, 'utf8'))
+} catch {
+  // No baseline file: the PB6 comparison is recorded as not judged.
+}
 
 const url = new URL(positionals[0] ?? 'http://localhost:4173')
 url.searchParams.set('look-shots', '')
@@ -66,8 +88,15 @@ function summarize(deltas) {
   }
 }
 
+// The flags the page runs with: perf drops `effects` and `lookOff` from the URL, so these are the shipped defaults.
+const flags = effectiveFlags(url.search, { defaultEffects: DEFAULT_EFFECTS, defaultLookOff: DEFAULT_LOOK_OFF, lookNames: Object.keys(look) })
 const results = {
   url: url.href,
+  commit: values.commit ?? git('rev-parse', 'HEAD'),
+  commit_source: values.commit ? '--commit' : 'checkout HEAD',
+  dirty: Boolean(git('status', '--porcelain', '--untracked-files=no')),
+  flags,
+  pb6_baseline: baseline ? { file: values.baseline, url: baseline.url ?? null, machine_model: baseline.machine_model ?? null } : null,
   viewport,
   warmup_seconds: warmupMs / 1000,
   route_seconds: routeMs / 1000,
@@ -122,7 +151,8 @@ try {
       chunk_itinerary: chunks,
       ...summarize(deltas),
     }
-    run.misses = perfMisses(run)
+    run.pb6 = pb6Comparison(run, baseline)
+    run.misses = [...perfMisses(run), ...pb6Misses(run.pb6)]
     results.runs.push(run)
     await page.close()
   }
