@@ -1,6 +1,6 @@
 {
-  "voice_id": "mUzW9OK0FRFZUwje4caB",
-  "generated_voice_id": "mUzW9OK0FRFZUwje4caB",
-  "brief": "Original voice for a tiny careful craft-felt creature. Gender-neutral, calm and a bit grumpy but kind. Lower than a typical cartoon creature, soft and dry, unhurried, understated reactions. No accent. Close, dry studio recording, no reverb.",
-  "reason": "Auto-picked the highest voiced ratio (22.5%) among candidates in 220–380 Hz (median F0 234.5 Hz)."
+  "voice_id": "2ba9qgPEv7n65G5jDsi0",
+  "generated_voice_id": "2ba9qgPEv7n65G5jDsi0",
+  "brief": "Original voice for a small, round, sleepy-eyed felt creature that carries a tiny umbrella: cute but wary, dry and a little grumpy, warm underneath. Gender-neutral adult performer using a soft, slightly raised cartoon-creature register, like a warm adult voice raised two to four semitones, soft slightly gravelly edges. Short mumbled delivery, small sighs, startled squeaks when surprised, reluctant chuckles. No accent, no resemblance to any actor or existing character. Dry studio recording, no reverb.",
+  "reason": "Auto-picked the highest voiced ratio (47.2%) among candidates in 220–380 Hz (median F0 283.8 Hz)."
 }
