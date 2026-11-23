@@ -15,10 +15,14 @@ const hingeMaterials = new WeakMap()
 
 // Warm fuzz rim (contract "Round 6" -> Light): #FFE9A8 in linear light, a Fresnel term that stays off flat ground
 // (a floor seen at the 35 degree walk pitch has grazing ~0.43, below the 0.50 start) and takes the albedo into account so dark felt does
-// not wash out. The strength is the knob for the look-stats rim ratios (character 1.15x, hero prop 1.10x).
-export const fuzzRimGLSL = /* glsl */ `
+// not wash out. The gain is the knob for the look-stats rim ratios (character 1.15x interior; hero prop 1.10x interior and
+// 1.05x the rim-off render). Round 6 integration: 90 % of the rim takes the albedo, so saturated yarn (B's tomato hair)
+// brightens at the edge instead of paling (was 70 % at gain 0.85, which left a 49 px desaturated region on one shot), and
+// hero props get a stronger gain (at 0.85 their edges were only 1-5 % above the rim-off render).
+export const RIM_GAIN = { character: 1.0, prop: 2.0 }
+export const fuzzRimGLSL = (gain) => /* glsl */ `
   float fuzzRim = smoothstep(0.50, 1.0, grazing);
-  outgoingLight += 0.85 * fuzzRim * vec3(1.0, 0.82, 0.39) * (0.30 + 0.70 * diffuseColor.rgb);
+  outgoingLight += ${gain.toFixed(2)} * fuzzRim * vec3(1.0, 0.82, 0.39) * (0.10 + 0.90 * diffuseColor.rgb);
 `
 
 function extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim, prop, rim, family, slot }) {
@@ -127,7 +131,7 @@ ${varying}
   // Felt scatters bounced light across the face in the pigment's own color.
   outgoingLight += diffuseColor.rgb * mix(0.13, 0.28, saturate(nonPerturbedNormal.z));
 `
-    if (rim) lighting += fuzzRimGLSL
+    if (rim) lighting += fuzzRimGLSL(prop ? RIM_GAIN.prop : RIM_GAIN.character)
     if (prop && look.backlight) lighting += `
 #if NUM_DIR_LIGHTS > 0
   float rim = smoothstep(0.35, 0.95, grazing)

@@ -23,6 +23,10 @@ const GLOCKENSPIEL = [
   { ratio: 5.4, gain: 0.033, attack: 0.002, maxLength: 0.22, treble: true },
   { ratio: 8.9, gain: 0.012, attack: 0.002, maxLength: 0.12, treble: true },
 ]
+// Level trims (dB) that keep each timbre's peak within ±1.5 dB of the bell at the same note (docs/contracts.md, chime
+// timbre by tile): centred on the measured chime-only spread over six melody notes and both note lengths.
+const TIMBRE_TRIM = new Map([[MARIMBA, -2.74], [MUSIC_BOX, -1.71], [GLOCKENSPIEL, -1.04]].map(([partials, db]) => [partials, 10 ** (db / 20)]))
+const YARN_CHIME_TRIM = 10 ** (-1.96 / 20)
 const TILE_PARTIALS = new Map([
   ['mushroom_house', MARIMBA],
   ['cupcake_tree', MUSIC_BOX],
@@ -137,7 +141,8 @@ export function createSoundBank(context) {
       const source = context.createBufferSource()
       source.buffer = yarn.buffer
       source.playbackRate.value = frequencyForMidi(voice.midi) / yarn.frequency
-      const peak = (voice.passing ? 0.267 : 0.31) * voice.gain * (voice.final ? 0.96 : 1)
+      // The bridge footstep pluck keeps its level (contract: -6 dB under step_felt); only the yarn chime is trimmed.
+      const peak = (voice.passing ? 0.267 : 0.31) * voice.gain * (voice.final ? 0.96 : 1) * (voice.kind === 'chime' ? YARN_CHIME_TRIM : 1)
       const shape = envelope(context, chimeBus, start, end, Math.min(0.004, (end - start) / 3), peak, voice.passing)
       if (voice.kind === 'pluck') {
         const panner = context.createStereoPanner()
@@ -156,7 +161,7 @@ export function createSoundBank(context) {
       const highRegister = Math.max(0, Math.min(1, (voice.midi - 81) / (86 - 81))) // A5 to D6
       const trebleGain = 10 ** (-4 * highRegister / 20)
       const partials = TILE_PARTIALS.get(voice.id) ?? BELL
-      const noteGain = voice.gain * (voice.passing && partials === MARIMBA ? 0.81 : 1)
+      const noteGain = voice.gain * (voice.passing && partials === MARIMBA ? 0.81 : 1) * (TIMBRE_TRIM.get(partials) ?? 1)
       for (const { ratio, gain, attack, maxLength = Infinity, lengthRatio = 1, treble, finalGain = 1 } of partials) {
         const frequency = fundamental * ratio
         // Taper upper partials before 8 kHz to leave room for their attack transients.

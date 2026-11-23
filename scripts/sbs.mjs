@@ -211,10 +211,24 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
   }
   await pose(from)
   await step(90)
-  assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Camera did not settle')
+  // Round 6: a pose far from the spawn (shot 03, 38 units) needs longer than 90 frames at τ 0.25; wait up to 2 s more.
+  const settled = () => page.evaluate(() => window.__atlasLookShots.cameraSettled())
+  for (let extra = 0; extra < 120 && !await settled(); extra += 10) await step(10)
+  assert.ok(await settled(), 'Camera did not settle')
   // Rebuild the tile batches after the camera has followed the staged pose.
   await page.evaluate((seed) => window.__atlas.setSeed(seed), shot.seed)
   await step(60)
+  if (shot.duo && shot.followerState === 'walk' && !shot.swap) {
+    // Round 6: B looks around for 0.6 s before it sets off after >= 2 s of standing, and a relocation now places it straight
+    // in its idle slot. Relocate again once the camera and tiles have settled, so the walk starts within 2 s of the
+    // placement and B sets off with the leader in both builds.
+    const away = Math.abs(from.x + 10) > Math.abs(from.x - 10) ? 10 : -10
+    await pose({ x: from.x + away, z: from.z })
+    await step(1)
+    await pose(from)
+    await step(40)
+    assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Camera did not settle after the second relocation')
+  }
   if (moveTo) await pose(moveTo)
   for (const key of shot.keys ?? []) await page.keyboard.down(key)
   if (frames) await step(frames)
@@ -248,9 +262,11 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
     : undefined
   if (umbrella) assert.ok(umbrella.open, 'B\'s umbrella is not open at the capture frame')
   assert.deepEqual(errors, [], 'Browser errors during still capture')
-  await inspect?.()
   const anchor = shot.anchor ?? [0.5, 0.5]
+  // The duo states are read at the capture frame, before `inspect`: its canvas screenshots can run an extra animation frame
+  // at the same stepped time (dt 0), which reports both characters idle without changing the pose (look-stats walk shot).
   const duo = shot.duo && await checkDuo(page, shot, anchor, inPanel)
+  await inspect?.()
   if (path) {
     await page.screenshot({ path, clip: {
       x: Math.round(shotViewport.width / 2 - anchor[0] * panel.width),
@@ -267,7 +283,10 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
 async function checkDuo(page, shot, anchor, checkPanel = true) {
   const s = await page.evaluate(() => window.__duoProbe.sample(0))
   assert.equal(s.leader, shot.swap ? 'b' : 'a', 'Wrong troll leading the shot')
-  if (shot.followerState) assert.equal(s.F.state, shot.followerState, 'Follower is in the wrong animation state')
+  if (shot.followerState && s.F.state !== shot.followerState) {
+    const look = await page.evaluate(() => window.__atlas.duo?.look && { active: window.__atlas.duo.look.active, catchUp: window.__atlas.duo.look.catchUp })
+    assert.fail(`Follower is in the wrong animation state: ${s.F.state}, expected ${shot.followerState} (shot ${shot.name ?? `seed ${shot.seed} at ${shot.x}, ${shot.z}`}, leader ${s.leader} ${s.L.state}, look ${JSON.stringify(look ?? null)}, url ${page.url()})`)
+  }
   const gap = Math.hypot(s.L.x - s.F.x, s.L.z - s.F.z)
   assert.ok(gap <= duoContract.followMax, `Follower is ${gap.toFixed(2)} units from the leader`)
   const crop = [shotViewport.width / 2 - anchor[0] * panel.width, shotViewport.height / 2 - anchor[1] * panel.height]
