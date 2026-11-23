@@ -233,10 +233,11 @@ function searchBridge({ right, from, to, window }) {
   return best
 }
 
-// Session "corner": walk east, then north or south to a corner C, stop and move the leader 4 units
-// along X. The hop line from wherever the follower stands on the vertical leg to the landing cuts a
-// prop, while the trail (vertical leg, then the jump segment) stays clear.
-export function planBlockedHop({ from = 0, to = 6000, jump = 4 } = {}) {
+// Session "corner": walk east, then north or south to a corner C, stop and move the leader 3 units
+// along X (round 6: 4 units left the leader outside the 7.5 / 35° camera's frame for three frames). The hop line
+// from wherever the follower stands on the vertical leg to the landing cuts a prop, while the trail (vertical leg,
+// then the jump segment) stays clear.
+export function planBlockedHop({ from = 0, to = 6000, jump = 3 } = {}) {
   const landingBack = jump - duoContract.followGap
   for (let seed = from; seed <= to; seed++) {
     const layout = createLayout(seed)

@@ -85,6 +85,8 @@ function recorder({ types }) {
   }
 
   window.__r6rec = {
+    // The live event list: route steps wait on events (a river bump) through it.
+    events: rec.events,
     capture,
     dump() {
       readHinges(rec.frame)

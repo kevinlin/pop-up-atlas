@@ -72,8 +72,9 @@ export function makeSeries(samples) {
 
 // Measures one stage-2 fold-up: the dip, the release (the dip's end, event + 80 ms), the upright crossing, the
 // overshoot as a share of the release travel and the settle time, the last three from the release.
-// `series` as from makeSeries (or any object with `at` and `between`), `up` is the fold event ({t}).
-export function measureRise(series, up) {
+// `series` as from makeSeries (or any object with `at` and `between`), `up` is the fold event ({t}). The rise is judged over 3 s
+// from the release, or until `until` (the time of the tile's next fold, which ends it).
+export function measureRise(series, up, { until = Infinity } = {}) {
   const t0 = up.t
   const frame = 1 / N.fps
   const release = t0 + N.dipSeconds
@@ -81,7 +82,7 @@ export function measureRise(series, up) {
   const dipWindow = [{ t: t0, deg: start }, ...series.between(t0, release + 2 * frame)]
   const trough = Math.min(...dipWindow.map(({ deg }) => deg))
   const travel = -trough
-  const after = series.between(release, release + 3)
+  const after = series.between(release, Math.min(release + 3, until))
   let crossing = null
   let previous = { t: release, deg: series.at(release) }
   for (const sample of after) {
@@ -334,7 +335,8 @@ export function analyzeFoldSession(result, sink) {
       const nextTransition = transitions.find((transition) => tStart(transition.k) > up.t + slack)
       const horizon = up.t + N.dipSeconds + 1.6
       if (horizon > series.last + 1e-7 || (next && next.t < horizon) || (nextTransition && tStart(nextTransition.k) < horizon)) continue
-      const rise = measureRise(series, up)
+      // The tile's next fold (event or silent stage-1 move) ends this rise; it is at least 1.6 s away here.
+      const rise = measureRise(series, up, { until: Math.min(next?.t ?? Infinity, nextTransition ? tStart(nextTransition.k) : Infinity) - 1e-6 })
       const kind = kindOfRise(rise.startDeg)
       bump(kind)
       const dipProblems = []

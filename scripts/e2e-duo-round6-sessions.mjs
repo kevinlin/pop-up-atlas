@@ -1,6 +1,7 @@
 // Launch scaffolding for the round-6 gate (R6-*): the four scripted routes. Scenario text in tests/e2e/round6.feature never
 // names seeds, URLs or frame numbers; they live here and in e2e-duo-round6-plan.mjs. Every session returns a result shaped
 // like the duo sessions' (trace, marks, logs, rec) so the analyses in e2e-duo-round6.mjs read all of them the same way.
+import assert from 'node:assert/strict'
 import { frames, headingOf, keyForAxis, openDuo, predicates, walkAxis } from './e2e-duo-sessions.mjs'
 import { planHum, planRiver, planStage } from './e2e-duo-round6-plan.mjs'
 
@@ -10,7 +11,7 @@ export const round6SessionScenarios = {
     'R6-FOLD-03', 'R6-FOLD-04', 'R6-FOLD-05', 'R6-CHR-02', 'R6-CHR-03', 'R6-CHR-04', 'R6-CHR-05', 'R6-CHR-06', 'R6-AUD-01'],
   river: ['R6-CHR-02', 'R6-CHR-05', 'R6-CHR-07', 'R6-AUD-01'],
   hum: ['R6-CHR-01', 'R6-CHR-06', 'R6-AUD-01', 'R6-AUD-02'],
-  'fixed-camera': ['R6-CAM-06'],
+  'fixed-camera': ['R6-CAM-06', 'R6-FOLD-04'],
 }
 
 const heroBeat = (s) => s.camera?.beat === 'hero'
@@ -92,8 +93,9 @@ export async function stageSession(browser, viewport, options) {
     driver.mark('follow-leg')
     await driver.waitFor(14, heroBeat, null, 'the third hero beat')
     await driver.seconds(0.3)
-    // 4.4 units: beyond the 2.6 recovery gap, still inside the frame of the default camera (R6-CAM-08 has no exemption).
-    notes.hopJump = await driver.teleport(s().L.x - 4.4, z0, headingOf(1, 0))
+    // 2.2 units ahead along the corridor: the pair is 3.3 apart (beyond the 2.6 recovery gap) and the leader is still inside the
+    // frame of the default camera, which R6-CAM-08 judges without an exemption for jumps.
+    notes.hopJump = await driver.teleport(s().L.x + 2.2, z0, headingOf(1, 0))
     driver.mark('follow-leg-end')
     await driver.waitFor(3, predicates.hop, null, 'the recovery hop')
     await driver.up('KeyD')
@@ -103,14 +105,16 @@ export async function stageSession(browser, viewport, options) {
   return driver.result({ plan: planNotes(plan), notes })
 }
 
-// Fixed camera: the stage corridor under `?cam=9,40`: a hero fold-up, a swap and the dance, and the camera never moves.
+// Fixed camera: the stage corridor under `?cam=9,40`: a hero fold-up, a pose jump beyond 5.5 units (the prop's fold-down goes
+// straight to -90°; R6-FOLD-04), a swap and the dance, and the camera never moves. The jump is too long to stay in frame
+// under the default camera, so it lives here, where R6-CAM-08 does not look.
 export async function fixedCameraSession(browser, viewport, options) {
   const plan = planStage()
   const { driver } = await openDuo(browser, viewport, { ...options, seed: plan.seed, label: 'fixed-camera', params: { cam: '9,40' } })
   const notes = { seed: plan.seed }
   const ids = round6SessionScenarios['fixed-camera']
   const step = (name, fn) => driver.phase(name, ids, notes, fn)
-  const { xs, z0, stop } = plan
+  const { prop, xs, z0, stop, lateral } = plan
 
   await step('F1 walk past the prop (a hero fold-up) and stop', async () => {
     await driver.seconds(1.2)
@@ -119,6 +123,12 @@ export async function fixedCameraSession(browser, viewport, options) {
     await walkAxis(driver, 'x', stop.x)
     notes.stopped = driver.mark('stop')
     await driver.seconds(0.6)
+  })
+  await step('F1b pose jump beyond 5.5, recovery hop', async () => {
+    notes.jump = await driver.teleport(prop.x - Math.sqrt(5.9 ** 2 - lateral ** 2), z0, headingOf(-1, 0))
+    await driver.waitFor(3, predicates.hop, null, 'the recovery hop')
+    await driver.waitFor(3, predicates.landed, null, 'the hop landing')
+    await driver.seconds(2)
   })
   await step('F2 swap', async () => {
     notes.swap = await driver.tap('Space')
@@ -142,14 +152,24 @@ export async function riverSession(browser, viewport, options) {
   const step = (name, fn) => driver.phase(name, ids, notes, fn)
   const { river } = plan
 
-  await step('V1 stand 2.6 s, walk, B looks, a swap interrupts it', async () => {
-    await driver.seconds(2.6)
-    notes.walk = await driver.down('KeyD')
+  // B walks to its idle side slot within 1.4 s and must stand there for 2 s before a look: 4.2 s leaves it 2.8 s. A walks south
+  // along the clear corridor x = 0 (the plan checks it) away from B, which then looks before it sets off.
+  await step('V1a stand 4.2 s, walk, B looks and sets off', async () => {
+    await driver.seconds(4.2)
+    notes.walk = await driver.down('KeyS')
     await driver.waitFor(4, (_s, _a, atlas) => atlas.duo.look?.active === true, null, 'troll B starting its look')
     notes.lookSeen = { f: s().f }
+    await driver.waitFor(2, (_s, _a, atlas) => atlas.duo.look?.active !== true, null, 'troll B finishing its look')
+    await driver.up('KeyS')
+    await driver.seconds(0.3)
+  })
+  await step('V1b stand again, walk, B looks, a swap interrupts it', async () => {
+    await driver.seconds(4.2)
+    notes.walkAgain = await driver.down('KeyS')
+    await driver.waitFor(4, (_s, _a, atlas) => atlas.duo.look?.active === true, null, 'troll B starting its second look')
     await driver.seconds(0.2)
     notes.swapInLook = await driver.tap('Space')
-    await driver.up('KeyD')
+    await driver.up('KeyS')
     await driver.seconds(1.2)
   })
   // Make sure B leads from here on, wherever the look step ended, and stands on the river's row.
@@ -166,7 +186,10 @@ export async function riverSession(browser, viewport, options) {
   await step('V3 into the river', async () => {
     notes.east = await driver.down('KeyD')
     driver.mark('follow-leg')
-    await driver.waitFor(14, (sample) => sample.blockedBy === 'river', null, 'the river collision')
+    // The leader walks 1.2 units/s; the probe does not carry `blockedBy`, so the collision is the recorder's `bump` event.
+    await driver.waitFor(Math.ceil((river.x - 0.2) / 1.2) + 6,
+      () => window.__r6rec.events.some((event) => event.type === 'bump' && event.detail.who === 'b' && event.detail.reason === 'river'),
+      null, 'the river collision')
     notes.collision = { f: s().f }
     await driver.seconds(6.6)
     await driver.up('KeyD')
@@ -176,36 +199,43 @@ export async function riverSession(browser, viewport, options) {
   return driver.result({ plan: planNotes(plan), notes })
 }
 
-// Hum: troll A stands, walks on a skip and keeps walking until the melody's top note (MIDI 81, which its hum sings an
-// octave down) has been scheduled; then it stands for the hum.
+// Hum: troll A stands, walks on a skip and keeps crossing one prop's fold distances until the melody's top note (MIDI 81, which
+// its hum sings an octave down) has been scheduled; then it stands for the hum. The melody advances only on fold-ups, a gap of
+// 6 s restarts the phrase, and the top note is the fourth note of the second phrase (the first one never carries it), so the
+// route needs twelve chimes in a row. Few lane cells fold, so it steps in and out of one cell's up and down distances.
 export async function humSession(browser, viewport, options) {
   const plan = planHum()
   const { driver } = await openDuo(browser, viewport, { ...options, seed: plan.seed, label: 'hum' })
   const notes = { seed: plan.seed }
   const ids = round6SessionScenarios.hum
   const step = (name, fn) => driver.phase(name, ids, notes, fn)
-  const { lane } = plan
   const high = () => driver.page.evaluate(() => window.__atlas.audioLog.some((note) => note.harmony !== true && note.midi > 78))
+  const foldCount = () => driver.page.evaluate(() => window.__atlas.foldLog.length)
+  // A fold of `dir` (of `cell` once it is known) logged after the first `count` entries.
+  const folded = (_sample, from, atlas) => atlas.foldLog.slice(from.count)
+    .some((fold) => fold.dir === from.dir && (!from.cell || (fold.i === from.cell.i && fold.j === from.cell.j)))
+  const nextFold = (from) => driver.page.evaluate(({ count, dir }) => window.__atlas.foldLog.slice(count).find((fold) => fold.dir === dir), from)
 
   await step('H1 stand 1.2 s', () => driver.seconds(1.2))
-  await step('H2 walk until the top note', async () => {
+  await step('H2 cross a prop\'s fold distances until the top note', async () => {
     notes.start = driver.mark('first-walk')
     await walkAxis(driver, 'z', 0.6)
-    let sign = 1
-    for (let leg = 0; leg < 6; leg++) {
-      const code = keyForAxis.x[sign]
+    let cell
+    for (let leg = 0; leg < 40 && !await high(); leg++) {
+      const east = leg % 2 === 0
+      const from = { count: await foldCount(), dir: east ? 'up' : 'down', cell }
+      const code = keyForAxis.x[east ? 1 : -1]
       await driver.down(code)
-      driver.mark('follow-leg')
-      await driver.run(frames(30), (sample, a, atlas) => (sample.L.x - a.edge) * a.sign >= 0
-        || atlas.audioLog.some((note) => note.harmony !== true && note.midi > 78),
-      { edge: sign > 0 ? lane.maxX - 1.6 : lane.minX + 1.6, sign })
-      driver.mark('follow-leg-end')
+      const { hit } = await driver.run(frames(9), folded, from)
       await driver.up(code)
-      if (await high()) break
-      sign = -sign
+      assert.ok(hit, `${driver.label}: no ${from.dir} fold within 9 s of walking ${east ? 'east' : 'west'} (leg ${leg})`)
+      if (!cell) {
+        const { i, j } = await nextFold(from)
+        cell = { i, j }
+      }
     }
-    if (!await high()) throw new Error(`${driver.label}: no melody note above MIDI 78 was scheduled in six legs`)
-    notes.high = { f: driver.frame }
+    if (!await high()) throw new Error(`${driver.label}: no melody note above MIDI 78 was scheduled in 40 legs`)
+    notes.high = { f: driver.frame, cell }
   })
   // The hum starts after the stand-still delay and sings the last three notes of the phrase.
   await step('H3 stand for the hum', () => driver.seconds(4.5))

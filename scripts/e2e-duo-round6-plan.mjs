@@ -97,6 +97,8 @@ export function planRiver({ from = 1, to = 6000, window = 60 } = {}) {
   for (let seed = from; seed <= to && !(best && seed >= best.seed + window); seed++) {
     const layout = createLayout(seed)
     if (!startClear(layout) || layout.isBlocked(0, startZ)) continue
+    // Troll A walks south along x = 0 while B looks (V1), so that corridor is clear too; B then walks back up it.
+    if (!bandClear(layout, { x: 0, z: 0 }, { x: 0, z: 5.6 }, 0.3)) continue
     for (let z = -9; z <= 7.4; z += 0.2) {
       const walkZ = Math.abs(z - startZ)
       if (z < -9 || (walkZ > 0.05 && !bandClear(layout, { x: 0, z: startZ }, { x: 0, z }, 0.3))) continue

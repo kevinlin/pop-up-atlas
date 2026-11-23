@@ -68,6 +68,16 @@ describe('the rise measured on the game\'s own hinge', () => {
     expect(riseProblems(rise, { anyStart: false })).toEqual([])
   })
 
+  it('judges a rise only up to the tile\'s next fold, so a later fall does not count as a wobble', () => {
+    // The tile rises at t = 0 and folds down again at 2.4 s (the leader walked on).
+    const rise = playHinge({ from: STAGE_ONE, kind: 'up', target: UPRIGHT, seconds: 2.4 })
+    const fall = playHinge({ from: UPRIGHT, kind: 'down', target: STAGE_ONE, seconds: 1 })
+    const joined = makeSeries([...rise.times.map((t, k) => [t, rise.degrees[k] * DEG]),
+      ...fall.times.slice(1).map((t, k) => [2.4 + t, fall.degrees[k + 1] * DEG])])
+    expect(riseProblems(measureRise(joined, { t: 0 }), { anyStart: false }).join('\n')).toMatch(/did not stay within/)
+    expect(riseProblems(measureRise(joined, { t: 0 }, { until: 2.4 - 1e-6 }), { anyStart: false })).toEqual([])
+  })
+
   it('names the dip when a rise from -63° has none, and the start when it is neither -63° nor flat', () => {
     const rise = measureRise(analyticRise({ from: STAGE_ONE, dipDeg: 0 }), { t: 0 })
     expect(riseProblems(rise).join('\n')).toMatch(/dip 0\.00°/)
@@ -174,6 +184,18 @@ describe('the camera analyses', () => {
     const trace = frames(200, fixed).map((s, k) => (k === 120 ? { ...s, camera: { ...fixed, beat: 'hero', distance: 6, pitch: 30 } } : s))
     expect(analyse({ trace, ...witnesses }).results.get('R6-CAM-06').problems.join('\n')).toMatch(/1 frames off the fixed camera/)
     expect(analyse({ trace: frames(200, fixed) }).results.get('R6-CAM-06').problems.join('\n')).toMatch(/no hero fold-up within 2.5/)
+  })
+
+  it('counts the hero tile beside the spawn point (folded up at t = 0) as a beat and as the start of the 8 s gap', () => {
+    const walk = { distance: 7.5, pitch: 35, beat: null, target: { x: 0, y: 0, z: 0 } }
+    const hero = { ...walk, beat: 'hero', distance: 6, pitch: 30 }
+    // A beat on frames 1-90, then the walk camera; a second hero fold-up 7.4 s in is held back by the gap.
+    const trace = Array.from({ length: 600 }, (_, k) => ({
+      f: 1 + k, camera: k < 90 ? hero : walk, right: { x: 1, z: 0 }, L: { x: 0, z: 0 }, F: { x: 0, z: 1 }, leader: 'a', held: [],
+    }))
+    const foldLog = [{ dir: 'up', id: 'cupcake_tree', i: 1, j: 0, t: 0 }, { dir: 'up', id: 'cupcake_tree', i: 1, j: 0, t: 7.4 }]
+    const text = analyse({ trace, foldLog, label: 'river 1280x720' }).results.get('R6-CAM-03').problems.join('\n')
+    expect(text).not.toMatch(/no hero fold-up within|no hero beat started|although the contract blocks/)
   })
 
   it('fails a camera that yaws', () => {

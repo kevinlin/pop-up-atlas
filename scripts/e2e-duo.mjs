@@ -341,14 +341,16 @@ function bobFrequency(values) {
   })
   const slope = sxx ? sxy / sxx : 0
   const residual = values.map((v, i) => v - my - slope * (i - mx))
+  // Upward crossings only, one per bob: counting both directions assumes an even duty cycle, which round 6's B walk (a sharp
+  // rise and a long fall) does not have, and over- or under-counts by up to a quarter bob at a window's ends.
   const crossings = []
   for (let i = 1; i < n; i++) {
     const a = residual[i - 1]
     const b = residual[i]
-    if ((a < 0 && b >= 0) || (a >= 0 && b < 0)) crossings.push(i - 1 + a / (a - b))
+    if (a < 0 && b >= 0) crossings.push(i - 1 + a / (a - b))
   }
-  if (crossings.length < 5) return null
-  return (crossings.length - 1) / 2 / ((crossings.at(-1) - crossings[0]) / fps)
+  if (crossings.length < 3) return null
+  return (crossings.length - 1) / ((crossings.at(-1) - crossings[0]) / fps)
 }
 
 function collectClipWindows(x, _out, pool) {

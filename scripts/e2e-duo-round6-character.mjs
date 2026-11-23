@@ -23,7 +23,6 @@ export const characterNumbers = {
 }
 const N = characterNumbers
 const near = (value, target, tolerance) => Math.abs(value - target) <= tolerance
-const ids = ['R6-CHR-01', 'R6-CHR-02', 'R6-CHR-03', 'R6-CHR-04', 'R6-CHR-05', 'R6-CHR-06', 'R6-CHR-07']
 
 export function parseCue(name) {
   const match = /^(b_)?(voice|sing)_([a-z_]+)$/.exec(name)

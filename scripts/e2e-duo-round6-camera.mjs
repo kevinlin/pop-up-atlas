@@ -21,6 +21,8 @@ export const cameraNumbers = {
   slack: 3,
   // Beyond this pair gap a beat that never started may have been skipped by the fit (> 7.5 needed).
   closePair: 1.3,
+  // docs/contracts.md "Duo" -> On screen: the follow bound keeps the follower in frame.
+  followBound: 2.2,
 }
 const C = cameraNumbers
 const ids = ['R6-CAM-01', 'R6-CAM-02', 'R6-CAM-03', 'R6-CAM-04', 'R6-CAM-05', 'R6-CAM-06', 'R6-CAM-07', 'R6-CAM-08']
@@ -37,6 +39,9 @@ export function steadyMask(trace, seconds = C.settleSeconds) {
 
 const near = (value, target, tolerance) => Math.abs(value - target) <= tolerance
 const share = (values, test) => (values.length ? values.filter(test).length / values.length : 0)
+// The pair is within the follow bound (2.2 while walking): only then does the camera owe its nominal distance, because the fit
+// may raise it whenever a character would leave the frame.
+const close = (s) => distance(s.L, s.F) <= C.followBound
 
 function runsOf(trace, first, test) {
   const runs = []
@@ -62,12 +67,13 @@ function analyzeWalk(x, out, pool) {
   pool.steady += steady.length
   if (steady.length < 30) return out.measure('R6-CAM-01', x.where, { steadyFrames: steady.length })
   const distances = steady.map(({ camera }) => camera.distance)
-  const nominal = share(distances, (d) => near(d, C.walk.distance, C.distanceTolerance))
-  out.measure('R6-CAM-01', x.where, { steadyFrames: steady.length, medianDistance: r3(median(distances)), maxDistance: r3(Math.max(...distances)), nominalShare: r3(nominal) })
+  const calm = steady.filter(close).map(({ camera }) => camera.distance)
+  const nominal = share(calm, (d) => near(d, C.walk.distance, C.distanceTolerance))
+  out.measure('R6-CAM-01', x.where, { steadyFrames: steady.length, closeFrames: calm.length, medianDistance: r3(median(distances)), maxDistance: r3(Math.max(...distances)), nominalShare: r3(nominal) })
   for (const text of pitchProblems('walk camera', steady, C.walk.pitch, C.pitchTolerance)) out.problem('R6-CAM-01', x.where, text)
   const bad = steady.filter(({ camera }) => camera.distance < C.walk.distance - C.distanceTolerance || camera.distance > C.fitMax + C.distanceTolerance)
   if (bad.length) out.problem('R6-CAM-01', x.where, `${bad.length} steady frames with distance outside ${C.walk.distance}-${C.fitMax} (first at frame ${bad[0].f}: ${r3(bad[0].camera.distance)})`)
-  if (nominal < C.nominalShare) out.problem('R6-CAM-01', x.where, `only ${r3(100 * nominal)} % of the steady frames are at ${C.walk.distance} (median ${r3(median(distances))}); the fit may only raise it when a character would leave the frame`)
+  if (calm.length >= 30 && nominal < C.nominalShare) out.problem('R6-CAM-01', x.where, `only ${r3(100 * nominal)} % of the ${calm.length} steady frames with the pair within ${C.followBound} are at ${C.walk.distance} (median ${r3(median(calm))}); the fit may only raise it when a character would leave the frame`)
 }
 
 // ---- R6-CAM-02 dance beat ---------------------------------------------------------------------------------------
@@ -95,8 +101,9 @@ function analyzeDanceBeat(x, out, pool) {
       const distances = steady.map(({ camera }) => camera.distance)
       const low = steady.filter(({ camera }) => camera.distance < C.dance.distance - C.distanceTolerance || camera.distance > C.fitMax + C.distanceTolerance)
       if (low.length) out.problem('R6-CAM-02', where, `${low.length} frames with distance outside ${C.dance.distance}-${C.fitMax} (first at frame ${low[0].f}: ${r3(low[0].camera.distance)})`)
-      const nominal = share(distances, (d) => near(d, C.dance.distance, C.distanceTolerance))
-      if (nominal < C.nominalShare) out.problem('R6-CAM-02', where, `only ${r3(100 * nominal)} % of the dance frames are at ${C.dance.distance} (median ${r3(median(distances))})`)
+      const calm = steady.filter(close).map(({ camera }) => camera.distance)
+      const nominal = share(calm, (d) => near(d, C.dance.distance, C.distanceTolerance))
+      if (calm.length >= 10 && nominal < C.nominalShare) out.problem('R6-CAM-02', where, `only ${r3(100 * nominal)} % of the ${calm.length} dance frames with the pair within ${C.followBound} are at ${C.dance.distance} (median ${r3(median(calm))})`)
       const aim = steady.filter(({ camera }) => !near(camera.target.y, C.dance.aimY, 0.02))
       if (aim.length) out.problem('R6-CAM-02', where, `${aim.length} frames with the aim point off ${C.dance.aimY} (first at frame ${aim[0].f}: ${r3(aim[0].camera.target.y)})`)
       summary.push({ frame: start.f, frames: steady.length, medianDistance: r3(median(distances)), nominalShare: r3(nominal) })
@@ -106,13 +113,16 @@ function analyzeDanceBeat(x, out, pool) {
       const pitch = x.at(f)?.camera?.pitch
       return pitch > C.dance.pitch + 0.3 && pitch < C.walk.pitch - 0.3
     }
-    const quiet = (from, to) => !x.events.some((event) => ['swap', 'hop', 'duo-dance-start', 'duo-dance-end'].includes(event.type) && event.f > from && event.f <= to && event !== start && event !== end)
+    // A hero fold-up as the dance props come back (the usual rules apply from duo-dance-end) starts a hero beat straight away.
+    const heroFold = (from, to) => (x.result.foldLog ?? []).some((fold) => fold.dir === 'up' && !fold.cause && C.hero.ids.includes(fold.id)
+      && fold.t * fps >= from - 1 && fold.t * fps <= to)
+    const quiet = (from, to) => !heroFold(from, to) && !x.events.some((event) => ['swap', 'hop', 'duo-dance-start', 'duo-dance-end'].includes(event.type) && event.f > from && event.f <= to && event !== start && event !== end)
     const priorBeat = x.at(start.f - 2)?.camera?.beat
     if (!priorBeat && x.at(start.f - 2) && quiet(start.f, start.f + 18) && !between(start.f + 18)) {
       out.problem('R6-CAM-02', where, `no ease in: pitch ${r3(x.at(start.f + 18)?.camera?.pitch)}° 0.3 s after duo-dance-start`)
     }
     if (!cut && end.f + 0.9 * fps + slack < last && quiet(end.f, end.f + Math.round(0.9 * fps) + slack)) {
-      if (x.at(end.f + slack)?.camera?.beat) out.problem('R6-CAM-02', where, `the dance beat was still active ${slack} frames after duo-dance-end`)
+      if (x.at(end.f + slack)?.camera?.beat === 'dance') out.problem('R6-CAM-02', where, `the dance beat was still active ${slack} frames after duo-dance-end`)
       if (!between(end.f + 24)) out.problem('R6-CAM-02', where, `no ease out: pitch ${r3(x.at(end.f + 24)?.camera?.pitch)}° 0.4 s after duo-dance-end`)
       const settled = x.at(end.f + Math.round((C.dance.easeOutSeconds + 0.15) * fps))
       if (!near(settled.camera.pitch, C.walk.pitch, C.pitchTolerance)) out.problem('R6-CAM-02', where, `pitch ${r3(settled.camera.pitch)}° 0.95 s after duo-dance-end, expected ${C.walk.pitch}°`)
@@ -144,6 +154,15 @@ function analyzeHero(x, out, pool) {
   const matched = new Set()
   let hopStart = null
   let lastStart = -Infinity
+  // The tiles around the spawn point fold up at t = 0 (before the first sample): a hero one within the radius legitimately starts a
+  // beat on the first frames. It counts for the 8 s gap and is not judged any further.
+  const spawnHero = (x.result.foldLog ?? []).some((fold) => fold.dir === 'up' && !fold.cause && fold.t === 0 && H.ids.includes(fold.id)
+    && distance({ x: fold.i * 2, z: fold.j * 2 }, x.trace[0].L) <= H.radius + 0.06)
+  const spawnRun = spawnHero ? runs.find((run) => run.startF <= x.first + C.slack + 1) : undefined
+  if (spawnRun) {
+    matched.add(spawnRun)
+    lastStart = spawnRun.startF
+  }
   for (const item of items) {
     if (item.kind === 'takeoff') hopStart = item.f
     else if (item.kind === 'land') hopStart = null
@@ -198,7 +217,7 @@ function analyzeHero(x, out, pool) {
     }
     const steady = x.trace.filter(({ f }) => f >= run.startF + Math.round(H.steadyAfterSeconds * fps) && f <= run.endF)
     if (!cancelled && steady.length >= 5) {
-      pool.heroSteady.push(...steady)
+      pool.heroSteady.push(...steady.filter(close))
       for (const text of pitchProblems('hero beat', steady, H.pitch, C.pitchTolerance)) out.problem('R6-CAM-03', where, text)
       const low = steady.filter(({ camera }) => camera.distance < H.distance - C.distanceTolerance || camera.distance > C.fitMax + C.distanceTolerance)
       if (low.length) out.problem('R6-CAM-03', where, `${low.length} frames with distance outside ${H.distance}-${C.fitMax} (first: ${r3(low[0].camera.distance)})`)
