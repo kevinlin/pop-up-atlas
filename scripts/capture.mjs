@@ -31,6 +31,9 @@ export function roundOptions(script) {
   if (script === 'capture') {
     options.stems = { type: 'boolean' }
     options['baseline-rev'] = { type: 'string', default: '7b6489c' }
+    // Round 6 voice-bank pairs: the revision whose public/audio bank and manifest play the "old" side (round 5: fa6d96b,
+    // the PB6 build). Separate from --baseline-rev, whose round-4 audio modules render the folds baseline.
+    options['bank-rev'] = { type: 'string', default: 'fa6d96b' }
   }
   // sbs: the previous build's preview URL, for the old-vs-new pairs (round 6).
   if (script === 'sbs') options['old-url'] = { type: 'string' }
@@ -38,7 +41,7 @@ export function roundOptions(script) {
     options,
     allowPositionals: true,
   })
-  const stemsUsage = script === 'capture' ? ' [--stems [--baseline-rev REV]]' : script === 'sbs' ? ' [--old-url URL]' : ''
+  const stemsUsage = script === 'capture' ? ' [--stems [--baseline-rev REV] [--bank-rev REV]]' : script === 'sbs' ? ' [--old-url URL]' : ''
   assert.ok(positionals.length <= 1 && /^[1-9]\d*$/.test(values.round) && Number.isSafeInteger(Number(values.round)),
     `Usage: node scripts/${script}.mjs [PREVIEW_URL] [--round N]${stemsUsage}, with N a positive integer`)
   const round = `round-${values.round}`
@@ -47,7 +50,7 @@ export function roundOptions(script) {
     round: Number(values.round),
     roundDir: join('deliverables', round),
     evidence: join(values.stems ? '.handoff/evidence/P0' : evidenceDir, round),
-    ...(script === 'capture' && { stems: values.stems, baselineRev: values['baseline-rev'] }),
+    ...(script === 'capture' && { stems: values.stems, baselineRev: values['baseline-rev'], bankRev: values['bank-rev'] }),
     ...(script === 'sbs' && { oldURL: values['old-url'] }),
   }
 }
@@ -969,7 +972,7 @@ export async function runRound6CaptureRoute({ page, open, advance }, baseURL, ca
   }
 }
 
-export async function offlineAudio(page, filepath, clipStart, durationSec = duration, { stemsDir, baselineRev, ablationDir, round6Audio = false } = {}) {
+export async function offlineAudio(page, filepath, clipStart, durationSec = duration, { stemsDir, baselineRev, bankRev = 'fa6d96b', ablationDir, round6Audio = false } = {}) {
   const folder = new URL('/__atlas_capture_audio/', page.url())
   await page.route(`${folder.href}*.js`, (route) => {
     const name = new URL(route.request().url()).pathname.split('/').at(-1)
@@ -1080,7 +1083,9 @@ export async function offlineAudio(page, filepath, clipStart, durationSec = dura
     const bankDir = join(stemsDir, 'voice-bank')
     await mkdir(bankDir, { recursive: true })
     const oldFolder = new URL('/__atlas_old_audio/', page.url())
-    const show = (name) => execFileSync('git', ['show', `${revision}:public/audio/${name}`], { maxBuffer: 16 * 1024 * 1024 })
+    const bankRevision = execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${bankRev}^{commit}`],
+      { encoding: 'utf8' }).trim()
+    const show = (name) => execFileSync('git', ['show', `${bankRevision}:public/audio/${name}`], { maxBuffer: 16 * 1024 * 1024 })
     const oldManifest = JSON.parse(show('manifest.json').toString('utf8'))
     await page.route(`${oldFolder.href}*`, (route) => {
       const name = new URL(route.request().url()).pathname.split('/').at(-1)
@@ -1106,7 +1111,7 @@ export async function offlineAudio(page, filepath, clipStart, durationSec = dura
         await rm(raw)
       }
     }
-    result.voiceBank = { segments: segments.slice(0, 6), dropped, baselineRev: revision }
+    result.voiceBank = { segments: segments.slice(0, 6), dropped, baselineRev: bankRevision }
     await writeJson(join(bankDir, 'segments.json'), result.voiceBank)
   }
   return { ...result, peaks, baselineRev: revision, voiceBank: result.voiceBank }
@@ -1461,7 +1466,7 @@ async function runClassicCaptureRoute({ page, open, advance }, baseURL, captureF
   }
 }
 
-async function capture({ baseURL, round, roundDir, evidence, stems, baselineRev }) {
+async function capture({ baseURL, round, roundDir, evidence, stems, baselineRev, bankRev }) {
   await Promise.all([mkdir(roundDir, { recursive: true }), mkdir(evidence, { recursive: true })])
   const temp = await mkdtemp(join(tmpdir(), 'atlas-capture-'))
   const stagedDir = join(temp, 'deliverables')
@@ -1501,7 +1506,7 @@ async function capture({ baseURL, round, roundDir, evidence, stems, baselineRev 
         const { perFrame, ...summary } = gameplay.framing
         route.framing = summary
       }
-      audio = await offlineAudio(page, wav, gameplay.clipStart, duration, { stemsDir, baselineRev, ablationDir, round6Audio: round >= round6 })
+      audio = await offlineAudio(page, wav, gameplay.clipStart, duration, { stemsDir, baselineRev, bankRev, ablationDir, round6Audio: round >= round6 })
       assert.deepEqual(errors, [], 'Browser errors during capture')
     } finally {
       await browser.close()

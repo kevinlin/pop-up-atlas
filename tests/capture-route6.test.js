@@ -258,6 +258,19 @@ test('witnesses: the umbrella must pop on the collision, not at the dance bow', 
   expect(result.river.observed).toBe(false)
 })
 
+test('capture takes the voice-bank revision apart from the folds baseline (round 6: round-5 bank at fa6d96b)', () => {
+  const argv = process.argv
+  try {
+    process.argv = [...argv.slice(0, 2), '--round', '6', '--stems']
+    expect(roundOptions('capture')).toMatchObject({ round: 6, stems: true, baselineRev: '7b6489c', bankRev: 'fa6d96b' })
+    process.argv = [...argv.slice(0, 2), '--round', '6', '--stems', '--bank-rev', 'abc1234']
+    expect(roundOptions('capture')).toMatchObject({ baselineRev: '7b6489c', bankRev: 'abc1234' })
+    expect(() => roundOptions('sbs')).toThrow()
+  } finally {
+    process.argv = argv
+  }
+})
+
 test('the sbs script accepts --old-url and capture does not', () => {
   const argv = process.argv
   try {
