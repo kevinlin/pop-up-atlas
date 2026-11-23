@@ -226,9 +226,9 @@ describe('B look before setting off', () => {
   const right = { x: 1, z: 0 }
   const step = 1 / 60
 
-  function harness(lookDuration = 0.6, isBlocked = open) {
+  function harness(lookDuration = 0.6, isBlocked = open, start = { x: 0, z: -1.1 }) {
     const leader = createPlayer()
-    const follower = { position: { x: 0, z: -1.1 }, heading: 0, state: 'idle' }
+    const follower = { position: { ...start }, heading: 0, state: 'idle' }
     const follow = createFollower(leader, follower.position)
     let time = 0
     let x = 0
@@ -273,6 +273,30 @@ describe('B look before setting off', () => {
     expect(looked * step).toBeGreaterThan(0.55)
     expect(looked * step).toBeLessThan(0.65)
     expect(sim.follow.catchingUp).toBe(false)
+  })
+
+  test('one unbroken look per set-off, from the start slot and its short trail (e2e R6-CHR-07)', () => {
+    // B starts in its idle slot (round 6), so the trail is only 0.75 long. The leader's first walking frames still count
+    // as standing (< 0.02 in 0.5 s): the slot shifts and the follower plans a micro step, then for about 0.3 s the trail
+    // is too short to follow. A swap with both standing resets the trail the same way.
+    const sim = harness(0.6, open, { x: -0.75, z: 0 })
+    sim.stand(4)
+    const runs = []
+    let last = false
+    for (let i = 0; i < 3 * 60; i += 1) {
+      // The game's leader accelerates from rest: its first frames move less than a full-speed step.
+      if (i < 6) sim.frame(sim.at.x, sim.at.z + 1.2 * step * (i + 1) / 7)
+      else sim.walk(step)
+      const looking = sim.follow.looking
+      if (looking && !last) runs.push({ start: i, frames: 0, setOff: false })
+      if (looking) runs.at(-1).frames += 1
+      if (!looking && last) runs.at(-1).setOff = sim.follower.state === 'walk'
+      last = looking
+    }
+    expect(runs).toHaveLength(1)
+    expect(runs[0].frames * step).toBeGreaterThan(0.55)
+    expect(runs[0].frames * step).toBeLessThan(0.65)
+    expect(runs[0].setOff).toBe(true)
   })
 
   test('the catch-up after a look is excluded until the gap is back to 1.4 or less', () => {

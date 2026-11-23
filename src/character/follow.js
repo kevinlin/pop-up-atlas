@@ -287,12 +287,14 @@ export function createFollower(leader, initial) {
       reachedGate = true
       if (!lookDuration) return planned
       if (looking) {
-        if (planned.state !== 'walk') {
-          looking = false
-          return planned
-        }
+        // Only a yield, hop, dance or swap ends a look early, and those never reach this gate. With nothing to walk to
+        // yet (a short trail after the start or a swap) the look plays on; ending idle, it restarts the standing time.
         if (t < lookEnd - epsilon) return pose(from, follower.heading, 'idle')
         looking = false
+        if (planned.state !== 'walk') {
+          standing = 0
+          return planned
+        }
         catchUp = true
         return planned
       }
