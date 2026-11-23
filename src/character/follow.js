@@ -7,6 +7,9 @@ const maxSpeed = 1.6
 const separation = 0.45
 const canonDelay = 0.3125
 const epsilon = 1e-8
+// B's look before setting off: after this long standing, the follower holds still for the clip's length.
+const lookStanding = 2
+const catchUpGap = 1.4
 
 export const walkTimeScale = (speed) => Math.min(1.4, Math.max(0.6, speed / 1.2))
 export const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
@@ -199,6 +202,12 @@ export function createFollower(leader, initial) {
   let cursor
   let farSince
   let hop
+  // Round 6 look: `looking` holds the follower still, `catchUp` marks the walk back to the trail after it.
+  let looking = false
+  let lookEnd = 0
+  let catchUp = false
+  let standing = 0
+  let reachedGate = false
 
   function reset(from, to, { preserveRecovery = false } = {}) {
     trail.reset(from, to)
@@ -206,6 +215,9 @@ export function createFollower(leader, initial) {
     cursor = trail.start()
     if (!preserveRecovery) farSince = undefined
     hop = undefined
+    looking = false
+    catchUp = false
+    standing = 0
   }
   reset(initial, leader.position)
 
@@ -214,7 +226,7 @@ export function createFollower(leader, initial) {
     history.record(position, t)
   }
 
-  function update(leader, follower, dt, t, isBlocked, dancing, cameraRight) {
+  function plan(leader, follower, dt, t, isBlocked, dancing, cameraRight, lookDuration) {
     const from = follower.position
     const gap = distance(from, leader.position)
     const target = trail.end() - followDistance
@@ -264,6 +276,28 @@ export function createFollower(leader, initial) {
       }
     }
 
+    // Setting off (idle slot or trail) goes through the look gate.
+    const setOff = (planned) => {
+      reachedGate = true
+      if (!lookDuration) return planned
+      if (looking) {
+        if (planned.state !== 'walk') {
+          looking = false
+          return planned
+        }
+        if (t < lookEnd - epsilon) return pose(from, follower.heading, 'idle')
+        looking = false
+        catchUp = true
+        return planned
+      }
+      if (planned.state === 'walk' && standing >= lookStanding - epsilon) {
+        looking = true
+        lookEnd = t + lookDuration
+        return pose(from, follower.heading, 'idle')
+      }
+      return planned
+    }
+
     const idleDisplacement = history.displacement(0.5)
     if (idleDisplacement !== null && idleDisplacement < 0.02) {
       const slot = idleSlot(leader.position, from, isBlocked, cameraRight)
@@ -274,11 +308,11 @@ export function createFollower(leader, initial) {
         if (step > epsilon) cursor = undefined
         const heading = left - step <= epsilon ? leader.heading
           : Math.atan2(slot.x - from.x, slot.z - from.z)
-        return pose(point, heading, step > epsilon ? 'walk' : 'idle')
+        return setOff(pose(point, heading, step > epsilon ? 'walk' : 'idle'))
       }
     }
 
-    if (target <= trail.start() + epsilon) return pose(from, follower.heading, 'idle')
+    if (target <= trail.start() + epsilon) return setOff(pose(from, follower.heading, 'idle'))
     cursor = Math.max(trail.start(), cursor ?? trail.nearest(from, target))
     if (cursor > target) return pose(from, follower.heading, 'idle')
     let point = from
@@ -303,12 +337,32 @@ export function createFollower(leader, initial) {
     }
 
     const moved = point !== from
-    return pose(point, moved ? Math.atan2(point.x - from.x, point.z - from.z) : follower.heading,
-      moved ? 'walk' : 'idle')
+    return setOff(pose(point, moved ? Math.atan2(point.x - from.x, point.z - from.z) : follower.heading,
+      moved ? 'walk' : 'idle'))
+  }
+
+  // `lookDuration` is the seconds of the follower rig's `look` clip, 0 when it has none.
+  function update(leader, follower, dt, t, isBlocked, dancing, cameraRight, lookDuration = 0) {
+    reachedGate = false
+    const result = plan(leader, follower, dt, t, isBlocked, dancing, cameraRight, lookDuration)
+    // A yield, hop or dance (or nothing left to walk to) never reaches the gate: it ends a look and its catch-up.
+    if (!reachedGate) {
+      looking = false
+      catchUp = false
+    }
+    if (catchUp && (result.state !== 'walk' || distance(result.position, leader.position) <= catchUpGap)) {
+      catchUp = false
+    }
+    standing = result.state === 'idle' || result.state === 'dance' ? standing + dt : 0
+    return result
   }
 
   return {
     reset, observe, update,
+    // True while the look holds the follower still, and during the catch-up after it.
+    // Follow-distance statistics exclude both.
+    get looking() { return looking },
+    get catchingUp() { return catchUp },
     get displacement() { return history.displacement(0.25) },
     get landing() { return hop?.end ?? -Infinity },
   }
