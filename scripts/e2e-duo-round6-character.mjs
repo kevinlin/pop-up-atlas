@@ -1,5 +1,7 @@
 // Character checks for round 6 (docs/contracts.md "Round 6" → Characters, Face and secondary motion): R6-CHR-01..07. Pure analysis of
 // the probe samples (`face`, `umbrella`, states, `leader`) and the recorder's events and per-frame squash and look flags.
+// Round 6 C6 (motion critic): squash spring back ω 11, ζ 0.6 with a 1.04 anticipation stretch 0.1 s before the dance landing;
+// the dancing follower mirrors the leader's dance mouth one canon delay (0.3125 s) later.
 // Every expected value below is the contract's, written out here; none is read from the game's source.
 import { skipsOnStart } from '../src/character/animation.js'
 import { distance, fps, frame, r3 } from './e2e-duo-round6-common.mjs'
@@ -16,7 +18,10 @@ export const characterNumbers = {
   blinkInterval: [2.5, 5.5],
   blinkSeconds: 0.15,
   restClosure: { a: 0, b: 0.35 },
-  squash: { contact: 0.95, landing: 0.88, takeoff: 1.1, tolerance: 0.012, landingMarker: 1.67, restTolerance: 0.004, restAfterSeconds: 0.8 },
+  // Round 6 C6: a 1.04 anticipation stretch 0.1 s before the dance landing marker, so at 1.57 s of dance clip time.
+  squash: { contact: 0.95, landing: 0.88, takeoff: 1.1, tolerance: 0.012, landingMarker: 1.67, restTolerance: 0.004, restAfterSeconds: 0.8, anticipation: 1.04, anticipationLead: 0.1 },
+  // Round 6 C6: the follower shows the leader's dance mouth shapes one canon delay later while the duo dances.
+  danceCanon: 0.3125,
   umbrella: { openSeconds: 1.2, gapSeconds: 3, bow: 2.19, slackFrames: 3 },
   look: { standingSeconds: 2, seconds: 0.6 },
   skip: { cycles: 2, seconds: 1 },
@@ -50,12 +55,20 @@ function analyzeMouth(x, out, pool) {
   const giggles = new Map()
   for (const who of ['a', 'b']) {
     const mine = cues.filter((cue) => cue.who === who)
+    const theirs = cues.filter((cue) => cue.who !== who)
     for (const s of x.trace) {
       const now = s.f / fps
       if (swaps.some((f) => Math.abs(f - s.f) <= 2)) continue
+      const leading = s.leader === who
+      // Round 6 C6: the dancing follower shows the leader's mouth cue cell one canon delay earlier (now - 0.3125), as it
+      // mirrors the steps; the leader's cues, and the boundary frames skipped around them, are read at that earlier time.
+      // Any other follower frame expects the rest cell.
+      const mirrored = !leading && s.F.state === 'dance'
+      const at = mirrored ? now - N.danceCanon : now
+      const source = mirrored ? theirs : mine
       // The frames at a boundary (cue start, end + hold) may land on either side of it.
-      if (mine.some((cue) => Math.abs(now - cue.t) < 1.5 * frame || Math.abs(now - (cue.end + hold)) < 1.5 * frame)) continue
-      const active = s.leader === who ? mine.filter((cue) => cue.t <= now && now < cue.end + hold).at(-1) : undefined
+      if (source.some((cue) => Math.abs(at - cue.t) < 1.5 * frame || Math.abs(at - (cue.end + hold)) < 1.5 * frame)) continue
+      const active = leading || mirrored ? source.filter((cue) => cue.t <= at && at < cue.end + hold).at(-1) : undefined
       const bank = active?.parsed.bank ?? who
       const actual = s.face[who].cell
       const expected = active ? active.parsed.cell : N.rest[who]
@@ -63,9 +76,11 @@ function analyzeMouth(x, out, pool) {
       report.checked[bank] += 1
       if (!ok) {
         report.wrong[bank] += 1
-        if (examples.length < 6) examples.push({ id: bankId(bank), text: `frame ${s.f}: ${who} ${active ? active.cue : 'at rest'} expected cell ${expected}, shows ${actual}` })
+        const reading = mirrored ? `${active ? `mirroring ${active.cue}` : 'mirroring nothing'} (now - ${N.danceCanon} s)` : active ? active.cue : 'at rest'
+        if (examples.length < 6) examples.push({ id: bankId(bank), text: `frame ${s.f}: ${who} ${reading} expected cell ${expected}, shows ${actual}` })
       }
-      if (active) {
+      // Cue words and giggle rates are the leader's own evidence; the mirrored frames add to the frame counts only.
+      if (active && !mirrored) {
         if (ok && !report.words[bank].includes(active.parsed.word)) report.words[bank].push(active.parsed.word)
         if (active.parsed.cell === 'giggle') {
           const entry = giggles.get(active) ?? { frames: 0, toggles: 0, last: actual }
@@ -156,9 +171,16 @@ function analyzeSquash(x, out, pool) {
     if (type === 'contact') triggers.push({ who: detail.who, f, kind: 'contact', value: S.contact })
     else if (type === 'hop') triggers.push({ who: detail.who, f, kind: detail.phase === 'land' ? 'hop land' : 'hop take-off', value: detail.phase === 'land' ? S.landing : S.takeoff })
     else if (type === 'dance-start') {
-      const f1 = Math.round((detail.t + S.landingMarker) * fps)
-      const interrupted = danceEnds.some((end) => end.detail.who === detail.who && end.f >= f && end.f <= f1 + 4)
-      if (!interrupted) triggers.push({ who: detail.who, f: f1, kind: 'dance landing', value: S.landing, window: 4 })
+      // The 1.04 anticipation stretch comes 0.1 s before the landing marker; a dance that ends before a marker skips it.
+      const markers = [
+        ['dance anticipation', S.landingMarker - S.anticipationLead, S.anticipation],
+        ['dance landing', S.landingMarker, S.landing],
+      ]
+      for (const [kind, at, value] of markers) {
+        const marker = Math.round((detail.t + at) * fps)
+        const interrupted = danceEnds.some((end) => end.detail.who === detail.who && end.f >= f && end.f <= marker + 4)
+        if (!interrupted) triggers.push({ who: detail.who, f: marker, kind, value, window: 4 })
+      }
     }
   }
   const counted = {}
@@ -166,7 +188,11 @@ function analyzeSquash(x, out, pool) {
   for (const trigger of triggers) {
     const { who, f, kind, value } = trigger
     const mine = triggers.filter((other) => other !== trigger && other.who === who)
-    if (mine.some((other) => Math.abs(other.value - 1) > Math.abs(value - 1) && other.f >= f - 3 && other.f <= f + 8)) continue
+    // The larger deformation wins when two triggers fall in one frame. The landing 0.1 s after its own anticipation is not
+    // one of those: it is outside the anticipation's frames, which are read at the marker only.
+    const shadowed = (other) => Math.abs(other.value - 1) > Math.abs(value - 1) && other.f >= f - 3 && other.f <= f + 8
+      && !(kind === 'dance anticipation' && other.kind === 'dance landing')
+    if (mine.some(shadowed)) continue
     const window = trigger.window ?? 0
     const lo = f - window
     const hi = f + window + 1
@@ -369,7 +395,7 @@ export function finishCharacters(pool, out, ctx) {
     if (pool.blinkIntervals[who] < 3) out.problem('R6-CHR-03', '', `only ${pool.blinkIntervals[who]} blink intervals of ${who.toUpperCase()} in all routes, need 3`)
   }
   const squash = pool.squash
-  for (const [kind, least] of [['contact', 10], ['dance landing', 1], ['hop take-off', 1], ['hop land', 1]]) {
+  for (const [kind, least] of [['contact', 10], ['dance anticipation', 1], ['dance landing', 1], ['hop take-off', 1], ['hop land', 1]]) {
     if ((squash[kind] ?? 0) < least) out.problem('R6-CHR-04', '', `only ${squash[kind] ?? 0} checked ${kind} triggers in all routes, need ${least}`)
   }
   for (const why of ['river collision', 'dance bow']) {

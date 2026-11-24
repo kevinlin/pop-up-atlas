@@ -118,12 +118,15 @@ Feature: A closer camera, a two-stage fold, living faces and a walking troll wit
     Then __atlas.face.a.cell is the cue's cell from the cue's start to its effective end, a cut included, and the rest cell 0.1 s later
     And ooh and eep show cell 2, hmph 4, hm 3, hup 6, whee and lead 1, every sing_* 5, and a giggle alternates cells 1 and 7 about 8 times a second
     And at least three different cue words were seen with the right cell
+    And the follower shows its rest cell, except while its state is dance: then __atlas.face.<follower>.cell is the leader's cue cell at now - 0.3125 s (one canon delay), or the follower's rest cell when the leader has no cue then (round 6 C6)
+    And the frames at a cue's start and end + 0.1 s are skipped at that shifted time too
 
   @R6-CHR-02 @needs-round-6-glb
   Scenario: Troll B's mouth cell follows its own bank
     When troll B speaks or sings a cue (b_voice_* or b_sing_*)
     Then __atlas.face.b.cell follows the same table as for troll A, with B's rest cell
     And at least three different cue words of B were seen with the right cell
+    And a dancing follower A shows B's cue cell 0.3125 s late, and any other follower frame shows its rest cell
 
   @R6-CHR-03 @needs-round-6-glb
   Scenario: Blink interval and rest closure
@@ -133,10 +136,10 @@ Feature: A closer camera, a two-stage fold, living faces and a walking troll wit
 
   @R6-CHR-04 @needs-round-6-glb
   Scenario: Squash on contacts, the dance landing and the hop
-    When a character makes foot contacts, lands from the dance jump at 1.67 s, takes off and lands from a recovery hop
-    Then the root's scale.y is 0.95 ± 0.012 on a contact, 0.88 on the dance landing and on the hop landing, and 1.10 on the hop take-off
+    When a character makes foot contacts, stretches before and lands from the dance jump at 1.67 s, takes off and lands from a recovery hop
+    Then the root's scale.y is 0.95 ± 0.012 on a contact, 1.04 ± 0.012 on the dance anticipation at 1.57 s of dance clip time (0.1 s before the landing marker, skipped when the dance ends before it), 0.88 on the dance landing and on the hop landing, and 1.10 on the hop take-off
     And scale.x is 1/√(scale.y) on those frames
-    And 0.8 s after the last trigger the scale is back at 1 ± 0.004
+    And 0.8 s after the last trigger, the anticipation included, the scale is back at 1 ± 0.004
 
   @R6-CHR-05 @needs-round-6-glb
   Scenario: B's umbrella pops on a river collision and at the bow and closes after 1.2 s

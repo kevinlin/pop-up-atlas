@@ -4,6 +4,7 @@ import { FLAT, STAGE_ONE, UPRIGHT } from '../../src/world/spring.js'
 import { foldNumbers, makeSeries, measureFall, measureRise, riseProblems, simulateCell } from '../../scripts/e2e-duo-folds.mjs'
 import { analyzeCamera, finishCamera, newCameraPool } from '../../scripts/e2e-duo-round6-camera.mjs'
 import { followerStart } from '../../scripts/e2e-duo-plan.mjs'
+import { analyzeCharacters, newCharacterPool } from '../../scripts/e2e-duo-round6-character.mjs'
 import { createResults, prepare } from '../../scripts/e2e-duo-round6-common.mjs'
 
 // The round-6 gate's analysers (scripts/e2e-duo-folds.mjs and friends) judged on the game's own hinge physics, on analytic
@@ -269,5 +270,87 @@ describe('the start rule for troll B', () => {
     expect(start(slots, 0)).toMatchObject({ rule: 'behind', gap: 1.1 })
     expect(start(slots, 0).point.z).toBeCloseTo(-1.1)
     expect(start([...slots, [-1, 1, -1.3, -0.9]], 0)).toMatchObject({ rule: 'beside', point: null })
+  })
+})
+
+// Round 6 C6 (motion critic): the dancing follower mirrors the leader's mouth one canon delay (0.3125 s) later, and the dance
+// landing has a 1.04 stretch 0.1 s before it (docs/contracts.md "Round 6" -> Face and secondary motion).
+describe('the character analyses after the C6 motion fix', () => {
+  const sample = (f, { leader = 'a', followerState = 'idle', cells = { a: 0, b: 3 } } = {}) => ({
+    f, leader, held: [], L: { x: 0, z: 0, state: 'idle' }, F: { x: 0.75, z: 0, state: followerState },
+    face: { a: { cell: cells.a, lid: 0 }, b: { cell: cells.b, lid: 0.35 } }, umbrella: { open: false },
+  })
+
+  describe('R6-CHR-01 / R6-CHR-02: the dancing follower\'s mouth', () => {
+    // B leads and says "whee" (cell 1) from 1.0 s to 1.5 s, held 0.1 s more; troll A follows. B shows cell 1 from 1.0 to 1.6 s.
+    // A, dancing, shows it from 1.3125 to 1.9125 s; any other time it shows its rest cell 0.
+    const whee = [{ who: 'b', cue: 'b_voice_whee', t: 1, end: 1.5 }]
+    const leaderCell = (now) => (now >= 1 && now < 1.6 ? 1 : 3)
+    const mirrored = (now) => (now >= 1.3125 && now < 1.9125 ? 1 : 0)
+    const problemsOf = (followerCell, followerState = 'dance') => {
+      const trace = Array.from({ length: 240 }, (_, k) => {
+        const now = (k + 1) / FPS
+        return sample(k + 1, { leader: 'b', followerState, cells: { a: followerCell(now), b: leaderCell(now) } })
+      })
+      const out = createResults()
+      analyzeCharacters(prepare({ label: 'lane 1280x720', trace, cueLog: whee, rec: { events: [], frames: {} }, marks: [], foldLog: [] }), out, newCharacterPool())
+      return ['R6-CHR-01', 'R6-CHR-02'].flatMap((id) => out.results.get(id).problems)
+    }
+
+    it('passes a dancing follower that shows the leader\'s cell 0.3125 s later and its rest cell otherwise', () => {
+      expect(problemsOf(mirrored)).toEqual([])
+    })
+
+    it('fails a dancing follower that shows the cell at the leader\'s own time (no delay)', () => {
+      expect(problemsOf((now) => (now >= 1 && now < 1.6 ? 1 : 0)).join('\n')).toMatch(/a mirroring .*expected cell \d, shows \d/)
+    })
+
+    it('fails a dancing follower that keeps its rest cell (the round-5 wording)', () => {
+      expect(problemsOf(() => 0).join('\n')).toMatch(/a mirroring b_voice_whee \(now - 0\.3125 s\) expected cell 1, shows 0/)
+    })
+
+    it('still expects the rest cell from a follower that is not dancing, and fails one that mirrors anyway', () => {
+      expect(problemsOf(() => 0, 'idle')).toEqual([])
+      expect(problemsOf(mirrored, 'idle').join('\n')).toMatch(/a at rest expected cell 0, shows 1/)
+    })
+  })
+
+  describe('R6-CHR-04: the dance anticipation stretch', () => {
+    // Troll A starts its dance at 1.0 s: the stretch is at 1.57 s of clip time (frame 154), the landing at 1.67 s (frame 160).
+    const run = ({ values, end }) => {
+      const trace = Array.from({ length: 400 }, (_, k) => sample(k + 1))
+      const frames = {}
+      for (const { f } of trace) {
+        const sy = values[f] ?? 1
+        frames[f] = [0, 0, sy, 1, 1 / Math.sqrt(sy), 1]
+      }
+      const events = [{ type: 'dance-start', f: 60, detail: { who: 'a', t: 1 } }]
+      if (end) events.push({ type: 'dance-end', f: end, detail: { who: 'a' } })
+      const out = createResults()
+      const pool = newCharacterPool()
+      analyzeCharacters(prepare({ label: 'lane 1280x720', trace, cueLog: [], rec: { events, frames }, marks: [], foldLog: [] }), out, pool)
+      return { problems: out.results.get('R6-CHR-04').problems, pool }
+    }
+
+    it('passes a 1.04 stretch at 1.57 s followed by the 0.88 landing, and counts both', () => {
+      const { problems, pool } = run({ values: { 154: 1.04, 160: 0.88 } })
+      expect(problems).toEqual([])
+      expect(pool.squash['dance anticipation']).toBe(1)
+      expect(pool.squash['dance landing']).toBe(1)
+    })
+
+    it('treats the stretch as a trigger for the 0.8 s rest rule, and skips both when the dance ends before the marker', () => {
+      expect(run({ values: {}, end: 100 }).problems).toEqual([])
+      expect(run({ values: {}, end: 100 }).pool.squash['dance anticipation']).toBeUndefined()
+    })
+
+    it('fails a dance without the stretch, and one with the wrong stretch', () => {
+      expect(run({ values: { 160: 0.88 } }).problems.join('\n')).toMatch(/A dance anticipation at frame 154: scale.y 1, expected 1.04/)
+      expect(run({ values: { 154: 1.1, 160: 0.88 } }).problems.join('\n')).toMatch(/A dance anticipation at frame 154: scale.y 1.1, expected 1.04/)
+    })
+
+    it('fails a stretch that nothing triggered (the dance ended first): it is not settled 0.8 s after the last trigger', () => {
+      expect(run({ values: { 154: 1.04 }, end: 100 }).problems.join('\n')).toMatch(/A scale.y 1.04 at frame \d+, 0.8 s after its last trigger/)
+    })
   })
 })
