@@ -1,0 +1,1 @@
+Scene: a low close camera, about 20 degrees above the page, framed like a stage: the two creatures dance on a small clearing of flat felt appliqué; the bubbly one mid-spin with both arms thrown high above its head, the wary one doing a reluctant little side step. Behind them domed pop-up props tower softly out of focus. The creatures fill about half the frame height.

@@ -1,10 +1,12 @@
 """The nine socket tiles and the three pieces of the scrapbook substrate."""
-from math import atan2, cos, hypot, pi, sin, tau
+from contextlib import contextmanager
+from math import atan2, cos, hypot, pi, radians, sin, tau
 from random import Random
 
+import bpy
 from mathutils import Vector
 
-from craft import ccw, curves, front, level, oval, rect, skew_rect
+from craft import Craft, ccw, curves, empty, front, inset, level, oval, rect, sample_path, skew_rect
 
 
 RIVER_HALF = .36
@@ -16,14 +18,277 @@ PETAL_CORE, PETAL_BOWL, PETAL_ACROSS, PETAL_ROLL, PETAL_GROOVE = .12, .030, .009
 PETAL_FRONT_ROW = .022
 
 
+class TileCraft(Craft):
+    """Craft plus the round-6 export features (contract "Round 6" → Light, ground and props).
+
+    - `piece` collects everything built inside it into one mesh node with its own name (`appl_<k>`,
+      `deco_<motif>_<k>`), one material slot per material and optional `extras` (the appliqué layer).
+    - `pivot` makes a `sec_<k>` empty nested in a hinge; parts built with that empty as parent keep their
+      hinge-space coordinates, and `finish` moves the mesh nodes back by the pivot's offset, so the pivot sits
+      at the part's joint with identity rotation (authored at rest, local X = the hinge's fold axis).
+    - `dome` makes a `dome_<k>` empty for one card of a hero cap.
+    """
+
+    def __init__(self, name, materials):
+        super().__init__(name, materials)
+        self.pieces = []
+        self.current = None
+        self.pivots = {}
+        self.counts = {"appl": 0, "deco": 0, "dome": 0}
+        self.motifs = ()
+        self.lean = False
+        self.detail = 3
+        self.spots = 0
+
+    def add(self, parent, material, coordinates, uv, faces, smooth=False):
+        piece = self.current
+        if piece is None:
+            return super().add(parent, material, coordinates, uv, faces, smooth)
+        if parent is not piece["parent"]:
+            raise ValueError(f"{piece['name']} was opened on {piece['parent'].name}, not {parent.name}")
+        verts, uvs, polygons = piece["batches"].setdefault(material, ([], [], []))
+        piece["smooth"].setdefault(material, []).extend([smooth] * len(faces))
+        polygons.extend(tuple(i + len(verts) for i in face) for face in faces)
+        verts.extend(coordinates)
+        uvs.extend(uv)
+
+    @contextmanager
+    def piece(self, parent, kind, motif=None, **extras):
+        if self.current is not None:
+            raise RuntimeError("pieces do not nest")
+        index = self.counts[kind]
+        self.counts[kind] += 1
+        name = f"appl_{index}" if kind == "appl" else f"deco_{motif}_{index}"
+        self.current = {"parent": parent, "name": name, "extras": extras, "batches": {}, "smooth": {}}
+        try:
+            yield name
+        finally:
+            piece, self.current = self.current, None
+            if piece["batches"]:
+                self.pieces.append(piece)
+
+    def pivot(self, hinge, x, y):
+        sec = empty(f"sec_{len(self.pivots)}", hinge)
+        self.pivots[sec] = [hinge, x, y]
+        return sec
+
+    def dome(self, hinge):
+        index = self.counts["dome"]
+        self.counts["dome"] += 1
+        return empty(f"dome_{index}", hinge)
+
+    def scale_card(self, hinge, width, height):
+        owners = {hinge, *(sec for sec, (parent, _, _) in self.pivots.items() if parent == hinge)}
+        for (parent, _), (vertices, _, _) in self.batches.items():
+            if parent in owners:
+                vertices[:] = [(x * width, y, z * height) for x, y, z in vertices]
+        for sec, joint in self.pivots.items():
+            if joint[0] == hinge:
+                joint[1] *= width
+                joint[2] *= height
+
+    def running(self, parent, points, depth, material="yarn_butter", *, cycle=False, place=front,
+                spacing=.056, radius=.0022):
+        """A running stitch of flat three-sided strands: 6 triangles a stitch instead of sew's 14."""
+        points = [Vector(p) for p in points]
+        total = sum((a - b).length for a, b in zip(points, points[1:] + (points[:1] if cycle else [])))
+        count = max(1, round(total / spacing))
+        step = total / count
+        rise = radius * .58
+        for i in range(count):
+            center = (i + .5) * step
+            a, b = (sample_path(points, cycle, center + offset) for offset in (-step * .31, step * .31))
+            self.tube(parent, [place(a, depth + rise), place(b, depth + rise)], radius, material,
+                      sides=3, caps=False)
+
+    def emit(self, parent, name, mesh_name, entries):
+        verts, uvs, polygons, flags, slots, indices = [], [], [], [], [], []
+        for material, v, u, p, f in entries:
+            base = len(verts)
+            verts.extend(v)
+            uvs.extend(u)
+            polygons.extend(tuple(i + base for i in face) for face in p)
+            flags.extend(f)
+            indices.extend([len(slots)] * len(p))
+            slots.append(material)
+        mesh = bpy.data.meshes.new(mesh_name)
+        mesh.from_pydata(verts, [], polygons)
+        mesh.update()
+        layer = mesh.uv_layers.new()
+        for loop in mesh.loops:
+            layer.data[loop.index].uv = uvs[loop.vertex_index]
+        if any(flags):
+            sharp = mesh.attributes.get("sharp_face")
+            if sharp is None:
+                sharp = mesh.attributes.new("sharp_face", 'BOOLEAN', 'FACE')
+            sharp.data.foreach_set("value", [not flag for flag in flags])
+            mesh.update()
+        if len(slots) > 1:
+            mesh.polygons.foreach_set("material_index", indices)
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.collection.objects.link(obj)
+        obj.parent = parent
+        for material in slots:
+            obj.data.materials.append(self.materials.get(material))
+        if parent in self.pivots:
+            _, x, y = self.pivots[parent]
+            obj.location = (-x, 0, -y)
+        return obj
+
+    def finish(self):
+        for (parent, material), (verts, uvs, polygons) in self.batches.items():
+            self.emit(parent, material, parent.name + "_" + material,
+                      [(material, verts, uvs, polygons, self.smooth[parent, material])])
+        for piece in self.pieces:
+            entries = [(material, *piece["batches"][material], piece["smooth"][material])
+                       for material in piece["batches"]]
+            obj = self.emit(piece["parent"], piece["name"], piece["name"] + "_mesh", entries)
+            for key, value in piece["extras"].items():
+                obj[key] = value
+        for sec, (_, x, y) in self.pivots.items():
+            sec.location = (x, 0, y)
+        self.batches.clear()
+        self.smooth.clear()
+        self.pieces.clear()
+
+
+# Decoration motifs (review L4): small, sparse details that replace the old pink glue rectangles. Each one is
+# a `deco_<motif>_<k>` mesh node. All heights are above the page; `z` lifts them onto a taller surface.
+YARN = ("hot_pink", "orange", "butter", "tomato", "violet", "sky", "lime", "pink", "lavender", "mint")
+FELT = ("hot_pink", "butter", "violet", "orange", "sky", "pink", "lime", "tomato")
+
+
+def tone(c, palette, shift=0):
+    return palette[(c.spots * 3 + shift) % len(palette)]
+
+
+def ring(c, x, y, i, spread, phase=0):
+    a = i * 2.3 + phase
+    return x + spread * cos(a) * (i > 0), y + spread * sin(a) * (i > 0)
+
+
+def knot(c, x, y, s, z):
+    """French knots: a few small coils of yarn."""
+    with c.piece(c.base, "deco", "knot"):
+        for i in range(c.detail):
+            px, py = ring(c, x, y, i, .027 * s, .4)
+            r = .012 * s
+            path = [(px + r * cos(1.7 * tau * k / 7) * (1 - .3 * k / 7),
+                     py + r * sin(1.7 * tau * k / 7) * (1 - .3 * k / 7),
+                     z + .0035 + .007 * k / 7) for k in range(8)]
+            c.tube(c.base, path, .0048 * s, "yarn_" + tone(c, YARN, 2 * i), 4, smooth=True)
+
+
+def sequin(c, x, y, s, z):
+    """Sequins: glitter discs, overlapped like a spilled pile, each held by a tiny bead."""
+    with c.piece(c.base, "deco", "sequin"):
+        for i in range(c.detail):
+            px, py = ring(c, x, y, i, .034 * s, .6)
+            r = .028 * s
+            low = z + i * .0012
+            c.cut(c.base, oval(px, py, r, r, 9, i), low, low + .0032, "glitter_" + ("rim", "sugar", "rim")[i],
+                  bevel=.0005, place=level)
+            if c.detail > 1:
+                c.cut(c.base, oval(px, py, r * .3, r * .3, 6), low + .0032, low + .0058,
+                      "felt_" + tone(c, FELT, i), bevel=.0004, place=level)
+
+
+def bead(c, x, y, s, z):
+    """A short strand of glass seed beads."""
+    count = c.detail + 1
+    with c.piece(c.base, "deco", "bead"):
+        for i in range(count):
+            t = i / (count - 1)
+            px, py = x + s * (-.05 + .10 * t), y + s * .016 * sin(pi * t)
+            c.tube(c.base, [(px, py, z + .002), (px, py, z + .0075), (px, py, z + .013)],
+                   .0105 * s, "glitter_sugar", 5)
+
+
+def button(c, x, y, s, z):
+    """A small sewn felt button: dish and cross of thread."""
+    r = .05 * s
+    with c.piece(c.base, "deco", "button"):
+        c.cut(c.base, oval(x, y, r, r, 11), z, z + .0075, "felt_" + tone(c, FELT), bevel=.001, place=level)
+        top = z + .0075
+        if c.detail > 1:
+            c.cut(c.base, oval(x, y, r * .66, r * .66, 11), top, top + .0017, "felt_" + tone(c, FELT, 3),
+                  bevel=.0005, place=level)
+            top += .0017
+        for side in (-1, 1):
+            c.tube(c.base, [(x - .016 * s, y - side * .016 * s, top + .0014),
+                            (x + .016 * s, y + side * .016 * s, top + .0014)], .0026 * s, "yarn_cream", 4)
+
+
+def heart(x, y, r, angle=0):
+    points = []
+    for i in range(16):
+        t = tau * i / 16
+        u = 16 * sin(t)**3
+        v = 13 * cos(t) - 5 * cos(2 * t) - 2 * cos(3 * t) - cos(4 * t) + 2
+        points.append((x + r * (u * cos(angle) - v * sin(angle)) / 16, y + r * (u * sin(angle) + v * cos(angle)) / 16))
+    return points
+
+
+def star(x, y, r, angle=0):
+    return [(x + r * (1 if i % 2 == 0 else .52) * cos(angle + pi / 2 + pi * i / 5),
+             y + r * (1 if i % 2 == 0 else .52) * sin(angle + pi / 2 + pi * i / 5)) for i in range(10)]
+
+
+def stitched(c, x, y, s, z):
+    """A stitched felt shape: heart, star or scalloped blossom with a running stitch inside its edge."""
+    kind = c.spots % 3
+    r = .075 * s
+    angle = .5 * sin(c.spots)
+    points = (heart(x, y, r, angle), star(x, y, r * 1.1, angle), flower_shape(x, y, r * .9, 6, angle))[kind]
+    with c.piece(c.base, "deco", "stitch"):
+        c.felt(c.base, points, "felt_" + tone(c, FELT), start=z, end=z + .0065, place=level, fuzz=c.detail > 1)
+        c.running(c.base, inset(ccw(points), .014 * s), z + .0065, "yarn_" + tone(c, YARN, 4), cycle=True,
+                  place=level, spacing=.05, radius=.0018)
+
+
+def pom(c, x, y, s, z):
+    """Little felt pom-poms."""
+    with c.piece(c.base, "deco", "pom"):
+        for i in range(c.detail):
+            px, py = ring(c, x, y, i, .034 * s, .3)
+            c.tube(c.base, [(px, py, z + .0015), (px, py, z + .0085), (px, py, z + .0155)],
+                   (.0135 - .002 * i) * s, "felt_" + tone(c, FELT, 3 * i), 6)
+
+
+def cross(c, x, y, s, z):
+    """Cross-stitches: a short row of X marks."""
+    count = c.detail
+    with c.piece(c.base, "deco", "cross"):
+        for i in range(count):
+            px, py = x + s * .045 * (i - (count - 1) / 2), y + s * .012 * (-1)**i
+            h = .019 * s
+            color = "yarn_" + tone(c, YARN, i)
+            c.tube(c.base, [(px - h, py - h, z + .003), (px + h, py + h, z + .003)], .0024 * s, color, 3, caps=False)
+            c.tube(c.base, [(px - h, py + h, z + .0055), (px + h, py - h, z + .0055)], .0024 * s, color, 3, caps=False)
+
+
+MOTIFS = {"knot": knot, "sequin": sequin, "bead": bead, "button": button, "stitch": stitched, "pom": pom,
+          "cross": cross}
+
+
+def spot(c, x, ground, width, heading=0, z=.0015):
+    """A decoration where a part meets the page (was a cream glue rectangle, review L4).
+
+    The motif comes from the tile's own set, in turn, so a tile mixes its motifs; lean tiles (the river and
+    the bridge sit near the triangle budget) decorate every second spot with the lean version.
+    """
+    if not c.motifs:
+        return
+    index = c.spots
+    c.spots += 1
+    if c.lean and index % 2:
+        return
+    MOTIFS[c.motifs[index % len(c.motifs)]](
+        c, x + .043 * sin(heading), ground - .043 * cos(heading), max(.75, min(1.35, width / .15)), z)
+
+
 def mapped(points, x, y, sx, sy):
     return [(x + u * sx, y + v * sy) for u, v in points]
-
-
-def tab(c, x, ground, width, heading=0):
-    points = skew_rect(x + .043 * sin(heading), ground - .043 * cos(heading),
-                       width, .113, .045 + heading)
-    c.cut(c.base, points, 0, .004, "card_cream", side="card_core", bevel=.0007, place=level)
 
 
 def fold(c, rear, forward, height):
@@ -141,13 +406,13 @@ def grass(c, x, ground, scale, height, material, heading=0):
           .005, .009, "card_cream", side="card_core", bevel=.00065)
     c.felt(hinge, outline, "felt_" + material, start=.006, end=.018, stitch="yarn_cream")
     for u in (-.21, .22):
-        tab(c, x + u * scale * cos(heading), ground + u * scale * sin(heading),
+        spot(c, x + u * scale * cos(heading), ground + u * scale * sin(heading),
             scale * .23, heading)
 
 
 def bud(c, x, ground, height, shade, scale=1):
     hinge = c.hinge(x, ground)
-    tab(c, x, ground, .108 * scale)
+    spot(c, x, ground, .108 * scale)
     stem = leaf_outline(0, 0, .024, height, .052 * scale)
     c.cut(hinge, stem, .005, .009, "card_cream", side="card_core", bevel=.0006)
     c.felt(hinge, stem, "felt_leaf", start=.006, end=.018)
@@ -175,7 +440,7 @@ def hill(c, x, ground, width, height, shade, seed, heading=0):
     c.cut(hinge, backing, .005, .009, "card_cream", side="card_core", bevel=.00065)
     thread = "yarn_butter" if shade in {"violet", "lavender", "leaf"} else "yarn_plum"
     c.felt(hinge, points, "felt_" + shade, start=.008, end=.020, stitch=thread)
-    tab(c, x, ground, min(width * .34, .145), heading)
+    spot(c, x, ground, min(width * .34, .145), heading)
 
 
 def flower_shape(x, y, radius, lobes=5, spin=0):
@@ -213,21 +478,23 @@ def petal_lift(center, angle, reach, rx, ry, layer):
 def cupped_petal(c, hinge, center, angle, reach, rx, ry, shade, front_row):
     middle, frame, lift = petal_lift(center, angle, reach, rx, ry,
                                      PETAL_FRONT_ROW if front_row else 0)
+    # Follow-through (round 6): each petal hangs from a `sec_<k>` pivot at its inner end, authored at rest.
+    pivot = c.pivot(hinge, middle[0] - cos(angle) * rx * .85, middle[1] - sin(angle) * rx * .85)
     outline = oval(*middle, rx, ry, 22, angle)
-    c.shell(hinge, outline, middle, .007, .017, shade, lift)
+    c.shell(pivot, outline, middle, .007, .017, shade, lift)
     # Stitch only the rim that stays visible: the whole outer arc of the front row,
     # the tip of the back row.
     groove = [Vector(middle).lerp(Vector(p), .86) for p in outline]
     shown = -.38 if front_row else .12
     arc = [groove[j] for j in range(-len(groove) // 2, len(groove) // 2) if frame(groove[j])[0] > shown]
-    c.sew(hinge, arc, .017, "yarn_cream", place=lambda p, d: front(p, d + lift(p)),
+    c.sew(pivot, arc, .017, "yarn_cream", place=lambda p, d: front(p, d + lift(p)),
           spacing=.05, radius=.0026, rise=.0046, sink=.0026, caps=False)
 
 
 def cluster(c, x, ground, size, shifts, heading=0):
     """Three blossoms cut as a single page plane, with their own stems and petals."""
     hinge = c.hinge(x, ground, heading)
-    tab(c, x, ground, .115 * size, heading)
+    spot(c, x, ground, .115 * size, heading)
     for i, (u, v, shade) in enumerate(shifts):
         dx, dy = u * size, v * size
         stem = [(u * .22 * size - .012, .006), (u * .22 * size + .012, .006),
@@ -278,17 +545,151 @@ def applique(c, x, y, rx, ry, shade, seed, layer=0, stitched=False, steps=25):
               high, "yarn_cream", cycle=True, place=level, radius=.0025, spacing=.059)
 
 
+def appl_piece(c, x, y, rx, ry, shade, seed, layer, stitched=False, steps=28):
+    """One appliqué shape as an `appl_<k>` mesh node on layer 1-3 (review L4)."""
+    rng = Random(seed)
+    phase = rng.uniform(0, tau)
+    rx = min(rx, (.992 - abs(x)) / 1.062)
+    ry = min(ry, (.992 - abs(y)) / 1.062)
+    points = []
+    for i in range(steps):
+        t = tau * i / steps
+        r = .94 + .066 * sin(3 * t + phase) + .055 * cos(5 * t - phase)
+        points.append((x + rx * r * cos(t), y + ry * r * sin(t)))
+    low = .0004 + (layer - 1) * .001
+    high = low + .0019
+    with c.piece(c.base, "appl", layer=layer):
+        c.cut(c.base, points, low, high, "felt_" + shade, bevel=.0006, place=level)
+        if stitched:
+            c.running(c.base, [(x + (u - x) * .9, y + (v - y) * .9) for u, v in points], high, "yarn_cream",
+                      cycle=True, place=level, spacing=.056, radius=.0024)
+
+
 def felt_ground(c, seed, shades):
-    phase = Random(seed).uniform(-.085, .085)
-    applique(c, -.34, .31 + phase, .66, .65, shades[0], seed)
-    applique(c, .36, -.32 + phase, .64, .65, shades[1], seed + 1, layer=1)
-    applique(c, .31, .27, .56, .45, shades[2], seed + 2, layer=2)
-    applique(c, -.45, -.49, .42, .31, shades[1], seed + 3, layer=2, stitched=True)
+    """Three big felt shapes, stacked on three layers and overlapping, the upper two stitched down."""
+    rng = Random(seed)
+    jx, jy = rng.uniform(-.04, .04), rng.uniform(-.04, .04)
+    appl_piece(c, -.12 + jx, .16 + jy, .86, .80, shades[0], seed, 1)
+    appl_piece(c, .22 - jx, -.22 + jy, .82, .74, shades[1], seed + 1, 2, stitched=True)
+    appl_piece(c, .16 + jy, .40 - jx, .70, .56, shades[2], seed + 2, 3, stitched=True)
+
+
+def band(points, lo, hi):
+    """Clip a closed polygon to the vertical band lo <= x <= hi."""
+    def clip(polygon, keep, cross):
+        out = []
+        for a, b in zip(polygon, polygon[1:] + polygon[:1]):
+            if keep(a):
+                out.append(a)
+            if keep(a) != keep(b):
+                out.append(cross(a, b))
+        return out
+
+    def at(x):
+        return lambda a, b: a.lerp(b, (x - a.x) / (b.x - a.x))
+
+    polygon = [Vector(p) for p in points]
+    polygon = clip(polygon, lambda p: p.x >= lo, at(lo))
+    return clip(polygon, lambda p: p.x <= hi, at(hi))
+
+
+def centroid(points):
+    area = cx = cy = 0
+    for a, b in zip(points, points[1:] + points[:1]):
+        cross_ = a.x * b.y - b.x * a.y
+        area += cross_
+        cx += (a.x + b.x) * cross_
+        cy += (a.y + b.y) * cross_
+    return Vector((cx / (3 * area), cy / (3 * area)))
+
+
+def inside(points, p, margin=0):
+    """Point in polygon, with a margin from every edge."""
+    q = Vector((p[0], p[1]))
+    hit = False
+    for a, b in zip(points, points[1:] + points[:1]):
+        if (a.y > q.y) != (b.y > q.y) and q.x < a.x + (q.y - a.y) / (b.y - a.y) * (b.x - a.x):
+            hit = not hit
+        ab = b - a
+        t = max(0, min(1, (q - a).dot(ab) / ab.length_squared))
+        if (q - (a + ab * t)).length < margin:
+            return False
+    return hit
+
+
+def pillow(outline, bulge, reach=.15):
+    """Stuffed felt: the front rises to `bulge` over `reach` from the edge, the back stays flat."""
+    pairs = list(zip(outline, outline[1:] + outline[:1]))
+
+    def lift(p, top=True):
+        if not top:
+            return 0
+        q = Vector((p[0], p[1]))
+        edge = min((q - (a + (b - a) * max(0, min(1, (q - a).dot(b - a) / (b - a).length_squared)))).length
+                   for a, b in pairs)
+        return bulge * sin(min(1, edge / reach) * pi / 2)
+    return lift
+
+
+def domed(lift):
+    return lambda p, d: front(p, d + lift(p))
+
+
+class Card:
+    def __init__(self, parent, lift, shift, low, high, outline):
+        self.parent, self.lift, self.shift, self.low, self.high = parent, lift, shift, low, high
+        self.place = domed(lift)
+        self.outline = outline
+
+    def local(self, p):
+        return (p[0] - self.shift, p[1])
+
+    def holds(self, x, margin=0):
+        return self.low + margin <= x <= self.high - margin
+
+
+def dome_cap(c, x0, ground, outline, seams, felt, *, rim, tilt=radians(37), bulge=.035, decorate=None):
+    """A felt cap as three stuffed cards fanned around the vertical (review L5, contract "Round 6").
+
+    The outline is in the hinge frame of x0, already scaled. The centre card faces the front; the side
+    cards hang from their own yawed hinges at the seams, so the normals span 2 x tilt (74° here) upright, and
+    every card folds flat on its own hinge (no part stands up when flat). Each card gets a paper stalk to the
+    page, behind the felt, where the old cap hung from the runtime's tie.
+    """
+    lo, hi = seams
+    xs = [p[0] for p in outline]
+    edges = (min(xs) - .001, lo, hi, max(xs) + .001)
+    depth = -ground
+    cards = []
+    for k, (a, b) in enumerate(zip(edges, edges[1:])):
+        if k == 1:
+            hinge, shift = c.hinge(x0 + lo, ground), lo
+        elif k == 2:
+            hinge, shift = c.hinge(x0 + hi, ground, tilt), hi
+        else:
+            run = lo - edges[0]
+            hinge, shift = c.hinge(x0 + lo - run * cos(tilt), -(depth - run * sin(tilt)), -tilt), edges[0]
+        local = ccw([Vector((p.x - shift, p.y)) for p in band(outline, a, b)])
+        card = Card(c.dome(hinge), pillow(local, bulge), shift, a, b, local)
+        middle = centroid(local)
+        if rim:
+            c.cut(card.parent, inset(local, -.010), .005, .0078, rim, bevel=.0006)
+        c.shell(card.parent, local, middle, .008, .020, felt, card.lift, rings=(.4, .68, .85, .94))
+        c.running(card.parent, inset(local, .022), .020, "yarn_cream", cycle=True, place=card.place,
+                  spacing=.05, radius=.0022)
+        mid = (min(p.x for p in local) + max(p.x for p in local)) / 2
+        top = min(p.y for p in local) + .15
+        c.cut(card.parent, [(mid - .075, 0), (mid + .075, 0), (mid + .065, top), (mid - .065, top)],
+              .0035, .0075, "card_cream", side="card_core", bevel=.0007)
+        if decorate:
+            decorate(card)
+        cards.append(card)
+    return cards
 
 
 def bells(c, x, ground, height, shade, heading, direction=1):
     hinge = c.hinge(x, ground, heading)
-    tab(c, x, ground, .16, heading)
+    spot(c, x, ground, .16, heading)
 
     def shape(points):
         return mapped(points, 0, 0, .88 * direction, height)
@@ -355,8 +756,8 @@ def flower(c):
     fold(c, (-.50, .13), (-.09, front_y), 1.04)
     fold(c, (.48, .06), (.035, front_y), .93)
     display = c.hinge(-.035, front_y)
-    tab(c, -.13, front_y, .17)
-    tab(c, .095, front_y, .17)
+    spot(c, -.13, front_y, .17)
+    spot(c, .095, front_y, .17)
     stem = curves((-.084, .007), [
         ((-.075, .35), (-.16, .61), (-.049, 1.16)),
         ((-.021, 1.22), (.055, 1.2), (.063, 1.15)),
@@ -405,8 +806,8 @@ def mushroom_house(c):
     fold(c, (.59, .13), (.181, front_y), 1.02)
     fold(c, (-.52, .05), (-.255, front_y), .82)
     h = c.hinge(-.045, front_y)
-    tab(c, -.31, front_y, .18)
-    tab(c, .25, front_y, .18)
+    spot(c, -.31, front_y, .18)
+    spot(c, .25, front_y, .18)
     stem = curves((-.385, .014), [
         ((-.35, .27), (-.22, .56), (-.27, .92)),
         ((-.17, 1.04), (.19, 1.03), (.27, .88)),
@@ -416,16 +817,18 @@ def mushroom_house(c):
     c.cut(h, mapped(stem, 0, -.004, 1.07, 1.015), .005, .009, "card_cream",
           side="card_core", bevel=.0008)
     c.felt(h, stem, "felt_cream", stitch="yarn_orange")
+    # Follow-through (round 6): the door swings on its own pivot at its base, authored at rest.
+    swing = c.pivot(h, -.01, .04)
     door = curves((-.183, .035), [
         ((-.183, .148), (-.162, .354), (-.123, .414)),
         ((-.071, .505), (.067, .494), (.105, .398)),
         ((.157, .295), (.149, .115), (.162, .039)),
         ((.075, .020), (-.076, .025), (-.183, .035)),
     ], 7)
-    c.felt(h, door, "felt_violet", start=.013, end=.025, stitch="yarn_butter")
-    c.tube(h, [front((-.005, .047), .0252), front((-.011, .365), .0252)], .0017,
+    c.felt(swing, door, "felt_violet", start=.013, end=.025, stitch="yarn_butter")
+    c.tube(swing, [front((-.005, .047), .0252), front((-.011, .365), .0252)], .0017,
            "yarn_lavender", 4)
-    c.felt(h, oval(.092, .219, .024, .024, 12), "felt_orange", start=.015, end=.027)
+    c.felt(swing, oval(.092, .219, .024, .024, 12), "felt_orange", start=.015, end=.027)
     c.felt(h, oval(.158, .588, .098, .102, 22, -.12), "felt_tomato", start=.012, end=.024)
     c.cut(h, oval(.158, .588, .074, .077, 20), .024, .026, "card_butter", bevel=.00045)
     for a, b in [((.087, .592), (.224, .578)), ((.153, .515), (.168, .658))]:
@@ -434,7 +837,6 @@ def mushroom_house(c):
     c.scale_card(h, 1.11, 1.18)
     # A wedge under each wall of the wide house, splayed outward on the page.
     side_braces(c, [(-.42, front_y - .025), (.32, front_y - .025)], .42, .43, .52)
-    roof = c.hinge(-.045, -.60)
     cap = curves((-.588, .758), [
         ((-.558, .938), (-.332, 1.23), (-.152, 1.331)),
         ((.003, 1.448), (.239, 1.485), (.373, 1.318)),
@@ -443,13 +845,22 @@ def mushroom_house(c):
         ((.142, .927), (-.214, .867), (-.429, .741)),
         ((-.521, .681), (-.608, .683), (-.588, .758)),
     ], 8)
-    c.felt(roof, cap, "felt_tomato", start=.008, end=.020, rim="glitter_rim", stitch="yarn_cream")
-    for x, y, rx, ry in [(-.359, .914, .056, .047), (-.239, 1.093, .075, .067),
-                         (-.02, 1.239, .063, .063), (.228, 1.333, .054, .049),
-                         (.357, 1.123, .079, .074), (.491, .943, .046, .043),
-                         (.132, 1.025, .040, .045)]:
-        c.felt(roof, oval(x, y, rx, ry, 17, -.2), "felt_cream", start=.014, end=.026)
-    c.scale_card(roof, 1.19, 1.18)
+    cap = [Vector((p.x * 1.19, p.y * 1.18)) for p in cap]
+    # Cream dots, laid out per card so none crosses a seam (x, y, rx, ry in the scaled hinge frame).
+    dots = [(-.50, 1.02, .068, .058), (-.40, 1.22, .075, .066), (-.12, 1.40, .074, .068), (.12, 1.52, .062, .058),
+            (.14, 1.17, .05, .052), (.46, 1.36, .088, .082), (.62, 1.14, .06, .056)]
+
+    def decorate(card):
+        for x, y, rx, ry in dots:
+            if not card.holds(x, rx + .02):
+                continue
+            where = card.local((x, y))
+            if not inside(card.outline, where, min(rx, ry) * .6):
+                raise ValueError(f"cap dot ({x}, {y}) is not inside its card")
+            c.felt(card.parent, oval(*where, rx, ry, 12, -.2), "felt_cream", start=.014, end=.026,
+                   place=card.place)
+
+    dome_cap(c, -.045, -.60, cap, (-.28, .30), "felt_tomato", rim="glitter_rim", decorate=decorate)
     felt_ground(c, 19, ("seafoam", "fern", "lilac_ground"))
     grass(c, .75, -.47, .36, .52, "mint", -.31)
     bud(c, -.69, -.14, .31, "lavender", 1.0)
@@ -459,13 +870,22 @@ def mushroom_house(c):
     bells(c, .72, -.19, .69, "lavender", -.26, -1)
 
 
+def densify(points, step=.04):
+    out = [Vector(points[0])]
+    for a, b in zip(points, points[1:]):
+        a, b = Vector(a), Vector(b)
+        n = max(1, round((b - a).length / step))
+        out.extend(a.lerp(b, i / n) for i in range(1, n + 1))
+    return out
+
+
 def cupcake_tree(c):
     front_y = -.515
     fold(c, (-.54, .12), (-.105, front_y), 1.01)
     fold(c, (.52, .11), (.14, front_y), .92)
     h = c.hinge(.025, front_y)
-    tab(c, -.12, front_y, .16)
-    tab(c, .17, front_y, .17)
+    spot(c, -.12, front_y, .16)
+    spot(c, .17, front_y, .17)
     trunk = curves((-.129, .009), [
         ((-.127, .232), (-.062, .56), (-.144, .81)),
         ((-.088, .907), (.123, .892), (.158, .81)),
@@ -489,7 +909,6 @@ def cupcake_tree(c):
               .020, .023, "card_butter", side="card_core", bevel=.0006)
     c.scale_card(h, 1.16, 1.10)
     v_brace(c, (.033, front_y - .02), .44, .43, .79)
-    ice = c.hinge(.025, -.63)
     frosting = curves((-.487, .881), [
         ((-.569, .95), (-.474, 1.067), (-.407, 1.067)),
         ((-.49, 1.17), (-.329, 1.253), (-.281, 1.206)),
@@ -504,22 +923,41 @@ def cupcake_tree(c):
         ((-.164, .865), (-.247, .918), (-.304, .861)),
         ((-.372, .811), (-.448, .851), (-.487, .881)),
     ], 5)
-    c.felt(ice, frosting, "felt_pink", start=.007, end=.019, stitch="yarn_cream",
-           rim="glitter_sugar")
-    for seam in [[(-.32, 1.113), (-.229, 1.073), (-.063, 1.06), (.087, 1.083), (.253, 1.118)],
-                 [(-.173, 1.265), (-.051, 1.218), (.083, 1.215), (.231, 1.247)]]:
-        c.sew(ice, seam, .021, "yarn_hot_pink", radius=.0029)
+    scaled = lambda p: Vector((p[0] * 1.29, p[1] * 1.075))
+    frosting = [scaled(p) for p in frosting]
+    seams = [densify([scaled(p) for p in line]) for line in (
+        [(-.32, 1.113), (-.229, 1.073), (-.063, 1.06), (.087, 1.083), (.253, 1.118)],
+        [(-.173, 1.265), (-.051, 1.218), (.083, 1.215), (.231, 1.247)])]
+    # The same 27 sprinkles as before (same random draws), placed on whichever card holds them.
     rng = Random(75)
+    sprinkles = []
     for i in range(27):
         y = rng.uniform(.925, 1.405)
         x = rng.uniform(-1, 1) * (.42 - .28 * (y - .94) / .46)
         angle = rng.uniform(-pi, pi)
         mat = ("felt_butter", "felt_mint", "felt_violet", "glitter_rim", "felt_tomato")[i % 5]
-        c.cut(ice, oval(x, y, .023, .008, 9, angle), .019, .024, mat, bevel=0)
-    c.felt(ice, oval(.055, 1.497, .075, .080, 21), "felt_tomato", start=.008, end=.020)
-    c.tube(ice, [front((.06, 1.55), .011), front((.072, 1.583), .012),
-                 front((.111, 1.602), .012)], .006, "yarn_leaf", 5)
-    c.scale_card(ice, 1.29, 1.075)
+        sprinkles.append((scaled((x, y)), angle, mat))
+    cherry = (scaled((.055, 1.497)), .075 * 1.29, .080 * 1.075)
+
+    def decorate(card):
+        for line in seams:
+            part = [p for p in line if card.holds(p.x, .03)]
+            if len(part) > 2:
+                c.running(card.parent, [card.local(p) for p in part], .021, "yarn_hot_pink",
+                          place=card.place, spacing=.05, radius=.0029)
+        for where, angle, mat in sprinkles:
+            local = card.local(where)
+            if card.holds(where.x, .045) and inside(card.outline, local, .02):
+                c.cut(card.parent, oval(*local, .023 * 1.29, .008 * 1.075, 9, angle), .019, .024, mat, bevel=0,
+                      place=card.place)
+        (cx, cy), rx, ry = cherry
+        if card.holds(cx, rx):
+            c.felt(card.parent, oval(*card.local((cx, cy)), rx, ry, 21), "felt_tomato", start=.008, end=.020,
+                   place=card.place)
+            stem = [((.06, 1.55), .011), ((.072, 1.583), .012), ((.111, 1.602), .012)]
+            c.tube(card.parent, [card.place(card.local(scaled(p)), d) for p, d in stem], .006, "yarn_leaf", 5)
+
+    dome_cap(c, .025, -.63, frosting, (-.28, .30), "felt_pink", rim="glitter_sugar", decorate=decorate)
     felt_ground(c, 27, ("sage", "moss", "seafoam"))
     grass(c, -.72, -.63, .46, .56, "lime", -.31)
     bud(c, .66, -.68, .31, "hot_pink", 1.0)
@@ -706,7 +1144,7 @@ def bridge(c):
         y = side * (BRIDGE_HALF - .03) + rail_depth
         rail = c.hinge(0, y)
         for x in (-.66, -.33, .33, .66):
-            tab(c, x, y, .095)
+            spot(c, x, y, .095)
             bottom = arch(x) - .006
             top = arch(x) + .205
             end_post = abs(x) > .5
@@ -739,32 +1177,41 @@ def page(c, alternate):
 
 
 def page_decor(c, variant):
-    # A corner of torn paper, a hand-sewn applique and one skewed piece of tape.
+    # A corner of torn paper, a hand-sewn appliqué and one skewed piece of tape: layered `appl_<k>` pieces
+    # (review L4, 1.28x linear, 1.64x the area), then two small decorations on the paper.
     x, y, angle, felt, tape = {
-        'a': (-.61, -.59, .36, "mint", "pink"),
-        'b': (.60, -.62, -.59, "lavender", "sky"),
-        'c': (-.52, .61, -.29, "lime", "lavender"),
+        'a': (-.55, -.54, .36, "mint", "pink"),
+        'b': (.55, -.56, -.59, "lavender", "sky"),
+        'c': (-.47, .55, -.29, "lime", "lavender"),
     }[variant]
+    grow = 1.28
     rng = Random(ord(variant))
     paper = []
     for i in range(28):
         t = i * tau / 28
         wobble = rng.uniform(.92, 1.05)
-        paper.append((x + .268 * wobble * cos(t), y + .17 * wobble * sin(t)))
-    c.cut(c.base, paper, .0007, .0049, "card_core", bevel=.00062, place=level)
-    top = [(x + .045 + (u - x) * .83, y - .016 + (v - y) * .84) for u, v in paper]
-    c.cut(c.base, top, .0048, .0088, "card_cream", side="card_core", bevel=.00065, place=level)
-    patch = oval(x + .065, y + .018, .148, .095, 20, angle)
-    c.felt(c.base, patch, "felt_" + felt, start=.006, end=.018, stitch="yarn_plum", place=level)
-    tape_x, tape_y = x - .08, y - .086
-    c.cut(c.base, skew_rect(tape_x, tape_y, .33, .15, angle + .44), .009, .012,
-          "card_washi_" + tape, bevel=.00055, place=level)
-    for i in (-3, -1, 1, 3):
-        a = angle + .44
-        dx = i * .038
-        thread = [(tape_x + dx * cos(a) - dy * sin(a), tape_y + dx * sin(a) + dy * cos(a))
-                  for dy in (-.061, .061)]
-        c.tube(c.base, [level(p, .0121) for p in thread], .00085, "card_core", sides=4)
+        paper.append((x + .268 * grow * wobble * cos(t), y + .17 * grow * wobble * sin(t)))
+    top = [(x + .045 * grow + (u - x) * .83, y - .016 * grow + (v - y) * .84) for u, v in paper]
+    patch = oval(x + .065 * grow, y + .018 * grow, .148 * grow, .095 * grow, 20, angle)
+    with c.piece(c.base, "appl", layer=1):
+        c.cut(c.base, paper, .0007, .0049, "card_core", bevel=.00062, place=level)
+    with c.piece(c.base, "appl", layer=2):
+        c.cut(c.base, top, .0048, .0088, "card_cream", side="card_core", bevel=.00065, place=level)
+    with c.piece(c.base, "appl", layer=3):
+        c.felt(c.base, patch, "felt_" + felt, start=.006, end=.018, stitch="yarn_plum", place=level)
+    tape_x, tape_y = x - .08 * grow, y - .086 * grow
+    with c.piece(c.base, "appl", layer=3):
+        c.cut(c.base, skew_rect(tape_x, tape_y, .33 * grow, .15 * grow, angle + .44), .009, .012,
+              "card_washi_" + tape, bevel=.00055, place=level)
+        for i in (-3, -1, 1, 3):
+            a = angle + .44
+            dx = i * .038 * grow
+            thread = [(tape_x + dx * cos(a) - dy * sin(a), tape_y + dx * sin(a) + dy * cos(a))
+                      for dy in (-.061 * grow, .061 * grow)]
+            c.tube(c.base, [level(p, .0121) for p in thread], .00085, "card_core", sides=4)
+    for dx, dy in ((-.19, .06), (.22, -.075)):
+        c.spots += 1
+        MOTIFS[c.motifs[c.spots % len(c.motifs)]](c, x + dx, y + dy, .9, .0092)
 
 
 def gutter(c):
@@ -810,3 +1257,38 @@ TILES = {
     "page_deco_c": lambda c: page_decor(c, 'c'),
     "gutter": gutter,
 }
+
+
+# Decoration motifs per tile (review L4). The sets are chosen so that, with the runtime's placement rules, no
+# motif lands on more than 40 % of decorated cells (the inspector replays the placement on 20 seeds).
+TILE_MOTIFS = {
+    "flower": ("sequin", "bead"),
+    "cupcake_tree": ("pom", "cross"),
+    "mushroom_house": ("knot", "cross"),
+    "meadow": ("bead", "sequin"),
+    "meadow_a": ("button", "knot"),
+    "meadow_b": ("bead", "sequin"),
+    "meadow_c": ("pom", "stitch"),
+    "path_straight": ("stitch",),
+    "path_corner": ("knot",),
+    "river_straight": ("pom",),
+    "river_corner": ("sequin",),
+    "yarn_bridge": ("bead",),
+    "page_deco_a": ("button",),
+    "page_deco_b": ("button",),
+    "page_deco_c": ("stitch",),
+}
+# Tiles near the 15k triangle budget decorate every second spot, with the smallest version of each motif.
+LEAN = {"river_straight", "river_corner", "yarn_bridge"}
+# Detail 3 draws every element of a motif; props and the busier tiles draw fewer.
+DETAIL = {"flower": 2, "mushroom_house": 2, "cupcake_tree": 2}
+
+
+def build(name, materials):
+    craft = TileCraft(name, materials)
+    craft.motifs = TILE_MOTIFS.get(name, ())
+    craft.lean = name in LEAN
+    craft.detail = 1 if craft.lean else DETAIL.get(name, 3)
+    TILES[name](craft)
+    craft.finish()
+    return craft

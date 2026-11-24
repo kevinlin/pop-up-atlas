@@ -1,260 +1,6 @@
 {
   "version": 1,
   "cues": {
-    "voice_lead": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "a",
-      "files": [
-        {
-          "src": "voice_lead-1.mp3",
-          "duration": 1.6334920634920636
-        },
-        {
-          "src": "voice_lead-2.mp3",
-          "duration": 1.1607256235827665
-        },
-        {
-          "src": "voice_lead-3.mp3",
-          "duration": 1.1589342403628118
-        }
-      ]
-    },
-    "b_voice_hup": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_hup-1.mp3",
-          "duration": 1.9905215419501134
-        },
-        {
-          "src": "b_voice_hup-2.mp3",
-          "duration": 1.7841496598639455
-        },
-        {
-          "src": "b_voice_hup-3.mp3",
-          "duration": 1.27281179138322
-        }
-      ]
-    },
-    "b_voice_hm": {
-      "kind": "voice",
-      "gain": 0.6,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_hm-1.mp3",
-          "duration": 1.1193197278911564
-        },
-        {
-          "src": "b_voice_hm-2.mp3",
-          "duration": 0.7742630385487528
-        }
-      ]
-    },
-    "b_voice_hmph": {
-      "kind": "voice",
-      "gain": 0.75,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_hmph-1.mp3",
-          "duration": 1.3700680272108843
-        },
-        {
-          "src": "b_voice_hmph-2.mp3",
-          "duration": 0.9414739229024943
-        },
-        {
-          "src": "b_voice_hmph-3.mp3",
-          "duration": 0.678843537414966
-        }
-      ]
-    },
-    "b_voice_eep": {
-      "kind": "voice",
-      "gain": 0.75,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_eep-1.mp3",
-          "duration": 0.9572562358276644
-        },
-        {
-          "src": "b_voice_eep-2.mp3",
-          "duration": 1.3750113378684807
-        }
-      ]
-    },
-    "b_voice_ooh": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_ooh-1.mp3",
-          "duration": 1.961655328798186
-        },
-        {
-          "src": "b_voice_ooh-2.mp3",
-          "duration": 1.643015873015873
-        },
-        {
-          "src": "b_voice_ooh-3.mp3",
-          "duration": 1.6577551020408163
-        }
-      ]
-    },
-    "b_voice_giggle": {
-      "kind": "voice",
-      "gain": 0.75,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_giggle-1.mp3",
-          "duration": 1.364829931972789
-        },
-        {
-          "src": "b_voice_giggle-2.mp3",
-          "duration": 1.5945351473922902
-        },
-        {
-          "src": "b_voice_giggle-3.mp3",
-          "duration": 1.3594331065759637
-        }
-      ]
-    },
-    "b_voice_whee": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_whee-1.mp3",
-          "duration": 1.6960090702947845
-        },
-        {
-          "src": "b_voice_whee-2.mp3",
-          "duration": 1.3351020408163266
-        },
-        {
-          "src": "b_voice_whee-3.mp3",
-          "duration": 1.3504988662131518
-        }
-      ]
-    },
-    "b_voice_lead": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_voice_lead-1.mp3",
-          "duration": 1.0612698412698414
-        },
-        {
-          "src": "b_voice_lead-2.mp3",
-          "duration": 1.1004988662131518
-        },
-        {
-          "src": "b_voice_lead-3.mp3",
-          "duration": 1.769455782312925
-        }
-      ]
-    },
-    "b_sing_hum": {
-      "kind": "voice",
-      "gain": 0.7,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_sing_hum-1.mp3",
-          "duration": 0.35,
-          "baseMidi": 57.26928876089386
-        },
-        {
-          "src": "b_sing_hum-2.mp3",
-          "duration": 0.35,
-          "baseMidi": 58.00639094348472
-        },
-        {
-          "src": "b_sing_hum-3.mp3",
-          "duration": 0.35,
-          "baseMidi": 58.927208176925355
-        },
-        {
-          "src": "b_sing_hum-4.mp3",
-          "duration": 0.35,
-          "baseMidi": 68.15217569014433
-        },
-        {
-          "src": "b_sing_hum-5.mp3",
-          "duration": 0.35,
-          "baseMidi": 57.01378806710129
-        },
-        {
-          "src": "b_sing_hum-6.mp3",
-          "duration": 0.35,
-          "baseMidi": 59.60222704972235
-        },
-        {
-          "src": "b_sing_hum-7.mp3",
-          "duration": 0.35,
-          "baseMidi": 58.86035796134014
-        },
-        {
-          "src": "b_sing_hum-8.mp3",
-          "duration": 0.35,
-          "baseMidi": 66.98254384965968
-        }
-      ]
-    },
-    "b_sing_ta": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_sing_ta-1.mp3",
-          "duration": 0.4,
-          "baseMidi": 62.588116265010065
-        },
-        {
-          "src": "b_sing_ta-2.mp3",
-          "duration": 0.4,
-          "baseMidi": 61.95431858135457
-        }
-      ]
-    },
-    "b_sing_da": {
-      "kind": "voice",
-      "gain": 0.8,
-      "who": "b",
-      "files": [
-        {
-          "src": "b_sing_da-1.mp3",
-          "duration": 0.4,
-          "baseMidi": 61.62234937893099
-        },
-        {
-          "src": "b_sing_da-2.mp3",
-          "duration": 0.4,
-          "baseMidi": 60.892143890285034
-        },
-        {
-          "src": "b_sing_da-3.mp3",
-          "duration": 0.4,
-          "baseMidi": 68.93790951277552
-        },
-        {
-          "src": "b_sing_da-4.mp3",
-          "duration": 0.4,
-          "baseMidi": 58.626067027440214
-        }
-      ]
-    },
     "fold_flower": {
       "kind": "sfx",
       "gain": 0.55,
@@ -594,218 +340,550 @@
     "voice_hup": {
       "kind": "voice",
       "gain": 0.8,
+      "who": "a",
       "files": [
         {
           "src": "voice_hup-1.mp3",
-          "duration": 0.7618367346938776
+          "duration": 0.7555328798185941,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_hup-2.mp3",
-          "duration": 0.6142630385487529
+          "duration": 0.6633560090702948,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_hup-3.mp3",
-          "duration": 0.998639455782313
+          "duration": 1.035079365079365,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "voice_hm": {
       "kind": "voice",
       "gain": 0.6,
+      "who": "a",
       "files": [
         {
           "src": "voice_hm-1.mp3",
-          "duration": 1.188639455782313
+          "duration": 1.2126303854875284,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_hm-2.mp3",
-          "duration": 1.0626530612244898
+          "duration": 0.9924263038548753,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "voice_hmph": {
       "kind": "voice",
       "gain": 0.75,
+      "who": "a",
       "files": [
         {
           "src": "voice_hmph-1.mp3",
-          "duration": 0.8453061224489796
+          "duration": 0.9726530612244898,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_hmph-2.mp3",
-          "duration": 1.176575963718821
+          "duration": 1.2226984126984126,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_hmph-3.mp3",
-          "duration": 0.8556235827664399
+          "duration": 0.8898639455782313,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "voice_eep": {
       "kind": "voice",
       "gain": 0.75,
+      "who": "a",
       "files": [
         {
           "src": "voice_eep-1.mp3",
-          "duration": 0.761655328798186
+          "duration": 0.7336281179138322,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_eep-2.mp3",
-          "duration": 0.7530385487528345
+          "duration": 0.7597278911564626,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "voice_ooh": {
       "kind": "voice",
       "gain": 0.8,
+      "who": "a",
       "files": [
         {
           "src": "voice_ooh-1.mp3",
-          "duration": 1.5031746031746032
+          "duration": 1.3352607709750568,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_ooh-2.mp3",
-          "duration": 1.1479138321995466
+          "duration": 1.1638321995464853,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_ooh-3.mp3",
-          "duration": 1.4938548752834466
+          "duration": 1.456734693877551,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "voice_giggle": {
       "kind": "voice",
       "gain": 0.75,
+      "who": "a",
       "files": [
         {
           "src": "voice_giggle-1.mp3",
-          "duration": 1.9303401360544217
+          "duration": 1.9425850340136055,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_giggle-2.mp3",
-          "duration": 1.7031292517006802
+          "duration": 1.618095238095238,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_giggle-3.mp3",
-          "duration": 1.6165986394557823
+          "duration": 1.7131972789115646,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "voice_whee": {
       "kind": "voice",
       "gain": 0.8,
+      "who": "a",
       "files": [
         {
           "src": "voice_whee-1.mp3",
-          "duration": 1.487437641723356
+          "duration": 1.4575736961451247,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_whee-2.mp3",
-          "duration": 1.4639455782312925
+          "duration": 1.3404988662131518,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "voice_whee-3.mp3",
-          "duration": 1.278888888888889
+          "duration": 1.2411791383219954,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "sing_hum": {
       "kind": "voice",
       "gain": 0.7,
+      "who": "a",
       "files": [
         {
           "src": "sing_hum-1.mp3",
           "duration": 0.35,
-          "baseMidi": 62.02851556615075
+          "baseMidi": 61.66428684982294,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_hum-2.mp3",
           "duration": 0.35,
-          "baseMidi": 60.23548949521034
+          "baseMidi": 58.142577168506165,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_hum-3.mp3",
-          "duration": 0.3283673469387755,
-          "baseMidi": 68.2789117424329
-        },
-        {
-          "src": "sing_hum-4.mp3",
           "duration": 0.35,
-          "baseMidi": 75.09652574520896
+          "baseMidi": 69.53106603035016,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_hum-5.mp3",
           "duration": 0.35,
-          "baseMidi": 61.808065021916164
+          "baseMidi": 62.25041580140952,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_hum-6.mp3",
           "duration": 0.35,
-          "baseMidi": 60.03338029057933
+          "baseMidi": 59.76072856721578,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        },
+        {
+          "src": "sing_hum-7.mp3",
+          "duration": 0.35,
+          "baseMidi": 68.488893843261,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_hum-8.mp3",
           "duration": 0.35,
-          "baseMidi": 77.54392645605759
+          "baseMidi": 74.93853169077543,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        },
+        {
+          "src": "sing_hum-9.mp3",
+          "duration": 0.35,
+          "baseMidi": 73.41106583344826,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        },
+        {
+          "src": "sing_hum-10.mp3",
+          "duration": 0.35,
+          "baseMidi": 75.41240190236434,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "sing_ta": {
       "kind": "voice",
       "gain": 0.8,
+      "who": "a",
       "files": [
         {
           "src": "sing_ta-1.mp3",
-          "duration": 0.3993424036281179,
-          "baseMidi": 71.15704853906725
+          "duration": 0.4,
+          "baseMidi": 71.19755001168716,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_ta-2.mp3",
           "duration": 0.4,
-          "baseMidi": 70.81695997241853
+          "baseMidi": 71.68437676962435,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        },
+        {
+          "src": "sing_ta-3.mp3",
+          "duration": 0.4,
+          "baseMidi": 70.94143543717936,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_ta-4.mp3",
-          "duration": 0.4,
-          "baseMidi": 71.07950680241673
+          "duration": 0.3302947845804989,
+          "baseMidi": 69.45006669241965,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
     },
     "sing_da": {
       "kind": "voice",
       "gain": 0.8,
+      "who": "a",
       "files": [
-        {
-          "src": "sing_da-1.mp3",
-          "duration": 0.3995918367346939,
-          "baseMidi": 71.34657588602904
-        },
         {
           "src": "sing_da-2.mp3",
           "duration": 0.4,
-          "baseMidi": 70.87033304231353
+          "baseMidi": 68.34773441735497,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_da-3.mp3",
           "duration": 0.4,
-          "baseMidi": 71.03433909440254
+          "baseMidi": 70.91131887361315,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         },
         {
           "src": "sing_da-4.mp3",
           "duration": 0.4,
-          "baseMidi": 71.38994674283398
+          "baseMidi": 71.17962801273136,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
         }
-      ],
-      "who": "a"
+      ]
+    },
+    "voice_lead": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "a",
+      "files": [
+        {
+          "src": "voice_lead-1.mp3",
+          "duration": 1.6071201814058957,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        },
+        {
+          "src": "voice_lead-2.mp3",
+          "duration": 1.225578231292517,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        },
+        {
+          "src": "voice_lead-3.mp3",
+          "duration": 1.153265306122449,
+          "voice_id": "oCGHEdeRZrgta02E5y2S"
+        }
+      ]
+    },
+    "b_voice_hup": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_hup-1.mp3",
+          "duration": 1.960249433106576,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_hup-2.mp3",
+          "duration": 1.798140589569161,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_hup-3.mp3",
+          "duration": 1.1609750566893424,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_hm": {
+      "kind": "voice",
+      "gain": 0.6,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_hm-1.mp3",
+          "duration": 1.1920181405895691,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_hm-2.mp3",
+          "duration": 0.7870294784580499,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_hmph": {
+      "kind": "voice",
+      "gain": 0.75,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_hmph-1.mp3",
+          "duration": 1.5628798185941044,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_hmph-2.mp3",
+          "duration": 0.9854421768707483,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_hmph-3.mp3",
+          "duration": 1.4592290249433106,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_eep": {
+      "kind": "voice",
+      "gain": 0.75,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_eep-1.mp3",
+          "duration": 0.9140816326530612,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_eep-2.mp3",
+          "duration": 1.0856462585034015,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_ooh": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_ooh-1.mp3",
+          "duration": 2.0821995464852607,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_ooh-2.mp3",
+          "duration": 1.8070521541950113,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_ooh-3.mp3",
+          "duration": 1.92,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_giggle": {
+      "kind": "voice",
+      "gain": 0.75,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_giggle-1.mp3",
+          "duration": 1.3877324263038548,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_giggle-2.mp3",
+          "duration": 1.9341269841269841,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_giggle-3.mp3",
+          "duration": 1.452721088435374,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_whee": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_whee-1.mp3",
+          "duration": 1.7254648526077097,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_whee-2.mp3",
+          "duration": 1.4297052154195011,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_whee-3.mp3",
+          "duration": 1.2243537414965986,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_voice_lead": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_voice_lead-1.mp3",
+          "duration": 1.0734920634920635,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_lead-2.mp3",
+          "duration": 1.1654648526077098,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_voice_lead-3.mp3",
+          "duration": 2.079909297052154,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_sing_hum": {
+      "kind": "voice",
+      "gain": 0.7,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_sing_hum-1.mp3",
+          "duration": 0.35,
+          "baseMidi": 58.62120533079848,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_hum-2.mp3",
+          "duration": 0.35,
+          "baseMidi": 59.22585321450245,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_hum-3.mp3",
+          "duration": 0.35,
+          "baseMidi": 59.73145477492195,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_hum-4.mp3",
+          "duration": 0.35,
+          "baseMidi": 69.60440264954532,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_hum-5.mp3",
+          "duration": 0.35,
+          "baseMidi": 57.3689829867973,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_hum-6.mp3",
+          "duration": 0.35,
+          "baseMidi": 59.697335500120786,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_hum-7.mp3",
+          "duration": 0.35,
+          "baseMidi": 60.03851851780536,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_sing_ta": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_sing_ta-1.mp3",
+          "duration": 0.4,
+          "baseMidi": 64.42301200669469,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_ta-2.mp3",
+          "duration": 0.35775510204081634,
+          "baseMidi": 61.78163031467926,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_ta-3.mp3",
+          "duration": 0.4,
+          "baseMidi": 69.51553076536187,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_ta-4.mp3",
+          "duration": 0.4,
+          "baseMidi": 60.36697649337816,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
+    },
+    "b_sing_da": {
+      "kind": "voice",
+      "gain": 0.8,
+      "who": "b",
+      "files": [
+        {
+          "src": "b_sing_da-3.mp3",
+          "duration": 0.4,
+          "baseMidi": 71.00561159192165,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        },
+        {
+          "src": "b_sing_da-4.mp3",
+          "duration": 0.4,
+          "baseMidi": 58.44724955758439,
+          "voice_id": "2ba9qgPEv7n65G5jDsi0"
+        }
+      ]
     }
   }
 }

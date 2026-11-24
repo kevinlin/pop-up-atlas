@@ -22,7 +22,7 @@ export function createHairMotion() {
   let wasWalking = false
   let age = settleTime
 
-  return (dt, { x, z }, heading, bob, dancing) => {
+  const update = (dt, { x, z }, heading, bob, dancing) => {
     if (dt <= 0) return pose
     const walking = x * x + z * z > travelThresholdSquared
     const dx = x - previousX
@@ -90,4 +90,7 @@ export function createHairMotion() {
     pose.yaw = (tipHeading - heading.value) * weight
     return pose
   }
+  // A foot contact nudges the pitch spring (rad/s); the gait loop above carries it from there.
+  update.kick = (velocity) => { pitch.velocity += velocity }
+  return update
 }

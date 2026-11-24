@@ -299,7 +299,8 @@ describe('chorus, hum and dance', () => {
     director.idle(5.1)
     const hum = named('sing_hum')
     expect(times(hum)).toEqual([4.25, 4.5625, 4.875])
-    expect(hum.map((play) => pitch(play, cues))).toEqual([74, 76, 81])
+    // Round 6: voice A hums notes above MIDI 78 an octave down (81 -> 69).
+    expect(hum.map((play) => pitch(play, cues))).toEqual([74, 76, 69])
     expect(times(cuts)).toEqual([4.25, 4.5625])
     expect(hum[0].end).toBe(hum[1].t)
     expect(hum[1].end).toBe(hum[2].t)

@@ -1,3 +1,4 @@
+import { createCueEvents } from './cue-events.js'
 import { createCueDirector } from './cues.js'
 import { playVoice } from './index.js'
 import { createScheduler } from './music.js'
@@ -26,11 +27,16 @@ export function initAudio(manifestURL, world, player, debug) {
     if (ready && context.state === 'running') Object.assign(cues, ready)
   }
 
+  const cueEvents = createCueEvents()
   const director = createCueDirector(cues, (play) => {
     origin ??= context.currentTime + LEAD_TIME - play.t
     playback.play(play, origin)
     debug.cueLog.push(play)
-  }, (play) => playback.cut(play, origin))
+    cueEvents.emit(play)
+  }, (play) => {
+    playback.cut(play, origin)
+    cueEvents.cut(play)
+  })
 
   function surface() {
     return world.tileAt(position.x, position.z)

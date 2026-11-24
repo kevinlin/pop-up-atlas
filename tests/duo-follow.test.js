@@ -32,11 +32,20 @@ function route(initial = point(0, -1.1), cameraRight = point(1, 0)) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('trail and follow', () => {
-  test('spawns behind the heading, or on the clear side when the back is blocked', () => {
+  test('spawns in the idle slot (screen left, else right), else behind the heading, else on the clear side', () => {
     const leader = createPlayer()
     leader.heading = Math.PI / 2
-    expect(startFollower(leader, open).x).toBeCloseTo(-1.1)
-    const beside = startFollower(leader, (x, z) => x < -0.1 || z > 0.1)
+    // Round 6: the idle slot first (was straight behind), along the camera's right vector whatever the heading.
+    const near = (point, x, z) => {
+      expect(point.x).toBeCloseTo(x)
+      expect(point.z).toBeCloseTo(z)
+    }
+    near(startFollower(leader, open), -0.75, 0)
+    near(startFollower(leader, (x) => x < -0.1), 0.75, 0)
+    near(startFollower(leader, open, { x: 0, z: 1 }), 0, -0.75)
+    // Both slots blocked: 1.1 behind the heading (0 faces +z).
+    near(startFollower(createPlayer(), (x) => Math.abs(x) > 0.1), 0, -1.1)
+    const beside = startFollower(leader, (x, z) => x < -0.1 || z > 0.1 || x > 0.1)
     expect(beside.x).toBeCloseTo(0)
     expect(beside.z).toBeCloseTo(-1.1)
   })
@@ -483,7 +492,7 @@ describe('lead swap', () => {
     const follower = createPlayer()
     follower.position.x = 0.48
     const camera = new PerspectiveCamera(30, 1280 / 720)
-    const rig = createCameraRig(camera, player.position)
+    const rig = createCameraRig(camera, player.position, { player, follower, events: new EventTarget(), onFold: () => () => {} })
     rig(0)
     const movement = createMovement(player, camera)
     for (let i = 0; i < 24; i += 1) movement.update(dt, 1, 0, open)
@@ -493,7 +502,7 @@ describe('lead swap', () => {
     swaps.request()
     swaps.update(0, -Infinity)
     for (let i = 1; i <= 60; i += 1) rig(dt)
-    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new Vector3()), 10)
-    expect(target.distanceTo(player.position)).toBeLessThan(0.2)
+    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new Vector3()), 7.5)
+    expect(target.distanceTo(player.position)).toBeLessThan(0.15)
   })
 })

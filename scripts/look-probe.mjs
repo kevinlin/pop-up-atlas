@@ -331,7 +331,7 @@ export function readStageEffects(page, mask) {
     draw()
     return { motes, moss: { samples: ratios.length, sunToShade: median(ratios) },
       fronds: { share: fronds.length * 100 / (width * height), medianLuma: median(fronds), overlap },
-      riggingMask, trollBounds,
+      riggingMask, trollBounds, leader: duo?.leader ?? 'a',
       emitters: emitters.filter(Boolean) }
   }, mask.toString('base64'))
 }
@@ -372,11 +372,14 @@ export function readFoldFlash(page, { i, j }, frame, fps) {
   }, { i, j, frame, fps })
 }
 
-export function groveInFrame(seed, player, width, height) {
+// The walk camera of "Round 6" → Camera: distance 7.5, pitch 35°, 30° vertical field of view, looking at the leader
+// from straight behind. (Through round 5 the look-stats shots used 10 units / 45°.)
+export const walkCameraPose = { distance: 7.5, pitch: 35 }
+
+export function groveInFrame(seed, player, width, height, { distance, pitch } = walkCameraPose) {
   const layout = createLayout(seed)
-  const angle = Math.PI / 4
+  const angle = pitch * Math.PI / 180
   const tanHalfFov = Math.tan(Math.PI / 12)
-  const distance = 10
   const aspect = width / height
   for (let y = -1; y <= 1; y += 0.05) {
     const rayY = -Math.sin(angle) + y * tanHalfFov * Math.cos(angle)

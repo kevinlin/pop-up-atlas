@@ -4,6 +4,8 @@ import { cellJitterGLSL, cellZoneGLSL } from './cell-jitter.js'
 import { glitterGLSL, glitterLights, riverGlintBoost } from './glitter.js'
 import { stitchGLSL } from './stitch.js'
 import { look, stage } from './stage-look.js'
+import { applyBend } from './bend.js'
+import { familySlot, takesFamily } from './zone-family.js'
 
 const query = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search)
 const plain = query.has('plain')
@@ -11,7 +13,19 @@ if (query.has('look-shots')) void import('./look-preview.js')
 const flatMaterials = new WeakMap()
 const hingeMaterials = new WeakMap()
 
-function extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim, prop }) {
+// Warm fuzz rim (contract "Round 6" -> Light): #FFE9A8 in linear light, a Fresnel term that stays off flat ground
+// (a floor seen at the 35 degree walk pitch has grazing ~0.43, below the 0.50 start) and takes the albedo into account so dark felt does
+// not wash out. The gain is the knob for the look-stats rim ratios (character 1.15x interior; hero prop 1.10x interior and
+// 1.05x the rim-off render). Round 6 integration: 90 % of the rim takes the albedo, so saturated yarn (B's tomato hair)
+// brightens at the edge instead of paling (was 70 % at gain 0.85, which left a 49 px desaturated region on one shot), and
+// hero props get a stronger gain (at 0.85 their edges were only 1-5 % above the rim-off render).
+export const RIM_GAIN = { character: 1.0, prop: 2.0 }
+export const fuzzRimGLSL = (gain) => /* glsl */ `
+  float fuzzRim = smoothstep(0.50, 1.0, grazing);
+  outgoingLight += ${gain.toFixed(2)} * fuzzRim * vec3(1.0, 0.82, 0.39) * (0.10 + 0.90 * diffuseColor.rgb);
+`
+
+function extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim, prop, rim, family, slot }) {
   let vertexHeader = ''
   let vertex = ''
   let fragmentHeader = ''
@@ -48,6 +62,36 @@ flat varying vec4 craftZoneTint;
   float pigmentValue = max(craftZoneTint.r, max(craftZoneTint.g, craftZoneTint.b));
   diffuseColor.rgb = mix(diffuseColor.rgb, craftZoneTint.rgb * (paperValue / pigmentValue), craftZoneTint.a);
 #endif
+`
+  }
+  if (family) {
+    // One colour family per zone, keyed by the cell of the instance origin like the jitter; the felt keeps its own
+    // shading because only the pigment changes, scaled to the source value. USE_INSTANCING is defined for the vertex
+    // stage only, so the fragment side tests the varying instead (a negative tint means "not instanced").
+    shader.uniforms.craftZoneSeed = stage.seed
+    shader.uniforms.craftZoneWarp = stage.warp
+    shader.uniforms.craftFamilyColors = stage.familyColors
+    shader.uniforms.craftFamilySlot = { value: slot }
+    vertexHeader += `
+${cellZoneGLSL}
+uniform vec3 craftFamilyColors[8];
+uniform float craftFamilySlot;
+flat varying vec3 craftFamilyTint;
+`
+    vertex += `
+  craftFamilyTint = vec3(-1.0);
+#ifdef USE_INSTANCING
+  vec2 familyCell = round((modelMatrix * instanceMatrix[3]).xz / ${TILE_SIZE}.0);
+  craftFamilyTint = craftFamilyColors[int(craftZoneKey(familyCell)) * 2 + int(craftFamilySlot + 0.5)];
+#endif
+`
+    fragmentHeader += 'flat varying vec3 craftFamilyTint;'
+    albedo += `
+  if (craftFamilyTint.r >= 0.0) {
+    float familyPaper = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+    float familyPigment = max(craftFamilyTint.r, max(craftFamilyTint.g, craftFamilyTint.b));
+    diffuseColor.rgb = craftFamilyTint * (familyPaper / familyPigment);
+  }
 `
   }
   if (fibre) {
@@ -87,6 +131,7 @@ ${varying}
   // Felt scatters bounced light across the face in the pigment's own color.
   outgoingLight += diffuseColor.rgb * mix(0.13, 0.28, saturate(nonPerturbedNormal.z));
 `
+    if (rim) lighting += fuzzRimGLSL(prop ? RIM_GAIN.prop : RIM_GAIN.character)
     if (prop && look.backlight) lighting += `
 #if NUM_DIR_LIGHTS > 0
   float rim = smoothstep(0.35, 0.95, grazing)
@@ -168,24 +213,54 @@ ${varying}
   }
 }
 
+const heroTile = /^(flower|mushroom_house|cupcake_tree)$/
+const flatPropTile = /^meadow(?:_[abc])?$/
+const decorationTile = /^page_deco_[abc]$/
+
+// Which treatments a material gets. Pure, so the round-6 routing (rim, zone family, bend) is testable without a GPU.
+// `look` is injectable for the same reason.
+export function craftTreatment(name, { moving = false, tile, character = false, hasMap = false } = {}, flags = look) {
+  const [kind] = name.split('_', 1)
+  const fibre = kind === 'felt' || kind === 'yarn'
+  const prop = heroTile.test(tile)
+  // The bridge's rails are authored as yarn. A few metallic threads catch the key.
+  const metallicThread = moving && tile === 'yarn_bridge' && /^yarn_(hot_pink|orange|pink|violet)$/.test(name)
+  const glitter = hasMap && (kind === 'glitter' ? 'flake' : metallicThread ? 'thread' : null)
+  const river = name === 'glitter_river'
+  const mint = character && /^felt_(mint|fibre_(mint|green|light))$/.test(name)
+  return {
+    kind,
+    fibre,
+    prop,
+    glitter,
+    river,
+    largeFlakes: river || name === 'glitter_rim',
+    mint,
+    goldenRim: mint || character && /^yarn_sunset(_fibres)?$/.test(name),
+    contact: kind === 'card' && moving,
+    stitch: hasMap && moving && prop && /^felt_fringe_(hot_pink|pink|lavender|orange|butter|tomato)$/.test(name),
+    // Characters (any rig, by the caller's root-object mark, not by name) and the popping parts of hero props.
+    rim: Boolean(flags.rim) && fibre && (character || prop && moving),
+    // Prop felt only: the popping parts of hero props and meadow appliqué, and the page decorations. Ground felt, page,
+    // bridges, rivers, paths and characters keep their colours. The round-4 zones layer, when switched on, has its own tint.
+    family: kind === 'felt' && !character && !flags.zones &&
+      (moving && (prop || flatPropTile.test(tile)) || decorationTile.test(tile)),
+    bend: Boolean(moving),
+  }
+}
+
 export function applyCraftMaterial(source, { moving, page = false, tile, character = false } = {}) {
   if (plain) return source
   const [kind] = source.name.split('_', 1)
   if (!['felt', 'card', 'glitter', 'yarn'].includes(kind)) return source
 
-  const fibre = kind === 'felt' || kind === 'yarn'
-  const prop = /^(flower|mushroom_house|cupcake_tree)$/.test(tile)
-  // The bridge's rails are authored as yarn. A few metallic threads catch the key.
-  const metallicThread = moving && tile === 'yarn_bridge' && /^yarn_(hot_pink|orange|pink|violet)$/.test(source.name)
-  const glitter = source.map && (kind === 'glitter' ? 'flake' : metallicThread ? 'thread' : null)
-  const river = source.name === 'glitter_river'
-  const largeFlakes = river || source.name === 'glitter_rim'
-  const mint = character && /^felt_(mint|fibre_(mint|green|light))$/.test(source.name)
-  const goldenRim = mint || character && /^yarn_sunset(_fibres)?$/.test(source.name)
-  const contact = kind === 'card' && moving
-  const stitch = Boolean(source.map) && moving && prop &&
-    /^felt_fringe_(hot_pink|pink|lavender|orange|butter|tomato)$/.test(source.name)
-  const materials = contact ? hingeMaterials : flatMaterials
+  const {
+    fibre, prop, glitter, river, largeFlakes, mint, goldenRim, contact, stitch, rim, family: zoned, bend,
+  } = craftTreatment(source.name, { moving, tile, character, hasMap: Boolean(source.map) })
+  const family = zoned && takesFamily(source.color)
+  const slot = family ? familySlot(source.color) : 0
+  // Moving (hinge) materials are their own objects so the world can define USE_INSTANCE_BEND on them alone.
+  const materials = moving ? hingeMaterials : flatMaterials
   if (materials.has(source)) return materials.get(source)
 
   const material = new MeshLambertMaterial()
@@ -218,10 +293,11 @@ export function applyCraftMaterial(source, { moving, page = false, tile, charact
   material.onBeforeCompile = function (shader, renderer) {
     beforeCompile.call(this, shader, renderer)
     if (fibre || glitter || contact || prop && look.zones) {
-      extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim, prop })
+      extendShader(shader, { fibre, glitter, largeFlakes, river, contact, stitch, mint, goldenRim, prop, rim, family, slot })
     }
+    if (bend) applyBend(shader)
   }
-  material.customProgramCacheKey = () => `craft/${fibre}/${glitter}/${contact}/${page}/${largeFlakes}/${river}/${stitch}/${mint}/${goldenRim}/${prop}`
+  material.customProgramCacheKey = () => `craft/${fibre}/${glitter}/${contact}/${page}/${largeFlakes}/${river}/${stitch}/${mint}/${goldenRim}/${prop}/${rim}/${family}/${bend}`
   materials.set(source, material)
   return material
 }

@@ -234,6 +234,7 @@ export async function run(args) {
     out: { type: 'string' }, ledger: { type: 'string' }, allocation: { type: 'string', default: '200' },
     timeout: { type: 'string', default: '600' }, 'poll-interval': { type: 'string', default: '2' },
     'dry-run': { type: 'boolean' }, reconcile: { type: 'boolean' }, 'task-id': { type: 'string' },
+    input: { type: 'string', default: reference }, prefix: { type: 'string', default: 'b' },
   } })
   if (!values.ledger) throw new Error('--ledger <path> is required.')
   const ledger = resolve(values.ledger)
@@ -278,7 +279,7 @@ export async function run(args) {
 
   // Nose pointing to image left shows the troll's left profile (Tripo's `left` slot).
   const views = values.mode === 'multiview' ? { front: 'front', left: 'side', back: 'back' } : { front: 'front' }
-  const files = Object.entries(views).map(([view, name]) => [view, `${reference}/b-${name}.png`])
+  const files = Object.entries(views).map(([view, name]) => [view, `${values.input}/${values.prefix}-${name}.png`])
   const params = (inputs) => ({ ...options, ...(values.mode === 'multiview'
     ? { inputs: inputs.map(([view, token]) => ({ [view]: token })) }
     : { input: inputs[0][1] }) })

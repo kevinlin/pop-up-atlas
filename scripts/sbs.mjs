@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { randomInt } from 'node:crypto'
+import { randomBytes, randomInt } from 'node:crypto'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLayout } from '../src/world/layout.js'
 import { cellAt, TILE_SIZE } from '../src/world/tiles.js'
 import { createSteppedPage, foldContract, launchChromium, lineClear, roundOptions, walkSpeed, writeJson } from './capture.mjs'
+import { blindPairs } from './capture-audio.mjs'
 import { duoContract } from './e2e-duo-plan.mjs'
 import { installProbe, serveThree } from './e2e-duo-probe.mjs'
 
@@ -49,14 +50,53 @@ export const duoShots = [
     state: 'walk', keys: ['KeyD'], frames: 40, model: 'yarn_bridge', duo: true, swap: true, followerState: 'walk' },
 ]
 
+// Round 6 (docs/contracts.md "Round 6"): the four moments of reference/concept-r6 plus two more staged poses, so the
+// old-vs-new mode has six. Same staging rules as `duoShots`. `collide` stages a walk into a river: `x` is the river's
+// first blocked x on the lane (the walk stops there), `umbrella` asserts B's umbrella is open at the capture frame
+// (skipped for a legacy build, which has none). Shot cameras are `?cam=` values at the contract's walk (7.5 / 35),
+// dance beat (4.5 / 22) and hero beat (6.0 / 30) poses, which turns the beats off so the pose is exactly that.
+export const r6Shots = [
+  // 01 walk: A skips ahead, B a body length behind, props rising around them (seed 0, the round-5 walk pose).
+  { seed: 0, cam: [7.5, 35], x: -0.48, z: -5.25, heading: Math.PI / 4, anchor: [0.5, 0.64],
+    state: 'walk', keys: ['KeyD', 'KeyS'], frames: 39, duo: true, followerState: 'walk' },
+  // 02 dance: the leader about a second into the dance, the follower 0.3125 s behind, on the dance beat's pose.
+  { seed: 167, cam: [4.5, 22], x: -4, z: 5.4, heading: 0.1, anchor: [0.5, 0.6],
+    state: 'dance', followerState: 'dance', frames: 150, model: 'flower', duo: true },
+  // 03 umbrella pop: B leads east into the river bank on seed 0 (lane z 2.4, first blocked x 39.64).
+  { seed: 0, cam: [6.2, 28], x: 38.2, z: 2.4, heading: Math.PI / 2, anchor: [0.5, 0.64],
+    keys: ['KeyD'], frames: 90, duo: true, swap: true, collide: { x: 39.64 }, umbrella: true },
+  // 04 hero fold: a cupcake tree springs up beside the pair, both standing (hero beat pose).
+  { seed: 0, cam: [6, 30], x: 9, z: 3.2, heading: 0.95, anchor: [0.4, 0.64],
+    state: 'idle', frames: 17, fold: { dir: 'up', i: 5, j: 1 }, duo: true },
+  // 05 bridge: B leads over the yarn bridge, A right behind (the round-5 bridge pose).
+  { seed: 42, cam: [7.5, 26], x: 23.2, z: 8, heading: Math.PI / 2, anchor: [0.5, 0.66],
+    state: 'walk', keys: ['KeyD'], frames: 40, model: 'yarn_bridge', duo: true, swap: true, followerState: 'walk' },
+  // 06 fold-up: the mushroom house springs up beside the pair, both standing (the round-5 fold pose).
+  { seed: 0, cam: [7.4, 38], x: 0.65, z: -2.7, heading: 0.95, anchor: [0.4, 0.68],
+    state: 'idle', frames: 17, fold: { dir: 'up', i: 1, j: -2 }, duo: true },
+]
+
 // Round 4 concepts each name their earlier concept in reference/concept-r4/style.md; reuse that concept's shot.
-// Round 5 has its own four shots; its character sheet (-00-sheet-b) is not a gameplay frame.
+// Round 5 has its own four shots; its character sheet (-00-sheet-b) is not a gameplay frame. Round 6 pairs frames
+// 01-04 with `r6Shots` 0-3; the two character sheets (-00-sheet-a, -00-sheet-b) are excluded.
 const referenceSets = {
   claude: { dir: 'reference/concept-claude', pattern: /^concept-claude-\d\d-.+\.png$/, shotFor: [0, 1, 2, 3, 4, 5], shots },
   r4: { dir: 'reference/concept-r4', pattern: /^concept-r4-\d\d-.+\.png$/, shotFor: [0, 1, 1, 3, 2, 4], shots },
   r5: { dir: 'reference/concept-r5', pattern: /^concept-r5-(?!00-)\d\d-duo-.+\.png$/, shotFor: [0, 1, 2, 3], shots: duoShots },
+  r6: { dir: 'reference/concept-r6', pattern: /^concept-r6-(?!00-)\d\d-.+\.png$/, shotFor: [0, 1, 2, 3], shots: r6Shots },
 }
-export const referenceSet = (round) => referenceSets[round >= 5 ? 'r5' : round >= 4 ? 'r4' : 'claude']
+export const referenceSet = (round) => referenceSets[round >= 6 ? 'r6' : round >= 5 ? 'r5' : round >= 4 ? 'r4' : 'claude']
+
+// Blind still pairs with an external key: pair file names `pair-NN.png`, the order of the shots and the side each
+// of `first` and `second` lands on drawn from `seed` (`blindPairs`). `key` is written outside the folder the judge reads.
+export function blindStills(items, { seed }) {
+  const file = (pair) => `${pair.replace(/^pair-(\d+)$/, (_, n) => `pair-${n.padStart(2, '0')}`)}.png`
+  const { pairs, key } = blindPairs(items, { seed })
+  return {
+    pairs: pairs.map(({ pair, a, b }) => ({ file: file(pair), a, b })),
+    key: { seed: key.seed, pairs: Object.fromEntries(Object.entries(key.pairs).map(([pair, entry]) => [file(pair), entry])) },
+  }
+}
 
 export function planShot(shot, layout) {
   const { upRadius, downRadius } = foldContract
@@ -95,7 +135,12 @@ export function planShot(shot, layout) {
     if (shot.keys) {
       const travel = frames / fps * walkSpeed
       const end = { x: x + travel * Math.sin(shot.heading), z: z + travel * Math.cos(shot.heading) }
-      if (!lineClear(layout, point, end)) return
+      // A staged collision walks up to the obstacle and stops there: the lane must be clear up to just before it.
+      if (shot.collide) {
+        if (Math.abs(shot.heading - Math.PI / 2) > 1e-9 || x + travel < shot.collide.x - 0.01 || x > shot.collide.x - 0.2) return
+        if (!layout.isBlocked(shot.collide.x + 0.005, z) || layout.isBlocked(shot.collide.x - 0.005, z)) return
+        if (!lineClear(layout, point, { x: shot.collide.x - 0.02, z })) return
+      } else if (!lineClear(layout, point, end)) return
       if (shot.model === 'yarn_bridge' && layout.getCell(cellAt(end.x), cellAt(end.z)).id !== shot.model) return
     }
     return { from: point, frames }
@@ -121,7 +166,11 @@ export function planShot(shot, layout) {
   return nearest
 }
 
-export async function takeShot({ page, open, advance, errors }, baseURL, shot, path, inspect) {
+// `legacy`: the page is the previous build, which has none of the round-6 runtime (umbrella, camera rig), so the
+// assertions about those are skipped; the staging and the other assertions are the same.
+// `panel: false` (look-stats, which renders at 1280x720 and crops nothing) skips the check that both characters sit inside the
+// blind panel's crop of the overscan viewport; the leader, follower state and gap checks stay.
+export async function takeShot({ page, open, advance, errors }, baseURL, shot, path, inspect, { legacy = false, panel: inPanel = true } = {}) {
   const url = new URL(baseURL)
   url.searchParams.set('seed', shot.seed)
   if (shot.cam) url.searchParams.set('cam', shot.cam.join(','))
@@ -162,10 +211,24 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
   }
   await pose(from)
   await step(90)
-  assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Camera did not settle')
+  // Round 6: a pose far from the spawn (shot 03, 38 units) needs longer than 90 frames at τ 0.25; wait up to 2 s more.
+  const settled = () => page.evaluate(() => window.__atlasLookShots.cameraSettled())
+  for (let extra = 0; extra < 120 && !await settled(); extra += 10) await step(10)
+  assert.ok(await settled(), 'Camera did not settle')
   // Rebuild the tile batches after the camera has followed the staged pose.
   await page.evaluate((seed) => window.__atlas.setSeed(seed), shot.seed)
   await step(60)
+  if (shot.duo && shot.followerState === 'walk' && !shot.swap) {
+    // Round 6: B looks around for 0.6 s before it sets off after >= 2 s of standing, and a relocation now places it straight
+    // in its idle slot. Relocate again once the camera and tiles have settled, so the walk starts within 2 s of the
+    // placement and B sets off with the leader in both builds.
+    const away = Math.abs(from.x + 10) > Math.abs(from.x - 10) ? 10 : -10
+    await pose({ x: from.x + away, z: from.z })
+    await step(1)
+    await pose(from)
+    await step(40)
+    assert.ok(await page.evaluate(() => window.__atlasLookShots.cameraSettled()), 'Camera did not settle after the second relocation')
+  }
   if (moveTo) await pose(moveTo)
   for (const key of shot.keys ?? []) await page.keyboard.down(key)
   if (frames) await step(frames)
@@ -181,7 +244,7 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
       foldAngleDeg: last && event && event.t < last.t ? last.angle * 180 / Math.PI : null,
     }
   }, shot.fold)
-  assert.equal(player.state, shot.state, 'Shot captured the wrong animation state')
+  if (shot.state) assert.equal(player.state, shot.state, 'Shot captured the wrong animation state')
   if (shot.fold) {
     assert.ok(foldAngleDeg > -80 && foldAngleDeg < -15,
       `Shot captured ${foldAngleDeg}°, expected a hinge between flat and upright`)
@@ -194,10 +257,16 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
     assert.equal(layout.getCell(cellAt(player.x), cellAt(player.z)).id, 'yarn_bridge',
       'Troll is outside the bridge tile')
   }
+  const umbrella = shot.umbrella && !legacy
+    ? await page.evaluate(() => ({ open: Boolean(window.__atlas.umbrella?.open), t: window.__atlas.umbrella?.t ?? null }))
+    : undefined
+  if (umbrella) assert.ok(umbrella.open, 'B\'s umbrella is not open at the capture frame')
   assert.deepEqual(errors, [], 'Browser errors during still capture')
-  await inspect?.()
   const anchor = shot.anchor ?? [0.5, 0.5]
-  const duo = shot.duo && await checkDuo(page, shot, anchor)
+  // The duo states are read at the capture frame, before `inspect`: its canvas screenshots can run an extra animation frame
+  // at the same stepped time (dt 0), which reports both characters idle without changing the pose (look-stats walk shot).
+  const duo = shot.duo && await checkDuo(page, shot, anchor, inPanel)
+  await inspect?.()
   if (path) {
     await page.screenshot({ path, clip: {
       x: Math.round(shotViewport.width / 2 - anchor[0] * panel.width),
@@ -206,18 +275,22 @@ export async function takeShot({ page, open, advance, errors }, baseURL, shot, p
     } })
   }
   for (const key of shot.keys ?? []) await page.keyboard.up(key)
-  return { seed: shot.seed, camera: shot.cam, anchor, start: from, player, fold: shot.fold, foldAngleDeg, ...(duo && { duo }) }
+  return { seed: shot.seed, camera: shot.cam, anchor, start: from, player, fold: shot.fold, foldAngleDeg, ...(duo && { duo }), ...(umbrella && { umbrella }) }
 }
 
 // Both trolls are in the shot: the right one leads, the follower is in the expected state and close, and
 // both projected bounds sit inside the panel that will be cropped from the viewport.
-async function checkDuo(page, shot, anchor) {
+async function checkDuo(page, shot, anchor, checkPanel = true) {
   const s = await page.evaluate(() => window.__duoProbe.sample(0))
   assert.equal(s.leader, shot.swap ? 'b' : 'a', 'Wrong troll leading the shot')
-  if (shot.followerState) assert.equal(s.F.state, shot.followerState, 'Follower is in the wrong animation state')
+  if (shot.followerState && s.F.state !== shot.followerState) {
+    const look = await page.evaluate(() => window.__atlas.duo?.look && { active: window.__atlas.duo.look.active, catchUp: window.__atlas.duo.look.catchUp })
+    assert.fail(`Follower is in the wrong animation state: ${s.F.state}, expected ${shot.followerState} (shot ${shot.name ?? `seed ${shot.seed} at ${shot.x}, ${shot.z}`}, leader ${s.leader} ${s.L.state}, look ${JSON.stringify(look ?? null)}, url ${page.url()})`)
+  }
   const gap = Math.hypot(s.L.x - s.F.x, s.L.z - s.F.z)
   assert.ok(gap <= duoContract.followMax, `Follower is ${gap.toFixed(2)} units from the leader`)
   const crop = [shotViewport.width / 2 - anchor[0] * panel.width, shotViewport.height / 2 - anchor[1] * panel.height]
+  if (!checkPanel) return { leader: s.leader, follower: { x: s.F.x, z: s.F.z, state: s.F.state }, gap: Math.round(gap * 100) / 100 }
   for (const label of ['a', 'b']) {
     const [x0, y0, x1, y1] = s[label].rect
     assert.ok(x0 >= crop[0] && x1 <= crop[0] + panel.width && y0 >= crop[1] && y1 <= crop[1] + panel.height,
@@ -303,14 +376,20 @@ export async function compareTrollStills(page, rows, crops, out) {
   await writeFile(out, strip)
 }
 
-async function sbs({ baseURL, round, roundDir, evidence }) {
+async function sbs({ baseURL, round, roundDir, evidence, oldURL }) {
   const gameDir = join(roundDir, 'game')
   const criticDir = join(roundDir, 'critic')
   const keyDir = join(roundDir, 'key')
   const { dir: referenceDir, pattern, shotFor, shots: roundShots } = referenceSet(round)
   const references = (await readdir(referenceDir)).filter((name) => pattern.test(name)).sort()
   assert.equal(references.length, shotFor.length, 'Expected one concept per mapped shot')
-  const blindNames = references.map((_, i) => `pair-${String(i + 1).padStart(2, '0')}.png`)
+  // Round 6 shuffles the pair order too and keeps its seed in the key; earlier rounds only flip the sides.
+  const stills = round >= 6
+    ? blindStills(references.map((_, i) => ({ name: `shot-${i + 1}`, first: 'reference', second: 'game' })),
+      { seed: randomBytes(4).readUInt32LE() })
+    : undefined
+  const blindNames = stills ? stills.pairs.map(({ file }) => file).sort()
+    : references.map((_, i) => `pair-${String(i + 1).padStart(2, '0')}.png`)
   await Promise.all([gameDir, criticDir, keyDir, evidence].map((dir) => mkdir(dir, { recursive: true })))
   assert.ok((await readdir(criticDir)).every((name) => blindNames.includes(name)),
     'Critic directory contains a file outside the blind set')
@@ -337,24 +416,78 @@ async function sbs({ baseURL, round, roundDir, evidence }) {
     const { page } = steppedPage
     await page.goto('about:blank')
     const key = []
-    for (const [index, pair] of blindNames.entries()) {
-      const gameOnLeft = randomInt(2) === 1
-      const [reference, game] = rows[index]
-      const row = gameOnLeft ? [game, reference] : [reference, game]
-      const bytes = await compose(page, [row], panel.width, panel.height, ['A', 'B'])
-      await writeFile(join(criticDir, pair), bytes)
-      key.push({ pair, A: gameOnLeft ? 'game' : 'reference', B: gameOnLeft ? 'reference' : 'game',
-        ...framing[index] })
+    if (stills) {
+      for (const { file, a, b } of stills.pairs) {
+        const index = Number(stills.key.pairs[file].name.replace('shot-', '')) - 1
+        const [reference, game] = rows[index]
+        const bytes = await compose(page, [a === 'game' ? [game, reference] : [reference, game]], panel.width, panel.height, ['A', 'B'])
+        await writeFile(join(criticDir, file), bytes)
+        key.push({ pair: file, A: a, B: b, ...framing[index] })
+      }
+    } else {
+      for (const [index, pair] of blindNames.entries()) {
+        const gameOnLeft = randomInt(2) === 1
+        const [reference, game] = rows[index]
+        const row = gameOnLeft ? [game, reference] : [reference, game]
+        const bytes = await compose(page, [row], panel.width, panel.height, ['A', 'B'])
+        await writeFile(join(criticDir, pair), bytes)
+        key.push({ pair, A: gameOnLeft ? 'game' : 'reference', B: gameOnLeft ? 'reference' : 'game',
+          ...framing[index] })
+      }
     }
 
     const contact = await compose(page, rows, 836, 471, ['Reference', 'Game'])
     await writeFile(join(evidence, 'stills-contact-sheet.png'), contact)
-    await writeJson(join(keyDir, 'key.json'), { pairs: key })
+    await writeJson(join(keyDir, 'key.json'), { ...(stills && { seed: stills.key.seed }), pairs: key })
     assert.deepEqual((await readdir(criticDir)).sort(), blindNames)
     console.log(`Wrote ${key.length} blind PNG pairs, ${framing.length} raw stills, and a separate key`)
+    if (oldURL) {
+      assert.ok(round >= 6, '--old-url needs --round 6 or later')
+      await oldVsNew(browser, { baseURL, oldURL, roundDir, evidence })
+    }
   } finally {
     await browser.close()
   }
+}
+
+// Old-vs-new: the same six staged poses (`r6Shots`) rendered from the previous build (`oldURL`, the fa6d96b build served on
+// a second port) and from the current one, as blind shuffled pairs. The pairs go to `old-vs-new/`, the answer key (seed, which
+// side is the old build) to `key/old-vs-new-key.json`, outside the pair folder; the raw stills sit under `game/old-vs-new/`.
+async function oldVsNew(browser, { baseURL, oldURL, roundDir, evidence }) {
+  const pairDir = join(roundDir, 'old-vs-new')
+  const rawDir = join(roundDir, 'game', 'old-vs-new')
+  const keyDir = join(roundDir, 'key')
+  await Promise.all([pairDir, rawDir, keyDir].map((dir) => mkdir(dir, { recursive: true })))
+  const sources = [['old', oldURL, { legacy: true }], ['new', baseURL, {}]]
+  const rows = r6Shots.map(() => ({}))
+  const framing = r6Shots.map(() => ({}))
+  for (const [bank, url, options] of sources) {
+    const stepped = await createSteppedPage(browser, shotViewport)
+    for (const [index, shot] of r6Shots.entries()) {
+      const name = `${bank}-${String(index + 1).padStart(2, '0')}.png`
+      framing[index][bank] = await takeShot(stepped, url, shot, join(rawDir, name), undefined, options)
+      rows[index][bank] = await readFile(join(rawDir, name))
+      console.log(`Captured ${bank} still ${index + 1}/${r6Shots.length}`)
+    }
+    await stepped.page.close()
+  }
+  const { pairs, key } = blindStills(r6Shots.map((_, i) => ({ name: `shot-${i + 1}`, first: 'old', second: 'new' })),
+    { seed: randomBytes(4).readUInt32LE() })
+  const { page } = await createSteppedPage(browser, shotViewport)
+  await page.goto('about:blank')
+  const answers = []
+  for (const { file, a, b } of pairs) {
+    const index = Number(key.pairs[file].name.replace('shot-', '')) - 1
+    const row = [a, b].map((bank) => rows[index][bank].toString('base64'))
+    await writeFile(join(pairDir, file), await compose(page, [row], panel.width, panel.height, ['A', 'B']))
+    answers.push({ pair: file, A: a, B: b, shot: index + 1, old: framing[index].old, new: framing[index].new })
+  }
+  const contact = await compose(page, rows.map(({ old, new: current }) => [old, current].map((png) => png.toString('base64'))),
+    836, 471, ['Old', 'New'])
+  await writeFile(join(evidence, 'old-vs-new-contact-sheet.png'), contact)
+  await writeJson(join(keyDir, 'old-vs-new-key.json'), { seed: key.seed, oldURL, newURL: baseURL, pairs: answers })
+  assert.deepEqual((await readdir(pairDir)).sort(), pairs.map(({ file }) => file).sort())
+  console.log(`Wrote ${pairs.length} blind old-vs-new pairs and a separate key`)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

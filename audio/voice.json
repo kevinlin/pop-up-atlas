@@ -1,6 +1,6 @@
 {
-  "voice_id": "Mzvivqy62Nut5xiGm9Q6",
-  "generated_voice_id": "Mzvivqy62Nut5xiGm9Q6",
-  "brief": "Original voice for a thumb-sized felt troll. Gender-neutral, young-sounding but not a baby. Bright, slightly breathy, soft fuzzy edges. High pitch, like a warm adult voice raised five to seven semitones with small-creature formants. Quick and bouncy, sing-song rises at phrase ends, giggles easily. No accent. Dry studio recording, no reverb.",
-  "reason": "Auto-picked the highest voiced ratio (41.5%) among candidates in 300–520 Hz (median F0 453.2 Hz)."
+  "voice_id": "oCGHEdeRZrgta02E5y2S",
+  "generated_voice_id": "oCGHEdeRZrgta02E5y2S",
+  "brief": "Original voice for a thumb-sized, round, fluffy felt creature with a big head and tall cloud of hair: adorable, sunny and bubbly. Gender-neutral, young-sounding but not a baby. High and bright with soft fuzzy edges, like a warm adult voice raised six to eight semitones with small-creature formants. Bouncy sing-song delivery, delighted little gasps, giggles easily. No accent, no resemblance to any actor or existing character. Dry studio recording, no reverb.",
+  "reason": "Auto-picked the highest voiced ratio (57.2%) among candidates in 300–520 Hz (median F0 443.5 Hz)."
 }

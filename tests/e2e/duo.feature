@@ -24,8 +24,9 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-02
   Scenario: Troll B asset contract
     When public/models/troll_b.glb is inspected next to troll.glb
-    Then troll B has the same bone names and the same clip names as troll A
-    And its body height is 0.5 to 0.6 and its hair tip is at most 0.95
+    Then troll B has the same bone set as troll A
+    And each rig carries its own clips: A has walk, idle, dance and skip, B has walk, idle, dance and look (round 6)
+    And its body height is 0.5 to 0.6 and its hair tip is at most 1.05 (round 6: was 0.95)
     And it has at most 20,000 triangles and no texture larger than 1024 px
     And its origin is between the feet
     And every material name starts with felt_, card_, glitter_ or yarn_
@@ -33,7 +34,9 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-03
   Scenario: Start formation
     Then troll A leads
-    And troll B stands 1.1 units behind A's heading when that point is unblocked, otherwise beside A
+    And troll B starts in its idle slot 0.75 units to the screen left of A (gap within 0.03, position within 0.05), else to the right, when the path from A is clear
+    And otherwise troll B stands 1.1 units behind A's heading when that point is unblocked, otherwise beside A
+    And troll B faces A's heading
     And troll B never starts on a blocked point
 
   @DUO-04
@@ -188,13 +191,13 @@ Feature: Two trolls on screen, one leads, the lead swaps
   @DUO-25
   Scenario: Camera settles on the new leader
     When a swap applies with both trolls standing
-    Then 1.0 second later the camera target is within 0.2 units of the new leader
+    Then 1.0 second later __atlas.camera.target is within 0.15 units of the new leader (round 6: was 0.2 at the ground intersection)
 
   @DUO-26
   Scenario: Folds are driven by the leader only
     When the follower passes near tiles the leader is far from
     Then every fold-up happens with the leader within radius 2 of the tile
-    And every fold-down happens with the leader beyond radius 3
+    And every fold-down happens with the leader beyond radius 3, except a dance-stage fold-down (event cause "stage", R6-FOLD-05)
     And the route has at least one fold-down while the follower is within 3 units of the tile
 
   @DUO-27

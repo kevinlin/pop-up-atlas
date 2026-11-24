@@ -6,7 +6,10 @@ import {
   createSteppedPage, defaultRound, evidenceDir, foldContract, headless, launchChromium, lineClear, previewURL, readDanceSeconds,
   walkSpeed, writeJson,
 } from './capture.mjs'
+import { summarizeTroll, trollA } from './e2e-duo-assets.mjs'
 import { duoRequiredChecks, runDuo } from './e2e-duo.mjs'
+import { foldNumbers, makeSeries, measureFall, measureRise, riseProblems } from './e2e-duo-folds.mjs'
+import { round6RequiredChecks, runRound6 } from './e2e-duo-round6.mjs'
 import { createLayout } from '../src/world/layout.js'
 import { cellAt, FIRST_PAGE_ROW, LAST_PAGE_ROW, PAGE_MIN_Z, TILE_SIZE } from '../src/world/tiles.js'
 
@@ -23,6 +26,10 @@ url.searchParams.delete('cam')
 const viewport = headless ? { width: 320, height: 180 } : { width: 1280, height: 720 }
 const fps = 60
 const { upRadius, downRadius, settleSeconds } = foldContract
+const { stageDeg, flatDeg, drop: dropRadius } = foldNumbers
+// Round 6: the walk camera is 7.5 units at 35° (docs/contracts.md "Camera"); the fit may only move it further out.
+const walkPitch = 35
+const walkDistance = 7.5
 const maxFrameTravel = walkSpeed / fps + 1e-6
 const tolerance = 2
 const degrees = (radians) => radians * 180 / Math.PI
@@ -51,6 +58,7 @@ const requiredChecks = [
   'VOX-09 interrupted dance drops its ending',
   'VOX-10 phrase hold and harmony',
   ...duoRequiredChecks,
+  ...round6RequiredChecks,
 ]
 const eighth = 60 / 96 / 2
 const epsilon = 1e-6
@@ -157,7 +165,7 @@ function sungPitch(cue, target, manifest) {
 function soundChecks({
   manifest, beforeInputCues, audioReadyMs, cueLog, popLog, foldLog, melody, unlockedAt,
   feltStart, feltEnd, paperStart, paperEnd, bridgeStart, bridgeEntry, bridgeExit, bridgeReentry, bridgeEnd, route,
-  bumpAt, stoppedAt, danceStart, danceEndTime, interruptedDanceStart, interruptedAt, interruptedState,
+  bumpAt, stoppedAt, danceStart, danceEndTime, interruptedDanceStart, interruptedAt, interruptedState, stepSeconds,
 }) {
   const cues = cueLog.toSorted(byTime)
   const voices = cues.filter(({ kind }) => kind === 'voice')
@@ -192,7 +200,8 @@ function soundChecks({
       assert.ok(Math.sign(step.pan) === -1 || Math.sign(step.pan) === 1, 'Felt step has no left or right pan')
       if (index === 0) continue
       const previous = felt[index - 1]
-      cueTime(step, previous.t + 0.5, 0.04)
+      // Footfalls sit at clip time 0 and half the playing clip's length (contract "Footsteps"; A's walk is 1.0 s, a skip is too).
+      cueTime(step, previous.t + stepSeconds, 0.04)
       assert.equal(Math.sign(step.pan), -Math.sign(previous.pan), 'Felt step did not change pan side')
       assert.notEqual(step.file, previous.file, 'Adjacent felt steps used the same take')
     }
@@ -288,7 +297,9 @@ function soundChecks({
       assert.equal(cue.cause, 'hum')
       assert.equal(cue.kind, 'voice')
       cueTime(cue, humAt + index * eighth, 0.05)
-      sungPitch(cue, lastMelody[index].midi, manifest)
+      // Round 6: A hums melody notes above MIDI 78 an octave down.
+      const melodyMidi = lastMelody[index].midi
+      sungPitch(cue, melodyMidi > 78 ? melodyMidi - 12 : melodyMidi, manifest)
     }
   })
 
@@ -330,6 +341,10 @@ async function run() {
     const { page, open, errors } = await createSteppedPage(browser, viewport, { waitForAudio: true })
     await open(url.href)
     const clipSeconds = await readDanceSeconds(page)
+    // Felt footfalls fall at clip time 0 and at half the playing clip: A's walk clip, read from the shipped GLB.
+    const walkClipSeconds = (await summarizeTroll(trollA)).clipInfo.walk?.duration
+    assert.ok(walkClipSeconds > 0, 'troll.glb has no walk clip')
+    const stepSeconds = walkClipSeconds / 2
     let frame = 0
     const now = () => frame / fps
     const step = async (count, watch, boundary) => {
@@ -457,31 +472,22 @@ async function run() {
     const tileCenter = up && { x: up.i * TILE_SIZE, z: up.j * TILE_SIZE }
     const risingTrace = up ? await trace(up) : []
     const rise = risingTrace.filter(({ t }) => up && t >= up.t)
-    const peak = rise.reduce((max, { angleDeg }) => Math.max(max, angleDeg), -Infinity)
-    const settledIndex = rise.findIndex((_, i) => i > 0 && i < rise.length - 1
-      && rise.slice(i).every(({ angleDeg }) => Math.abs(angleDeg) <= tolerance))
-    let settlingSeconds
-    const settled = rise[settledIndex]
-    if (settled) {
-      // Estimate the final tolerance crossing between the two bracketing RAF samples.
-      const previous = rise[settledIndex - 1]
-      const previousError = Math.abs(previous.angleDeg)
-      const fraction = (previousError - tolerance) / (previousError - Math.abs(settled.angleDeg))
-      settlingSeconds = previous.t - up.t + fraction * (settled.t - previous.t)
-    }
+    // Round 6 (contract "Fold behaviour"): the rise starts from stage 1's -63° (or flat), dips 4 ± 1° for 80 ms, and its upright
+    // crossing, overshoot (12-20 % of the travel from the release angle) and settle (< 1.4 s) are measured from the release.
+    const riseSeries = makeSeries(risingTrace.map(({ t, angleDeg }) => [t, angleDeg * Math.PI / 180]))
+    const measuredRise = up && risingTrace.length > 1 ? measureRise(riseSeries, up) : undefined
     const upDistance = rising && distance(tileCenter, rising.player)
     check('fold-rise-overshoot-settle', {
-      event: up, playerAtTrigger: rising?.player, triggerDistanceUnits: upDistance, peakDeg: peak, overshootPercent: 100 * peak / 90,
-      settlingSeconds, firstSettledSampleSeconds: settled && settled.t - up.t, trace: risingTrace,
+      event: up, playerAtTrigger: rising?.player, triggerDistanceUnits: upDistance, rise: measuredRise,
+      overshootPercent: measuredRise && 100 * measuredRise.overshootShare, trace: risingTrace,
     }, () => {
-      assert.ok(up && rise.length > 1, 'No rising trace for the first tile folded up during the walk')
+      assert.ok(up && rise.length > 1 && measuredRise, 'No rising trace for the first tile folded up during the walk')
+      assert.ok(riseSeries.first <= up.t + 1e-7, 'The hinge trace starts after the fold event')
       assert.ok(upDistance <= upRadius + 1e-6 && upDistance > upRadius - maxFrameTravel,
         `Up fold did not start as the troll entered the ${upRadius}-unit radius`)
-      assert.ok(Math.abs(rise[0].angleDeg + 90) <= tolerance, 'Rise did not start flat')
       assert.ok(rise.some(({ angleDeg }) => angleDeg > -70 && angleDeg < -20), 'No intermediate rising angle')
-      assert.ok(peak >= 0.12 * 90 && peak <= 0.20 * 90, `Peak angle ${peak}° is outside 12–20% overshoot`)
-      assert.ok(settlingSeconds < settleSeconds && rise.at(-1).t - up.t >= settleSeconds,
-        `Did not stay within ±2° before ${settleSeconds} s`)
+      assert.ok(measuredRise.coveredSeconds >= settleSeconds, `The trace covers ${measuredRise.coveredSeconds} s after the release, less than ${settleSeconds} s`)
+      assert.deepEqual(riseProblems(measuredRise, { anyStart: false }), [])
     })
 
     let firstDance
@@ -525,11 +531,23 @@ async function run() {
         fallingTrace = await trace(up)
       }
     }
+    // The dance beat (4.5 units / 22°) eases out over 0.8 s after the dance: project the click through the settled walk camera.
+    const cameraNow = () => page.evaluate(() => {
+      const { distance, pitch, beat } = window.__atlas.camera
+      return { distance, pitch, beat }
+    })
+    let walkCamera = await cameraNow()
+    for (let waited = 0; waited < 4 * fps && (walkCamera.beat !== null || Math.abs(walkCamera.pitch - walkPitch) > 0.02); waited += 5) {
+      await step(5)
+      walkCamera = await cameraNow()
+    }
     // Click-walk can already leave the tracked tile's down radius.
     const beforeClick = await pose()
     const target = { x: beforeClick.x, z: beforeClick.z - 3 }
-    const riseToPoint = 3 * Math.SQRT1_2
-    const ndcY = riseToPoint / ((10 + riseToPoint) * Math.tan(Math.PI / 12))
+    // A ground point 3 units ahead (away from the camera) lies 3·sin(pitch) above and (distance + 3·cos(pitch)) in front of
+    // the camera's look-at point, which is the troll's ground position; the vertical field of view is 30°.
+    const pitchRadians = walkCamera.pitch * Math.PI / 180
+    const ndcY = 3 * Math.sin(pitchRadians) / ((walkCamera.distance + 3 * Math.cos(pitchRadians)) * Math.tan(Math.PI / 12))
     const click = { x: viewport.width / 2, y: viewport.height * (1 - ndcY) / 2 }
     await page.mouse.click(click.x, click.y)
     await watchDeparture(30)
@@ -537,7 +555,9 @@ async function run() {
     await watchDeparture(150)
     const arrived = await pose()
     const errorUnits = distance(arrived, target)
-    check('click-to-walk', { click, target, arrived, errorUnits }, () => {
+    check('click-to-walk', { click, target, arrived, errorUnits, camera: walkCamera }, () => {
+      assert.ok(walkCamera.beat === null && Math.abs(walkCamera.pitch - walkPitch) <= 0.05, `The camera had not settled at ${walkPitch}°: ${JSON.stringify(walkCamera)}`)
+      assert.ok(walkCamera.distance >= walkDistance - 0.05, `The walk camera is ${walkCamera.distance} units out, not ${walkDistance}`)
       assert.equal(clickWalk.state, 'walk')
       assert.equal(arrived.state, 'idle')
       assert.ok(errorUnits <= 0.5, `Click target missed by ${errorUnits} units`)
@@ -555,16 +575,27 @@ async function run() {
     const downPosition = falling?.player
     const fall = fallingTrace.filter(({ t }) => down && t >= down.t)
     const triggerDistance = downPosition && distance(tileCenter, downPosition)
+    // Round 6 (contract "Fold behaviour", stage 2): a fold-down beyond 3 units returns to -63° while the leader is within 5.5
+    // (the walk covers at most walkSpeed·settleSeconds more by the time it is read) and to -90° beyond 5.5 (stage 1 ends).
+    const measuredFall = down && fallingTrace.length
+      ? measureFall(makeSeries(fallingTrace.map(({ t, angleDeg }) => [t, angleDeg * Math.PI / 180])), down, settleSeconds) : undefined
+    const endDistance = tileCenter && distance(tileCenter, end)
+    const endAngle = up ? (await trace(up)).at(-1)?.angleDeg : undefined
+    const beyondDrop = endDistance > dropRadius + walkSpeed * settleSeconds
     check('fold-down-after-departure', {
       event: down, playerAtTrigger: downPosition, triggerDistanceUnits: triggerDistance,
-      endDistanceUnits: tileCenter && distance(tileCenter, end),
-      finalAngleDeg: fall.at(-1)?.angleDeg, trace: fallingTrace,
+      endDistanceUnits: endDistance, finalAngleDeg: fall.at(-1)?.angleDeg, fall: measuredFall, endAngleDeg: endAngle,
+      trace: fallingTrace,
     }, () => {
       assert.ok(down && up && down.t > up.t && triggerDistance > downRadius
         && triggerDistance <= downRadius + maxFrameTravel, `No down event just beyond the ${downRadius}-unit radius`)
       assert.ok(Math.abs(fall[0]?.angleDeg) <= tolerance, 'Down fold did not start upright')
       assert.ok(fall.some(({ angleDeg }) => angleDeg > -75 && angleDeg < -15), 'No intermediate falling angle')
-      assert.ok(Math.abs(fall.at(-1)?.angleDeg + 90) <= tolerance, 'Down fold did not become flat')
+      assert.ok(measuredFall?.covered, `The hinge trace does not reach ${settleSeconds} s after the down event`)
+      assert.ok(triggerDistance + walkSpeed * settleSeconds + maxFrameTravel < dropRadius, 'The leader may have passed the stage-1 drop radius')
+      assert.ok(Math.abs(measuredFall.endDeg - stageDeg) <= tolerance, `Down fold ended at ${measuredFall.endDeg}°, not at ${stageDeg}°`)
+      assert.ok(measuredFall.lowestDeg >= stageDeg - tolerance, `Down fold went down to ${measuredFall.lowestDeg}° on its way to ${stageDeg}°`)
+      if (beyondDrop) assert.ok(Math.abs(endAngle - flatDeg) <= tolerance, `The tile ${endDistance} units away ended at ${endAngle}°, not flat`)
     })
     check('book-edge-blocks-walking', { endZ: end.z, edgeZ: PAGE_MIN_Z }, () => {
       assert.ok(end.z >= PAGE_MIN_Z && end.z - PAGE_MIN_Z <= maxFrameTravel, 'Troll did not stop at the page edge')
@@ -616,7 +647,7 @@ async function run() {
     soundChecks({
       manifest, beforeInputCues, audioReadyMs, cueLog, popLog, foldLog, melody, unlockedAt,
       feltStart, feltEnd, paperStart, paperEnd, bridgeStart, bridgeEntry, bridgeExit, bridgeReentry, bridgeEnd, route,
-      bumpAt, stoppedAt, danceStart, danceEndTime, interruptedDanceStart, interruptedAt, interruptedState,
+      bumpAt, stoppedAt, danceStart, danceEndTime, interruptedDanceStart, interruptedAt, interruptedState, stepSeconds,
     })
 
     const scale = new Set([2, 4, 6, 9, 11])
@@ -677,14 +708,28 @@ try {
   checks.push({ name: 'harness', passed: false, error: error.message.split('\n').slice(0, 12).join('\n') })
 }
 // Round 5 duo gate (tests/e2e/duo.feature). DUO_TRACE=1 also writes the per-frame traces next to the report.
+// Its sessions are kept: the round-6 analyses also read their recorder data (fold, camera, voice and squash checks).
+const duoResults = []
 try {
   await runDuo({
     baseURL: values.url ?? previewURL,
     check,
     traceOut: process.env.DUO_TRACE ? join(dirname(output), 'duo-traces.json') : undefined,
+    collect: duoResults,
   })
 } catch (error) {
   checks.push({ name: 'DUO harness', passed: false, error: error.message.split('\n').slice(0, 12).join('\n') })
+}
+// Round 6 gate (tests/e2e/round6.feature). R6_RESULTS=path also saves every session result for scripts/e2e-duo-round6-run.mjs --load.
+try {
+  await runRound6({
+    baseURL: values.url ?? previewURL,
+    check,
+    duoResults,
+    resultsOut: process.env.R6_RESULTS || undefined,
+  })
+} catch (error) {
+  checks.push({ name: 'ROUND6 harness', passed: false, error: error.message.split('\n').slice(0, 12).join('\n') })
 }
 const missingChecks = requiredChecks.filter((name) => !checks.some((check) => check.name === name))
 const passed = missingChecks.length === 0 && checks.every((check) => check.passed)

@@ -1,7 +1,7 @@
 import { Matrix4, PerspectiveCamera, Scene, Vector3 } from 'three'
 import { expect, it } from 'vitest'
 import { createArt } from '../src/world/art.js'
-import { FLAT, stepSpring, UPRIGHT } from '../src/world/spring.js'
+import { FLAT, STAGE_ONE, stepSpring, UPRIGHT } from '../src/world/spring.js'
 import { createTileStream } from '../src/world/stream.js'
 import { VARIANTS } from '../src/world/tiles.js'
 
@@ -63,7 +63,8 @@ it('starts folds at the hysteresis boundaries and keeps a bounded trace for a si
   const trace = stream.hingeTrace('0,0', { x: 2.5, z: 0 })
   expect(trace).toHaveLength(200)
   expect(trace[0].t).toBe(0.5)
-  expect(trace.at(-1)).toEqual({ t: 2.49, angle: FLAT })
+  // Round 6: a tile left 2.5 units away rests at the stage-1 angle (-63°), not flat (flat beyond 5.5).
+  expect(trace.at(-1)).toEqual({ t: 2.49, angle: STAGE_ONE })
 })
 
 it('starts the tallest flower hinge first and waits 180 ms to move the stem', () => {
