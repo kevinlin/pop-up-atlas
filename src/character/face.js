@@ -50,7 +50,10 @@ function mouthMaterial(model) {
 // Blinks and the mouth atlas of one character. Lids are `lid_l` / `lid_r` (scale.y from the open value
 // in userData.lidOpen to 1), the mouth is the mesh on material `felt_mouth` (4x2 atlas, texture offset).
 // Anything missing is skipped; `state` still reports the logical cell and closure.
-export function createFace(model, { who, tracker, seed = () => 0 }) {
+// The follower dances a beat behind the leader (docs/contracts.md "Round 5: duo", canon delay).
+export const DANCE_CANON = 0.3125
+
+export function createFace(model, { who, tracker, partner, seed = () => 0 }) {
   const lids = ['lid_l', 'lid_r'].map((name) => model.getObjectByName(name)).filter(Boolean)
   const lidOpen = lids.map((lid) => lid.userData?.lidOpen ?? lid.scale.y)
   const found = mouthMaterial(model)
@@ -101,7 +104,7 @@ export function createFace(model, { who, tracker, seed = () => 0 }) {
 
   return {
     state,
-    update(dt, t, leader) {
+    update(dt, t, leader, dancing = false) {
       nextBlink ??= (scheduleBlink(t), nextBlink)
       while (t >= nextBlink) scheduleBlink(nextBlink)
 
@@ -118,8 +121,12 @@ export function createFace(model, { who, tracker, seed = () => 0 }) {
         lid.visible = state.lid > 0.01
       })
 
-      const segment = leader ? tracker?.latest(t, MOUTH_HOLD, isMouthCue) : undefined
-      showCell(segment ? mouthCell(segment.cue, t - segment.t) : restMouth)
+      // Round 6 C6: while the duo dances, the follower mirrors the leader's dance mouth shapes one canon delay later, as it
+      // mirrors the steps. Only dance cues play during the dance (reactions wait for its end).
+      const at = leader ? t : t - DANCE_CANON
+      const segment = leader ? tracker?.latest(t, MOUTH_HOLD, isMouthCue)
+        : dancing ? partner?.latest(at, MOUTH_HOLD, isMouthCue) : undefined
+      showCell(segment ? mouthCell(segment.cue, at - segment.t) : restMouth)
     },
   }
 }

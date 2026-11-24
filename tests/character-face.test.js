@@ -214,6 +214,28 @@ describe('blinks', () => {
   })
 })
 
+describe('dance mirror (round 6 C6)', () => {
+  test('the dancing follower shows the leader\'s dance mouth shapes one canon delay later, and only while it dances', () => {
+    const bus = new EventTarget()
+    const root = buildModel('a')
+    const tracker = createCueTracker(bus, 'a')
+    const partner = createCueTracker(bus, 'b')
+    cleanup.push(tracker.dispose, partner.dispose)
+    const face = createFace(root, { who: 'a', tracker, partner })
+    // B leads the dance and sings at the bow; A follows.
+    bus.dispatchEvent(new CustomEvent('cue', { detail: { who: 'b', cue: 'b_sing_ta', t: 2, end: 2.4 } }))
+    face.update(dt, 2.1, false, true)
+    expect(face.state.cell).toBe(cellOf('smile'))
+    face.update(dt, 2 + 0.3125 + 0.05, false, true)
+    expect(face.state.cell).toBe(cellOf('sing'))
+    face.update(dt, 2 + 0.3125 + 0.05, false, false)
+    expect(face.state.cell).toBe(cellOf('smile'))
+    // As leader, A never shows B's cues.
+    face.update(dt, 2.2, true, true)
+    expect(face.state.cell).toBe(cellOf('smile'))
+  })
+})
+
 describe('no-op without face nodes', () => {
   test('missing lids and mouth are skipped and the logical state is still reported', () => {
     const bus = new EventTarget()

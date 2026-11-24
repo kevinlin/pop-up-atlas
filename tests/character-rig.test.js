@@ -164,7 +164,7 @@ describe('squash and stretch', () => {
     squash.trigger(0.95)
     squash.update(0)
     expect(squash.value).toBeCloseTo(1.10)
-    // ω 18, ζ 0.5: back to rest within a second.
+    // ω 11, ζ 0.6 (round 6 C6; was ω 18, ζ 0.5): back to rest within a second.
     for (let i = 0; i < 120; i += 1) squash.update(dt)
     expect(Math.abs(squash.value - 1)).toBeLessThan(0.002)
   })
@@ -186,14 +186,26 @@ describe('squash and stretch', () => {
     sim.frame('dance')
     const danceStart = sim.t
     let landing = 1
-    while (sim.t < danceStart + 1.6) sim.frame('dance')
-    expect(rig.squash.value).toBeGreaterThan(0.99)
+    // Round 6 C6: rest until 0.1 s before the landing, then a 4 % anticipation stretch.
+    while (sim.t < danceStart + 1.5) sim.frame('dance')
+    expect(Math.abs(rig.squash.value - 1)).toBeLessThan(0.01)
+    let stretch = 1
+    while (sim.t < danceStart + 1.65) {
+      sim.frame('dance')
+      stretch = Math.max(stretch, rig.squash.value)
+    }
+    expect(stretch).toBeGreaterThan(1.03)
+    expect(stretch).toBeLessThan(1.05)
+    let landedAt
     while (sim.t < danceStart + 1.75) {
       sim.frame('dance')
-      landing = Math.min(landing, rig.squash.value)
+      if (rig.squash.value < landing) [landing, landedAt] = [rig.squash.value, sim.t]
     }
     expect(landing).toBeLessThan(0.9)
     expect(landing).toBeGreaterThan(0.86)
+    // The squash holds long enough to read at film speed: still half-way down 0.1 s after the landing.
+    while (sim.t < landedAt + 0.1) sim.frame('dance')
+    expect(rig.squash.value).toBeLessThan(0.95)
   })
 
   test('the follower hop stretches to 1.10 at take-off and squashes to 0.88 on landing', () => {

@@ -1,6 +1,7 @@
 import { AnimationMixer, LoopOnce, MathUtils } from 'three'
 import { hash } from '../world/hash.js'
 import { walkTimeScale } from './follow.js'
+import { ANTICIPATION_LEAD } from './squash.js'
 
 // Shared dance beat markers (docs/contracts.md "Round 6" → Characters), seconds of dance clip time.
 export const DANCE_LANDING = 1.67
@@ -131,7 +132,7 @@ export function createAnimation(model, clips, hooks = {}) {
 
       if (state === 'dance') {
         const now = dance.time
-        for (const [name, at] of [['landing', DANCE_LANDING], ['bow', DANCE_BOW]]) {
+        for (const [name, at] of [['anticipation', DANCE_LANDING - ANTICIPATION_LEAD], ['landing', DANCE_LANDING], ['bow', DANCE_BOW]]) {
           if (previousDance < at && now >= at) hooks.marker?.(name, t - (now - at))
         }
         previousDance = now

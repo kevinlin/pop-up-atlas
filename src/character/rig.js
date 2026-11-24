@@ -6,7 +6,7 @@ import { createCueTracker } from './cue-tracker.js'
 import { createFace } from './face.js'
 import { createHairEmotion, emotionWeights, HERO_HOLD, isEmotionCue } from './hair-emotion.js'
 import { createHairMotion } from './hair-motion.js'
-import { createSquash, SQUASH_CONTACT, SQUASH_LANDING, STRETCH_TAKEOFF } from './squash.js'
+import { createSquash, SQUASH_CONTACT, SQUASH_LANDING, STRETCH_ANTICIPATION, STRETCH_TAKEOFF } from './squash.js'
 import { createUmbrella } from './umbrella.js'
 
 const localX = new Vector3(1, 0, 0)
@@ -34,7 +34,9 @@ export function createRig(model, clips, { who, bus = events, seed = () => 0, duo
   const emotion = createHairEmotion()
   const umbrella = createUmbrella(model)
   const tracker = createCueTracker(bus, who)
-  const face = createFace(model, { who, tracker, seed })
+  // The partner's cues: the follower mirrors the leader's dance mouth shapes (round 6 C6).
+  const partner = createCueTracker(bus, who === 'a' ? 'b' : 'a')
+  const face = createFace(model, { who, tracker, partner, seed })
   const animation = createAnimation(model, clips, {
     seed,
     contact(foot, t) {
@@ -52,7 +54,8 @@ export function createRig(model, clips, { who, bus = events, seed = () => 0, duo
       umbrella.close()
     },
     marker(name, t) {
-      if (name === 'landing') squash.trigger(SQUASH_LANDING)
+      if (name === 'anticipation') squash.trigger(STRETCH_ANTICIPATION)
+      else if (name === 'landing') squash.trigger(SQUASH_LANDING)
       else umbrella.bow(t)
     },
   })
@@ -85,6 +88,7 @@ export function createRig(model, clips, { who, bus = events, seed = () => 0, duo
     },
     dispose() {
       tracker.dispose()
+      partner.dispose()
       bus.removeEventListener('bump', onBump)
     },
     // `state` is the controller state (idle, walk, dance or the follower's hop); `heading` is the
@@ -100,7 +104,7 @@ export function createRig(model, clips, { who, bus = events, seed = () => 0, duo
       for (const { bone, baked } of joints) bone.quaternion.copy(baked)
       animation.update(hopping ? 'idle' : state, velocity.length(), dt, t,
         leader ? footstep : undefined, !leader, { looking: looking && !hopping })
-      face.update(dt, t, leader)
+      face.update(dt, t, leader, state === 'dance')
       umbrella.update(dt, t)
 
       const bend = updateHairMotion(dt, velocity, heading, hips?.position.y ?? 0, state === 'dance')
