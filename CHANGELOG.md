@@ -8,8 +8,8 @@ Round 6 brings the art direction of a forest film clip to the game: its light, c
 
 ### Added
 - A new pair of original felt characters in the troll-doll style. The lead is an orange felt creature with a tall sky-blue yarn plume and a lime pinafore. The companion is mint felt, with an upswept tomato-red tuft, a violet sweater and a small umbrella. Tripo made both meshes, and Blender rigs them (`blender/duo/`). Each character has its own walk, idle and dance clips. The lead also has a skip, and the companion has a look-around.
-- The faces act. Stitched mouth shapes change with each voice line and sung note, and the eyes blink.
-- The bodies squash and stretch on footsteps, on the dance landing and on hops. The hair stands up on "ooh" and droops on "hmph". The companion's hair bounces on each step.
+- The faces act. Stitched mouth shapes change with each voice line and sung note, and the eyes blink. In the duo dance, the follower mouths the leader's song a beat behind it.
+- The bodies squash and stretch on footsteps, on the dance landing and on hops. Before the dance landing the body stretches a little, and each squash eases back slowly enough to see. The hair stands up on "ooh" and droops on "hmph". The companion's hair bounces on each step.
 - The companion's umbrella opens with a pop when it walks into a river, and again at the end of the dance.
 - A beat camera comes closer and lower for the duo dance. When a big pop-up prop folds up next to the leader, it comes closer for 1.5 s. Then it returns to the walk camera.
 - Folds now have two stages. Tiles within 4.5 units of the leader lift a little, without a sound, and they fold up completely within 2 units. Each fold-up dips a little before the spring releases it. Cards bend as they move, and doors and petals settle a moment after the main card.
